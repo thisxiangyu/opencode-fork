@@ -9,8 +9,17 @@
     "edit": {
       "packages/opencode/migration/*": "deny",
     },
+  }, 
+  "mcp": {
+    "github": {
+      "type": "local",
+      "command": ["bunx", "-y", "@modelcontextprotocol/server-github"],
+      "enabled": true,
+      "environment": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": ""
+      }
+    }
   },
-  "mcp": {},
   "tools": {
     "github-triage": false,
     "github-pr-search": false,
