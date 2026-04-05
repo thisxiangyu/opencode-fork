@@ -73,6 +73,10 @@ const cli = yargs(args)
     describe: "print logs to stderr",
     type: "boolean",
   })
+  .option("log-tee", {
+    describe: "log to both file and console (tee mode)",
+    type: "boolean",
+  })
   .option("log-level", {
     describe: "log level",
     type: "string",
@@ -89,6 +93,7 @@ const cli = yargs(args)
 
     await Log.init({
       print: process.argv.includes("--print-logs"),
+      tee: process.argv.includes("--log-tee"),
       dev: Installation.isLocal(),
       level: (() => {
         if (opts.logLevel) return opts.logLevel as Log.Level
