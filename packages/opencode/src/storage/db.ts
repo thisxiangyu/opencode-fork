@@ -9,12 +9,13 @@ import { Log } from "../util/log"
 import { NamedError } from "@opencode-ai/util/error"
 import z from "zod"
 import path from "path"
-import { readFileSync, readdirSync, existsSync } from "fs"
+import { readdirSync, existsSync, readFileSync } from "fs"
 import { Flag } from "../flag/flag"
 import { CHANNEL } from "../installation/meta"
 import { InstanceState } from "@/effect/instance-state"
 import { iife } from "@/util/iife"
 import { init } from "#db"
+import { StorageConfig } from "./storage-config"
 
 declare const OPENCODE_MIGRATIONS: { sql: string; timestamp: number; name: string }[] | undefined
 
@@ -36,48 +37,16 @@ export namespace Database {
   }
 
   export function resolvePath(): string {
-    if (Flag.OPENCODE_DB) {
-      if (Flag.OPENCODE_DB === ":memory:" || path.isAbsolute(Flag.OPENCODE_DB)) return Flag.OPENCODE_DB
-      return path.join(Global.Path.data, Flag.OPENCODE_DB)
-    }
-    const candidates = ["opencode.jsonc", "opencode.json", "config.json"].map((file) =>
-      path.join(Global.Path.config, file),
-    )
-    for (const file of candidates) {
-      if (existsSync(file)) {
-        try {
-          const raw = readFileSync(file, "utf8")
-          let parsed: Record<string, unknown> | undefined
-          if (file.endsWith(".jsonc")) {
-            const { parse: parseJsonc } = require("jsonc-parser")
-            parsed = parseJsonc(raw) as Record<string, unknown>
-          } else {
-            parsed = JSON.parse(raw) as Record<string, unknown>
-          }
-          const storage = parsed?.storage as Record<string, unknown> | undefined
-          if (storage?.database) {
-            const db = storage.database as string
-            if (db === ":memory:" || path.isAbsolute(db)) return db
-            return path.join(Global.Path.data, db)
-          }
-        } catch {}
-        break
-      }
-    }
-    return getChannelPath()
+    return StorageConfig.resolvePath({
+      type: "database",
+      flag: Flag.OPENCODE_DB,
+      defaultPath: getChannelPath(),
+      allowRelative: true,
+    })
   }
 
   export function configFiles(): string[] {
-    const files: string[] = []
-    const candidates = ["opencode.jsonc", "opencode.json", "config.json"].map((file) =>
-      path.join(Global.Path.config, file),
-    )
-    for (const file of candidates) {
-      if (existsSync(file)) {
-        files.push(file)
-      }
-    }
-    return files
+    return StorageConfig.configFiles()
   }
 
   export const Path = iife(() => resolvePath())

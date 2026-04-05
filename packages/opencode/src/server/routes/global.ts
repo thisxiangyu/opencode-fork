@@ -13,6 +13,7 @@ import { Log } from "../../util/log"
 import { lazy } from "../../util/lazy"
 import { Config } from "../../config/config"
 import { Database } from "../../storage/db"
+import { StorageConfig } from "../../storage/storage-config"
 import { errors } from "../error"
 
 const log = Log.create({ service: "server" })
@@ -337,7 +338,36 @@ export const GlobalRoutes = lazy(() =>
         return c.json({
           path: Database.Path,
           channel: CHANNEL,
-          configFiles: Database.configFiles(),
+          configFiles: StorageConfig.configFiles(),
+        })
+      },
+    )
+    .get(
+      "/storage/log",
+      describeRoute({
+        summary: "Get current log directory path",
+        description: "Returns the resolved log directory path currently in use by OpenCode.",
+        operationId: "global.storage.log",
+        responses: {
+          200: {
+            description: "Log directory path information",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    path: z.string().describe("Absolute path to the log directory"),
+                    configured: z.string().optional().describe("Configured value from settings, if set"),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json({
+          path: Log.LogDir,
+          configFiles: StorageConfig.configFiles(),
         })
       },
     ),

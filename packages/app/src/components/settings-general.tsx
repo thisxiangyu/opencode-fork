@@ -565,7 +565,7 @@ export const SettingsGeneral: Component = () => {
             <SettingsList>
               <div class="flex flex-col gap-3 py-3">
                 <div class="flex flex-col gap-0.5">
-                  <span class="text-14-medium text-text-strong">{language.t("settings.data.row.configFile.path")}</span>
+                  <span class="text-14-medium text-text-strong">{language.t("settings.data.row.configFile.globalConfig")}</span>
                   <span class="text-12-regular text-text-weak">
                     {language.t("settings.data.row.configFile.description")}
                   </span>

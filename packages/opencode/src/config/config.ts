@@ -1009,9 +1009,13 @@ export namespace Config {
             .string()
             .optional()
             .describe("Custom SQLite database file path (must be absolute). Requires server restart."),
+          log: z
+            .string()
+            .optional()
+            .describe("Custom log directory path (absolute or relative to data dir). Requires server restart."),
         })
         .optional()
-        .describe("Storage configuration (global only)"),
+        .describe("Storage configuration (global only, requires server restart)"),
       compaction: z
         .object({
           auto: z.boolean().optional().describe("Enable automatic compaction when context is full (default: true)"),

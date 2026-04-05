@@ -940,9 +940,12 @@ export const dict = {
   "settings.data.section.database": "Database",
   "settings.data.row.database.path": "Current database",
   "settings.data.row.database.copy": "Copy path",
+  "settings.data.section.log": "Log",
+  "settings.data.row.log.path": "Log directory",
+  "settings.data.row.log.copy": "Copy path",
   "settings.data.section.general": "General",
   "settings.data.section.configFile": "Config file",
-  "settings.data.row.configFile.path": "Loaded from",
+  "settings.data.row.configFile.globalConfig": "Global",
   "settings.data.row.configFile.description": "File path",
   "settings.data.row.configFile.copy": "Copy path",
 }

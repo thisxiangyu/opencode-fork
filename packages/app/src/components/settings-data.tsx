@@ -12,6 +12,8 @@ export const SettingsData: Component = () => {
   const [channel, setChannel] = createSignal("")
   const [copied, setCopied] = createSignal(false)
   const [configFiles, setConfigFiles] = createSignal<string[]>([])
+  const [logPath, setLogPath] = createSignal("")
+  const [logCopied, setLogCopied] = createSignal(false)
 
   const loadDatabaseInfo = async () => {
     try {
@@ -37,9 +39,30 @@ export const SettingsData: Component = () => {
     }
   }
 
+  const loadLogInfo = async () => {
+    try {
+      const conn = server.current
+      if (!conn) return
+      const url = conn.http.url
+      if (!url) return
+      const headers: Record<string, string> = {}
+      if (conn.http.username && conn.http.password) {
+        headers["Authorization"] = `Basic ${btoa(`${conn.http.username}:${conn.http.password}`)}`
+      }
+      const res = await fetch(`${url}/global/storage/log`, { headers })
+      if (res.ok) {
+        const data = await res.json()
+        setLogPath(data.path ?? "")
+      }
+    } catch {
+      setLogPath("")
+    }
+  }
+
   createEffect(() => {
     if (server.current?.http.url) {
       void loadDatabaseInfo()
+      void loadLogInfo()
     }
   })
 
@@ -47,6 +70,12 @@ export const SettingsData: Component = () => {
     navigator.clipboard.writeText(text)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
+  }
+
+  const handleLogCopy = (text: string) => {
+    navigator.clipboard.writeText(text)
+    setLogCopied(true)
+    setTimeout(() => setLogCopied(false), 1500)
   }
 
   return (
@@ -86,6 +115,37 @@ export const SettingsData: Component = () => {
                 </Show>
                 <Show when={channel()}>
                   <span class="text-11-medium text-info bg-info/10 px-2 py-0.5 rounded flex-shrink-0">{channel()}</span>
+                </Show>
+              </div>
+            </div>
+          </SettingsList>
+        </div>
+
+        <div class="flex flex-col gap-1">
+          <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.data.section.log")}</h3>
+
+          <SettingsList>
+            <div class="flex flex-col gap-3 py-3">
+              <div class="flex flex-col gap-0.5">
+                <span class="text-14-medium text-text-strong">{language.t("settings.data.row.log.path")}</span>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <code class="text-12-regular text-text-weak bg-surface-weak px-2 py-1 rounded flex-1 truncate block">
+                  {logPath() || "--"}
+                </code>
+                <Show when={logPath()}>
+                  <button
+                    class="p-1 rounded hover:bg-surface-base-hover transition-colors"
+                    onClick={() => handleLogCopy(logPath())}
+                    title={language.t("settings.data.row.log.copy")}
+                  >
+                    <Icon
+                      name={logCopied() ? "check" : "copy"}
+                      size="small"
+                      class={logCopied() ? "text-icon-success-base" : "text-icon-base"}
+                    />
+                  </button>
                 </Show>
               </div>
             </div>

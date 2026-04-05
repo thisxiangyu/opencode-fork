@@ -4,6 +4,7 @@ import { createWriteStream } from "fs"
 import { Global } from "../global"
 import z from "zod"
 import { Glob } from "./glob"
+import { StorageConfig } from "../storage/storage-config"
 
 export namespace Log {
   export const Level = z.enum(["DEBUG", "INFO", "WARN", "ERROR"]).meta({ ref: "LogLevel", description: "Log level" })
@@ -46,6 +47,7 @@ export namespace Log {
     print: boolean
     dev?: boolean
     level?: Level
+    tee?: boolean // 同时输出到控制台和文件
   }
 
   let logpath = ""
@@ -57,12 +59,52 @@ export namespace Log {
     return msg.length
   }
 
+  export function resolveLogDir(): string {
+    return StorageConfig.resolvePath({
+      type: "log",
+      defaultPath: Global.Path.log,
+      allowRelative: true,
+    })
+  }
+
+  export function configFiles(): string[] {
+    return StorageConfig.configFiles()
+  }
+
+  export const LogDir = resolveLogDir()
+
   export async function init(options: Options) {
     if (options.level) level = options.level
-    cleanup(Global.Path.log)
+    const dir = resolveLogDir()
+    cleanup(dir)
+
+    // tee 模式：同时输出到控制台和文件
+    if (options.tee) {
+      logpath = path.join(
+        dir,
+        options.dev ? "dev.log" : new Date().toISOString().split(".")[0].replace(/:/g, "") + ".log",
+      )
+      await fs.truncate(logpath).catch(() => {})
+      const stream = createWriteStream(logpath, { flags: "a" })
+      const originalWrite = write
+      write = async (msg: any) => {
+        originalWrite(msg) // 输出到控制台
+        return new Promise((resolve, reject) => {
+          stream.write(msg, (err) => {
+            if (err) reject(err)
+            else resolve(msg.length)
+          })
+        })
+      }
+      return
+    }
+
+    // 纯控制台模式
     if (options.print) return
+
+    // 纯文件模式（默认）
     logpath = path.join(
-      Global.Path.log,
+      dir,
       options.dev ? "dev.log" : new Date().toISOString().split(".")[0].replace(/:/g, "") + ".log",
     )
     await fs.truncate(logpath).catch(() => {})
