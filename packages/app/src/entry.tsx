@@ -126,7 +126,14 @@ const platform: Platform = {
 }
 
 if (root instanceof HTMLElement) {
-  const server: ServerConnection.Http = { type: "http", http: { url: getCurrentUrl() } }
+  const server: ServerConnection.Http = {
+    type: "http",
+    http: {
+      url: getCurrentUrl(),
+      username: import.meta.env.VITE_OPENCODE_SERVER_USERNAME,
+      password: import.meta.env.VITE_OPENCODE_SERVER_PASSWORD,
+    },
+  }
   render(
     () => (
       <PlatformProvider value={platform}>
