@@ -1,4 +1,4 @@
-import { Component, Show, createMemo, createResource, onMount, type JSX } from "solid-js"
+import { Component, Show, createMemo, createResource, createSignal, onMount, type JSX } from "solid-js"
 import { createStore } from "solid-js/store"
 import { Button } from "@opencode-ai/ui/button"
 import { Icon } from "@opencode-ai/ui/icon"
@@ -10,6 +10,7 @@ import { useTheme, type ColorScheme } from "@opencode-ai/ui/theme/context"
 import { showToast } from "@opencode-ai/ui/toast"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
+import { useServer } from "@/context/server"
 import {
   monoDefault,
   monoFontFamily,
@@ -66,13 +67,35 @@ export const SettingsGeneral: Component = () => {
   const language = useLanguage()
   const platform = usePlatform()
   const settings = useSettings()
-
-  onMount(() => {
-    void theme.loadThemes()
-  })
+  const server = useServer()
 
   const [store, setStore] = createStore({
     checking: false,
+    configFiles: [] as string[],
+  })
+  const [copied, setCopied] = createSignal(false)
+
+  const loadConfigFiles = async () => {
+    try {
+      const conn = server.current
+      if (!conn) return
+      const url = conn.http.url
+      if (!url) return
+      const headers: Record<string, string> = {}
+      if (conn.http.username && conn.http.password) {
+        headers["Authorization"] = `Basic ${btoa(`${conn.http.username}:${conn.http.password}`)}`
+      }
+      const res = await fetch(`${url}/global/storage/database`, { headers })
+      if (res.ok) {
+        const data = await res.json()
+        setStore("configFiles", data.configFiles ?? [])
+      }
+    } catch {}
+  }
+
+  onMount(() => {
+    void theme.loadThemes()
+    void loadConfigFiles()
   })
 
   const linux = createMemo(() => platform.platform === "desktop" && platform.os === "linux")
@@ -534,6 +557,48 @@ export const SettingsGeneral: Component = () => {
         </Show>*/}
 
         <UpdatesSection />
+
+        <Show when={import.meta.env.DEV && store.configFiles.length > 0}>
+          <div class="flex flex-col gap-1">
+            <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.data.section.configFile")}</h3>
+
+            <SettingsList>
+              <div class="flex flex-col gap-3 py-3">
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-14-medium text-text-strong">{language.t("settings.data.row.configFile.path")}</span>
+                  <span class="text-12-regular text-text-weak">
+                    {language.t("settings.data.row.configFile.description")}
+                  </span>
+                </div>
+
+                <div class="flex flex-col gap-2">
+                  {store.configFiles.map((file) => (
+                    <div class="flex items-center gap-2">
+                      <code class="text-12-regular text-text-weak bg-surface-weak px-2 py-1 rounded flex-1 truncate block">
+                        {file}
+                      </code>
+                      <button
+                        class="p-1 rounded hover:bg-surface-base-hover transition-colors"
+                        onClick={() => {
+                          navigator.clipboard.writeText(file)
+                          setCopied(true)
+                          setTimeout(() => setCopied(false), 1500)
+                        }}
+                        title={language.t("settings.data.row.configFile.copy")}
+                      >
+                        <Icon
+                          name={copied() ? "check" : "copy"}
+                          size="small"
+                          class={copied() ? "text-icon-success-base" : "text-icon-base"}
+                        />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </SettingsList>
+          </div>
+        </Show>
 
         <Show when={linux()}>
           {(_) => {

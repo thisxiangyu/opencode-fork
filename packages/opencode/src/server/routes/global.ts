@@ -8,9 +8,11 @@ import { GlobalBus } from "@/bus/global"
 import { AsyncQueue } from "@/util/queue"
 import { Instance } from "../../project/instance"
 import { Installation } from "@/installation"
+import { CHANNEL } from "@/installation/meta"
 import { Log } from "../../util/log"
 import { lazy } from "../../util/lazy"
 import { Config } from "../../config/config"
+import { Database } from "../../storage/db"
 import { errors } from "../error"
 
 const log = Log.create({ service: "server" })
@@ -307,6 +309,36 @@ export const GlobalRoutes = lazy(() =>
           return c.json(result)
         }
         return c.json(result, 500)
+      },
+    )
+    .get(
+      "/storage/database",
+      describeRoute({
+        summary: "Get current database path",
+        description: "Returns the resolved database file path currently in use by OpenCode.",
+        operationId: "global.storage.database",
+        responses: {
+          200: {
+            description: "Database path information",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    path: z.string().describe("Absolute path to the database file"),
+                    configured: z.string().optional().describe("Configured value from settings, if set"),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json({
+          path: Database.Path,
+          channel: CHANNEL,
+          configFiles: Database.configFiles(),
+        })
       },
     ),
 )

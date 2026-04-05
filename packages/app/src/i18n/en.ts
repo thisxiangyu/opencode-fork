@@ -227,6 +227,7 @@ export const dict = {
   "common.submit": "Submit",
   "common.save": "Save",
   "common.saving": "Saving...",
+  "common.saved": "Saved",
   "common.default": "Default",
   "common.attachment": "attachment",
 
@@ -712,6 +713,7 @@ export const dict = {
   "settings.section.server": "Server",
   "settings.tab.general": "General",
   "settings.tab.shortcuts": "Shortcuts",
+  "settings.tab.data": "Data",
   "settings.desktop.section.wsl": "WSL",
   "settings.desktop.wsl.title": "WSL integration",
   "settings.desktop.wsl.description": "Run the OpenCode server inside WSL on Windows.",
@@ -934,4 +936,13 @@ export const dict = {
   "workspace.reset.archived.one": "1 session will be archived.",
   "workspace.reset.archived.many": "{{count}} sessions will be archived.",
   "workspace.reset.note": "This will reset the workspace to match the default branch.",
+
+  "settings.data.section.database": "Database",
+  "settings.data.row.database.path": "Current database",
+  "settings.data.row.database.copy": "Copy path",
+  "settings.data.section.general": "General",
+  "settings.data.section.configFile": "Config file",
+  "settings.data.row.configFile.path": "Loaded from",
+  "settings.data.row.configFile.description": "File path",
+  "settings.data.row.configFile.copy": "Copy path",
 }

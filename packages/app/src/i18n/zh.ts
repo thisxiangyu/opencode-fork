@@ -611,6 +611,7 @@ export const dict = {
 
   "settings.tab.general": "通用",
   "settings.tab.shortcuts": "快捷键",
+  "settings.tab.data": "数据",
 
   "settings.desktop.section.wsl": "WSL",
   "settings.desktop.wsl.title": "WSL 集成",
@@ -826,6 +827,14 @@ export const dict = {
   "workspace.reset.archived.one": "将归档 1 个会话。",
   "workspace.reset.archived.many": "将归档 {{count}} 个会话。",
   "workspace.reset.note": "这将把工作区重置为与默认分支一致。",
+  "common.saved": "已保存",
+  "settings.data.section.database": "数据库",
+  "settings.data.row.database.path": "当前数据库",
+  "settings.data.row.database.copy": "复制路径",
+  "settings.data.section.configFile": "配置文件",
+  "settings.data.row.configFile.path": "加载自",
+  "settings.data.row.configFile.description": "文件路径",
+  "settings.data.row.configFile.copy": "复制路径",
   "common.open": "打开",
   "dialog.releaseNotes.action.getStarted": "开始",
   "dialog.releaseNotes.action.next": "下一步",
