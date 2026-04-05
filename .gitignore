@@ -23,6 +23,7 @@ target
 .scripts
 .direnv/
 temp/
+data/
 
 # Local dev files
 opencode-dev
