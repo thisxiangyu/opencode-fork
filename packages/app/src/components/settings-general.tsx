@@ -558,14 +558,16 @@ export const SettingsGeneral: Component = () => {
 
         <UpdatesSection />
 
-        <Show when={import.meta.env.DEV && store.configFiles.length > 0}>
+        <Show when={store.configFiles.length > 0}>
           <div class="flex flex-col gap-1">
             <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.data.section.configFile")}</h3>
 
             <SettingsList>
               <div class="flex flex-col gap-3 py-3">
                 <div class="flex flex-col gap-0.5">
-                  <span class="text-14-medium text-text-strong">{language.t("settings.data.row.configFile.globalConfig")}</span>
+                  <span class="text-14-medium text-text-strong">
+                    {language.t("settings.data.row.configFile.globalConfig")}
+                  </span>
                   <span class="text-12-regular text-text-weak">
                     {language.t("settings.data.row.configFile.description")}
                   </span>

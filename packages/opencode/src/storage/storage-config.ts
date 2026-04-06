@@ -1,6 +1,7 @@
 import path from "path"
 import { Global } from "../global"
 import { existsSync, readFileSync } from "fs"
+import { parse as parseJsonc } from "jsonc-parser"
 
 export namespace StorageConfig {
   export type Type = "database" | "log"
@@ -20,7 +21,6 @@ export namespace StorageConfig {
     try {
       const raw = readFileSync(file, "utf8")
       if (file.endsWith(".jsonc")) {
-        const { parse: parseJsonc } = require("jsonc-parser")
         return parseJsonc(raw) as Record<string, unknown>
       }
       return JSON.parse(raw) as Record<string, unknown>
