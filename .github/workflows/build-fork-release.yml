@@ -1,0 +1,92 @@
+name: Build My Fork Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag (e.g., v1.0.0-fork) - optional"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  build:
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.11
+
+      - name: Install dependencies
+        run: |
+          bun install
+        env:
+          BUN_INSTALL_TIMEOUT_MS: 600000
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="0.0.0-fork-$(date +%Y%m%d%H%M%S)"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building version: $VERSION"
+
+      - name: Build CLI (All Platforms)
+        run: |
+          ./packages/opencode/script/build.ts
+        env:
+          OPENCODE_VERSION: ${{ steps.version.outputs.version }}
+          OPENCODE_CHANNEL: "fork"
+          # 不设置 OPENCODE_RELEASE，避免触发 gh release upload
+          # 我们会在下一步手动打包
+
+      - name: Package binaries
+        run: |
+          cd packages/opencode/dist
+          for dir in opencode-linux-* opencode-darwin-* opencode-windows-*; do
+            if [ -d "$dir" ]; then
+              if [[ "$dir" == *"windows"* ]]; then
+                (cd "$dir/bin" && zip -r "../../../${dir}.zip" .)
+              else
+                (cd "$dir/bin" && tar -czf "../../../${dir}.tar.gz" .)
+              fi
+            fi
+          done
+          ls -la *.zip *.tar.gz 2>/dev/null || echo "No archives created"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-fork-release-${{ steps.version.outputs.version }}
+          path: |
+            packages/opencode/dist/*.zip
+            packages/opencode/dist/*.tar.gz
+          retention-days: 30
+
+      - name: Create GitHub Release (optional)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            packages/opencode/dist/*.zip
+            packages/opencode/dist/*.tar.gz
+          draft: true
+          prerelease: true
+          generate_release_notes: true
