@@ -370,5 +370,33 @@ export const GlobalRoutes = lazy(() =>
           configFiles: StorageConfig.configFiles(),
         })
       },
+    )
+    .get(
+      "/config/path",
+      describeRoute({
+        summary: "Get global config path",
+        description: "Returns the resolved global config file path.",
+        operationId: "global.config.path",
+        responses: {
+          200: {
+            description: "Global config path information",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    path: z.string().describe("Absolute path to the global config file"),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const files = StorageConfig.configFiles()
+        return c.json({
+          path: files.length > 0 ? files[0] : "",
+        })
+      },
     ),
 )

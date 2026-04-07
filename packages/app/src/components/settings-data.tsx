@@ -11,7 +11,6 @@ export const SettingsData: Component = () => {
   const [dbPath, setDbPath] = createSignal("")
   const [channel, setChannel] = createSignal("")
   const [copied, setCopied] = createSignal(false)
-  const [configFiles, setConfigFiles] = createSignal<string[]>([])
   const [logPath, setLogPath] = createSignal("")
   const [logCopied, setLogCopied] = createSignal(false)
 
@@ -30,12 +29,10 @@ export const SettingsData: Component = () => {
         const data = await res.json()
         setDbPath(data.path ?? "")
         setChannel(data.channel ?? "")
-        setConfigFiles(data.configFiles ?? [])
       }
     } catch {
       setDbPath("")
       setChannel("")
-      setConfigFiles([])
     }
   }
 

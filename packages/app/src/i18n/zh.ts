@@ -836,7 +836,7 @@ export const dict = {
   "settings.data.row.log.copy": "复制路径",
   "settings.data.section.configFile": "配置文件",
   "settings.data.row.configFile.globalConfig": "全局配置",
-  "settings.data.row.configFile.description": "文件路径",
+  "settings.data.row.configFile.noConfig": "无配置",
   "settings.data.row.configFile.copy": "复制路径",
   "common.open": "打开",
   "dialog.releaseNotes.action.getStarted": "开始",

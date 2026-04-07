@@ -1231,7 +1231,22 @@ export namespace Config {
           return yield* loadConfig(text, { path: filepath })
         })
 
+        const CONFIG_FILES = ["config.json", "opencode.json", "opencode.jsonc"]
+
+        const ensureGlobalConfig = Effect.fnUntraced(function* () {
+          for (const file of CONFIG_FILES) {
+            const fullPath = path.join(Global.Path.config, file)
+            if (existsSync(fullPath)) return
+          }
+          const defaultPath = path.join(Global.Path.config, "opencode.jsonc")
+          const defaultContent = { $schema: "https://opencode.ai/config.json" }
+          yield* fs.writeFileString(defaultPath, JSON.stringify(defaultContent, null, 2))
+          log.info("created default global config", { path: defaultPath })
+        })
+
         const loadGlobal = Effect.fnUntraced(function* () {
+          yield* ensureGlobalConfig()
+
           let result: Info = pipe(
             {},
             mergeDeep(yield* loadFile(path.join(Global.Path.config, "config.json"))),

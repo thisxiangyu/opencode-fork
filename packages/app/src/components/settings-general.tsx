@@ -71,7 +71,8 @@ export const SettingsGeneral: Component = () => {
 
   const [store, setStore] = createStore({
     checking: false,
-    configFiles: [] as string[],
+    globalConfig: {} as Record<string, unknown>,
+    globalConfigPath: "" as string,
   })
   const [copied, setCopied] = createSignal(false)
 
@@ -85,10 +86,18 @@ export const SettingsGeneral: Component = () => {
       if (conn.http.username && conn.http.password) {
         headers["Authorization"] = `Basic ${btoa(`${conn.http.username}:${conn.http.password}`)}`
       }
-      const res = await fetch(`${url}/global/storage/database`, { headers })
-      if (res.ok) {
-        const data = await res.json()
-        setStore("configFiles", data.configFiles ?? [])
+      const res = await fetch(`${url}/global/config`, { headers })
+      if (!res.ok) return
+      const configContent = (await res.json()) as Record<string, unknown>
+      setStore("globalConfig", configContent)
+      if (Object.keys(configContent).length === 0) {
+        setStore("globalConfigPath", "")
+        return
+      }
+      const resPath = await fetch(`${url}/global/config/path`, { headers })
+      if (resPath.ok) {
+        const pathData = await resPath.json()
+        setStore("globalConfigPath", pathData.path ?? "")
       }
     } catch {}
   }
@@ -558,7 +567,46 @@ export const SettingsGeneral: Component = () => {
 
         <UpdatesSection />
 
-        <Show when={store.configFiles.length > 0}>
+        <Show when={store.globalConfigPath}>
+          <div class="flex flex-col gap-1">
+            <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.data.section.configFile")}</h3>
+
+            <SettingsList>
+              <div class="flex flex-col gap-3 py-3">
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-14-medium text-text-strong">
+                    {language.t("settings.data.row.configFile.globalConfig")}
+                  </span>
+                </div>
+
+                <div class="flex flex-col gap-2">
+                  <div class="flex items-center gap-2">
+                    <code class="text-12-regular text-text-weak bg-surface-weak px-2 py-1 rounded flex-1 truncate block">
+                      {store.globalConfigPath}
+                    </code>
+                    <button
+                      class="p-1 rounded hover:bg-surface-base-hover transition-colors"
+                      onClick={() => {
+                        navigator.clipboard.writeText(store.globalConfigPath)
+                        setCopied(true)
+                        setTimeout(() => setCopied(false), 1500)
+                      }}
+                      title={language.t("settings.data.row.configFile.copy")}
+                    >
+                      <Icon
+                        name={copied() ? "check" : "copy"}
+                        size="small"
+                        class={copied() ? "text-icon-success-base" : "text-icon-base"}
+                      />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </SettingsList>
+          </div>
+        </Show>
+
+        <Show when={!store.globalConfigPath && Object.keys(store.globalConfig).length === 0}>
           <div class="flex flex-col gap-1">
             <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.data.section.configFile")}</h3>
 
@@ -569,33 +617,8 @@ export const SettingsGeneral: Component = () => {
                     {language.t("settings.data.row.configFile.globalConfig")}
                   </span>
                   <span class="text-12-regular text-text-weak">
-                    {language.t("settings.data.row.configFile.description")}
+                    {language.t("settings.data.row.configFile.noConfig")}
                   </span>
-                </div>
-
-                <div class="flex flex-col gap-2">
-                  {store.configFiles.map((file) => (
-                    <div class="flex items-center gap-2">
-                      <code class="text-12-regular text-text-weak bg-surface-weak px-2 py-1 rounded flex-1 truncate block">
-                        {file}
-                      </code>
-                      <button
-                        class="p-1 rounded hover:bg-surface-base-hover transition-colors"
-                        onClick={() => {
-                          navigator.clipboard.writeText(file)
-                          setCopied(true)
-                          setTimeout(() => setCopied(false), 1500)
-                        }}
-                        title={language.t("settings.data.row.configFile.copy")}
-                      >
-                        <Icon
-                          name={copied() ? "check" : "copy"}
-                          size="small"
-                          class={copied() ? "text-icon-success-base" : "text-icon-base"}
-                        />
-                      </button>
-                    </div>
-                  ))}
                 </div>
               </div>
             </SettingsList>

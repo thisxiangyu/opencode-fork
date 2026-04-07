@@ -946,6 +946,6 @@ export const dict = {
   "settings.data.section.general": "General",
   "settings.data.section.configFile": "Config file",
   "settings.data.row.configFile.globalConfig": "Global",
-  "settings.data.row.configFile.description": "File path",
+  "settings.data.row.configFile.noConfig": "No config",
   "settings.data.row.configFile.copy": "Copy path",
 }

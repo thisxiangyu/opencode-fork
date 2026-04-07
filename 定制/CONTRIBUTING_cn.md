@@ -41,8 +41,17 @@ https://github.com/anomalyco/models.dev
   bun dev
   ```
 
-前端3种运行方式: bun dev web (远程WebUI) 、bun run --cwd packages/app dev 、opencode web  
-后端2种运行方式: bun dev serve 、opencode serve
+前端3种运行方式: 
+1.bun dev web (远程WebUI) 
+2.bun run --cwd packages/app dev （开发时热更新）
+3.opencode web（win平台exe启动）
+ ./opencode web（mac平台exe启动）
+
+后端2种运行方式: 
+1.bun dev serve 
+2.opencode serve（win平台exe启动）
+ ./opencode serve（mac平台exe启动）
+
 
 ### 指定运行目录
 
@@ -63,13 +72,14 @@ bun dev .
 编译独立可执行文件：
 
 ```bash
-./packages/opencode/script/build.ts --single
+mac ./packages/opencode/script/build.ts --single
+win bun run ./packages/opencode/script/build.ts --single
 ```
 
-然后运行：
+可执行文件会创建在以下文件夹：
 
-```bash
-./packages/opencode/dist/opencode-<平台>/bin/opencode
+```
+./packages/opencode/dist/opencode-<平台>/bin/
 ```
 
 将 `<平台>` 替换为你的平台（如 `darwin-arm64`、`linux-x64`）。
