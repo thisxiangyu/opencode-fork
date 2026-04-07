@@ -41,6 +41,9 @@ https://github.com/anomalyco/models.dev
   bun dev
   ```
 
+前端3种运行方式: bun dev web (远程WebUI) 、bun run --cwd packages/app dev 、opencode web  
+后端2种运行方式: bun dev serve 、opencode serve
+
 ### 指定运行目录
 
 默认情况下，`bun dev` 在 `packages/opencode` 目录中运行 OpenCode。要指定其他目录或仓库：
@@ -86,7 +89,7 @@ bun dev .
 # 开发模式（项目根目录）
 bun dev --help           # 显示所有可用命令
 bun dev serve            # 启动无界面 API 服务器
-bun dev web              # 启动服务器 + 打开 Web 界面
+bun dev web              # 启动服务器 + 打开 Web 界面 (这条命令的后端是本地后端, 但前端是基于Opencode远程站点的, 所以不会显示本地WebUI更新)
 bun dev <目录>           # 在指定目录启动 TUI
 
 # 生产模式
