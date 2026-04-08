@@ -18,7 +18,12 @@
       "environment": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": ""
       }
-    }
+    },
+    "unityMCP": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8080/mcp", //  这里以 unity-mcp 在编辑器中设置的url为准, 默认为这个链接
+      "enabled": true
+    },
   },
   "tools": {
     "github-triage": false,
