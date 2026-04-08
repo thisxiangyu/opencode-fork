@@ -1552,6 +1552,10 @@ export namespace LSPServer {
     extensions: [".sh", ".bash", ".zsh", ".ksh"],
     root: async () => Instance.directory,
     async spawn(root) {
+      // Skip bash-language-server on Windows to avoid blocking file writes
+      // The npm install process can hang on Windows when triggered during LSP initialization
+      if (process.platform === "win32") return
+
       let binary = which("bash-language-server")
       const args: string[] = []
       if (!binary) {

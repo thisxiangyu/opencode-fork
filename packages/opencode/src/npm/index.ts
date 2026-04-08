@@ -153,7 +153,7 @@ export namespace Npm {
     log.info("dependencies in sync")
   }
 
-  export async function which(pkg: string) {
+  export async function which(pkg: string, install = true) {
     const dir = directory(pkg)
     const binDir = path.join(dir, "node_modules", ".bin")
 
@@ -178,6 +178,8 @@ export namespace Npm {
 
     const bin = await pick()
     if (bin) return path.join(binDir, bin)
+
+    if (!install) return
 
     await rm(path.join(dir, "package-lock.json"), { force: true })
     await add(pkg)
