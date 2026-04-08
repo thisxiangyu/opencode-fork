@@ -1,4 +1,5 @@
 import z from "zod"
+import path from "path"
 import { NamedError } from "@opencode-ai/util/error"
 import { Global } from "../global"
 import { Instance } from "../project/instance"
@@ -20,9 +21,19 @@ import { AppFileSystem } from "@/filesystem"
 import { makeRuntime } from "@/effect/run-service"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import { InstanceState } from "@/effect/instance-state"
+import { StorageConfig } from "../storage/storage-config"
 
 export namespace Worktree {
   const log = Log.create({ service: "worktree" })
+
+  export function resolveDir(projectID?: string): string {
+    const base = StorageConfig.resolvePath({
+      type: "worktree",
+      defaultPath: path.join(Global.Path.data, "worktree"),
+      allowRelative: true,
+    })
+    return projectID ? path.join(base, projectID) : base
+  }
 
   export const Event = {
     Ready: BusEvent.define(
@@ -224,7 +235,7 @@ export namespace Worktree {
           throw new NotGitError({ message: "Worktrees are only supported for git projects" })
         }
 
-        const root = pathSvc.join(Global.Path.data, "worktree", ctx.project.id)
+        const root = resolveDir(ctx.project.id)
         yield* fs.makeDirectory(root, { recursive: true }).pipe(Effect.orDie)
 
         const base = name ? slugify(name) : ""

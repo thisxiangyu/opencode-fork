@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "fs"
 import { parse as parseJsonc } from "jsonc-parser"
 
 export namespace StorageConfig {
-  export type Type = "database" | "log"
+  export type Type = "database" | "log" | "worktree" | "snapshot"
 
   export interface Options {
     type: Type

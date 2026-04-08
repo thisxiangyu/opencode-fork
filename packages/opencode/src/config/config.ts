@@ -1015,6 +1015,14 @@ export namespace Config {
             .string()
             .optional()
             .describe("Custom log directory path (absolute or relative to data dir). Requires server restart."),
+          worktree: z
+            .string()
+            .optional()
+            .describe("Custom worktree directory path (absolute or relative to data dir). Requires server restart."),
+          snapshot: z
+            .string()
+            .optional()
+            .describe("Custom snapshot directory path (absolute or relative to data dir). Requires server restart."),
         })
         .optional()
         .describe("Storage configuration (global only, requires server restart)"),

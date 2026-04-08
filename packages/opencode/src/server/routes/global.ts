@@ -14,6 +14,8 @@ import { lazy } from "../../util/lazy"
 import { Config } from "../../config/config"
 import { Database } from "../../storage/db"
 import { StorageConfig } from "../../storage/storage-config"
+import { Worktree } from "../../worktree"
+import { Snapshot } from "../../snapshot"
 import { errors } from "../error"
 
 const log = Log.create({ service: "server" })
@@ -367,6 +369,64 @@ export const GlobalRoutes = lazy(() =>
       async (c) => {
         return c.json({
           path: Log.LogDir,
+          configFiles: StorageConfig.configFiles(),
+        })
+      },
+    )
+    .get(
+      "/storage/worktree",
+      describeRoute({
+        summary: "Get current worktree directory path",
+        description: "Returns the resolved worktree directory path currently in use by OpenCode.",
+        operationId: "global.storage.worktree",
+        responses: {
+          200: {
+            description: "Worktree directory path information",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    path: z.string().describe("Absolute path to the worktree directory"),
+                    configured: z.string().optional().describe("Configured value from settings, if set"),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json({
+          path: Worktree.resolveDir(),
+          configFiles: StorageConfig.configFiles(),
+        })
+      },
+    )
+    .get(
+      "/storage/snapshot",
+      describeRoute({
+        summary: "Get current snapshot directory path",
+        description: "Returns the resolved snapshot directory path currently in use by OpenCode.",
+        operationId: "global.storage.snapshot",
+        responses: {
+          200: {
+            description: "Snapshot directory path information",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    path: z.string().describe("Absolute path to the snapshot directory"),
+                    configured: z.string().optional().describe("Configured value from settings, if set"),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        return c.json({
+          path: Snapshot.resolveDir(),
           configFiles: StorageConfig.configFiles(),
         })
       },

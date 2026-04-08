@@ -11,8 +11,17 @@ import { Hash } from "@/util/hash"
 import { Config } from "../config/config"
 import { Global } from "../global"
 import { Log } from "../util/log"
+import { StorageConfig } from "../storage/storage-config"
 
 export namespace Snapshot {
+  export function resolveDir(projectID?: string): string {
+    const base = StorageConfig.resolvePath({
+      type: "snapshot",
+      defaultPath: path.join(Global.Path.data, "snapshot"),
+      allowRelative: true,
+    })
+    return projectID ? path.join(base, projectID) : base
+  }
   export const Patch = z.object({
     hash: z.string(),
     files: z.string().array(),
@@ -85,7 +94,7 @@ export namespace Snapshot {
           const state = {
             directory: ctx.directory,
             worktree: ctx.worktree,
-            gitdir: path.join(Global.Path.data, "snapshot", ctx.project.id, Hash.fast(ctx.worktree)),
+            gitdir: path.join(resolveDir(ctx.project.id), Hash.fast(ctx.worktree)),
             vcs: ctx.project.vcs,
           }
 

@@ -78,8 +78,12 @@ export const SettingsGeneral: Component = () => {
     checking: false,
     globalConfig: {} as Record<string, unknown>,
     globalConfigPath: "" as string,
+    worktreePath: "" as string,
+    snapshotPath: "" as string,
   })
   const [copied, setCopied] = createSignal(false)
+  const [worktreeCopied, setWorktreeCopied] = createSignal(false)
+  const [snapshotCopied, setSnapshotCopied] = createSignal(false)
 
   const loadConfigFiles = async () => {
     try {
@@ -107,9 +111,51 @@ export const SettingsGeneral: Component = () => {
     } catch {}
   }
 
+  const loadWorktreeInfo = async () => {
+    try {
+      const conn = server.current
+      if (!conn) return
+      const url = conn.http.url
+      if (!url) return
+      const headers: Record<string, string> = {}
+      if (conn.http.username && conn.http.password) {
+        headers["Authorization"] = `Basic ${btoa(`${conn.http.username}:${conn.http.password}`)}`
+      }
+      const res = await fetch(`${url}/global/storage/worktree`, { headers })
+      if (res.ok) {
+        const data = await res.json()
+        setStore("worktreePath", data.path ?? "")
+      }
+    } catch {
+      setStore("worktreePath", "")
+    }
+  }
+
+  const loadSnapshotInfo = async () => {
+    try {
+      const conn = server.current
+      if (!conn) return
+      const url = conn.http.url
+      if (!url) return
+      const headers: Record<string, string> = {}
+      if (conn.http.username && conn.http.password) {
+        headers["Authorization"] = `Basic ${btoa(`${conn.http.username}:${conn.http.password}`)}`
+      }
+      const res = await fetch(`${url}/global/storage/snapshot`, { headers })
+      if (res.ok) {
+        const data = await res.json()
+        setStore("snapshotPath", data.path ?? "")
+      }
+    } catch {
+      setStore("snapshotPath", "")
+    }
+  }
+
   onMount(() => {
     void theme.loadThemes()
     void loadConfigFiles()
+    void loadWorktreeInfo()
+    void loadSnapshotInfo()
   })
 
   const linux = createMemo(() => platform.platform === "desktop" && platform.os === "linux")
@@ -605,6 +651,80 @@ export const SettingsGeneral: Component = () => {
         </Show>*/}
 
         <UpdatesSection />
+
+        <Show when={store.worktreePath}>
+          <div class="flex flex-col gap-1">
+            <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.worktree")}</h3>
+
+            <SettingsList>
+              <div class="flex flex-col gap-3 py-3">
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-14-medium text-text-strong">
+                    {language.t("settings.general.row.worktree.path")}
+                  </span>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <code class="text-12-regular text-text-weak bg-surface-weak px-2 py-1 rounded flex-1 truncate block">
+                    {store.worktreePath}
+                  </code>
+                  <button
+                    class="p-1 rounded hover:bg-surface-base-hover transition-colors"
+                    onClick={() => {
+                      navigator.clipboard.writeText(store.worktreePath)
+                      setWorktreeCopied(true)
+                      setTimeout(() => setWorktreeCopied(false), 1500)
+                    }}
+                    title={language.t("settings.general.row.worktree.copy")}
+                  >
+                    <Icon
+                      name={worktreeCopied() ? "check" : "copy"}
+                      size="small"
+                      class={worktreeCopied() ? "text-icon-success-base" : "text-icon-base"}
+                    />
+                  </button>
+                </div>
+              </div>
+            </SettingsList>
+          </div>
+        </Show>
+
+        <Show when={store.snapshotPath}>
+          <div class="flex flex-col gap-1">
+            <h3 class="text-14-medium text-text-strong pb-2">{language.t("settings.general.section.snapshot")}</h3>
+
+            <SettingsList>
+              <div class="flex flex-col gap-3 py-3">
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-14-medium text-text-strong">
+                    {language.t("settings.general.row.snapshot.path")}
+                  </span>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <code class="text-12-regular text-text-weak bg-surface-weak px-2 py-1 rounded flex-1 truncate block">
+                    {store.snapshotPath}
+                  </code>
+                  <button
+                    class="p-1 rounded hover:bg-surface-base-hover transition-colors"
+                    onClick={() => {
+                      navigator.clipboard.writeText(store.snapshotPath)
+                      setSnapshotCopied(true)
+                      setTimeout(() => setSnapshotCopied(false), 1500)
+                    }}
+                    title={language.t("settings.general.row.snapshot.copy")}
+                  >
+                    <Icon
+                      name={snapshotCopied() ? "check" : "copy"}
+                      size="small"
+                      class={snapshotCopied() ? "text-icon-success-base" : "text-icon-base"}
+                    />
+                  </button>
+                </div>
+              </div>
+            </SettingsList>
+          </div>
+        </Show>
 
         <Show when={store.globalConfigPath}>
           <div class="flex flex-col gap-1">
