@@ -57,6 +57,7 @@ export const McpCommand = cmd({
     yargs
       .command(McpAddCommand)
       .command(McpListCommand)
+      .command(McpToolsCommand)
       .command(McpAuthCommand)
       .command(McpLogoutCommand)
       .command(McpDebugCommand)
@@ -130,6 +131,67 @@ export const McpListCommand = cmd({
         }
 
         prompts.outro(`${servers.length} server(s)`)
+      },
+    })
+  },
+})
+
+export const McpToolsCommand = cmd({
+  command: "tools [name]",
+  describe: "list tools for an MCP server",
+  builder: (yargs) =>
+    yargs.positional("name", {
+      describe: "name of the MCP server",
+      type: "string",
+    }),
+  async handler(args) {
+    await Instance.provide({
+      directory: process.cwd(),
+      async fn() {
+        UI.empty()
+        prompts.intro("MCP Tools")
+
+        const config = await Config.get()
+        const mcpServers = config.mcp ?? {}
+        const allTools = await MCP.tools()
+
+        if (!args.name) {
+          prompts.log.info("All available MCP tools:")
+          for (const [toolName, tool] of Object.entries(allTools)) {
+            prompts.log.info(`  ${toolName}`)
+            if (tool.description) {
+              prompts.log.info(`    ${tool.description}`)
+            }
+          }
+          prompts.outro(`${Object.keys(allTools).length} tool(s)`)
+          return
+        }
+
+        const serverConfig = mcpServers[args.name]
+        if (!serverConfig) {
+          prompts.log.error(`MCP server not found: ${args.name}`)
+          prompts.outro("Done")
+          return
+        }
+
+        const prefix = args.name.replace(/[^a-zA-Z0-9]/g, "_")
+        const serverTools = Object.entries(allTools).filter(([name]) => name.startsWith(prefix + "_"))
+
+        if (serverTools.length === 0) {
+          prompts.log.warn(`No tools found for ${args.name}`)
+          prompts.outro("Done")
+          return
+        }
+
+        prompts.log.info(`Tools for ${args.name}:`)
+        for (const [toolName, tool] of serverTools) {
+          const shortName = toolName.replace(prefix + "_", "")
+          prompts.log.info(`  ${shortName}`)
+          if (tool.description) {
+            prompts.log.info(`    ${tool.description}`)
+          }
+        }
+        prompts.outro(`${serverTools.length} tool(s)`)
       },
     })
   },
