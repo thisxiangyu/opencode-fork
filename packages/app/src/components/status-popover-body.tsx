@@ -1,11 +1,13 @@
 import { Button } from "@opencode-ai/ui/button"
 import { useDialog } from "@opencode-ai/ui/context/dialog"
 import { Icon } from "@opencode-ai/ui/icon"
+import { decode64 } from "@/utils/base64"
+import { getFilename } from "@opencode-ai/util/path"
 import { Switch } from "@opencode-ai/ui/switch"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { useMutation } from "@tanstack/solid-query"
 import { showToast } from "@opencode-ai/ui/toast"
-import { useNavigate } from "@solidjs/router"
+import { useNavigate, useParams } from "@solidjs/router"
 import { type Accessor, createEffect, createMemo, For, type JSXElement, onCleanup, Show } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { ServerHealthIndicator, ServerRow } from "@/components/server/server-row"
@@ -163,6 +165,11 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
   const language = useLanguage()
   const navigate = useNavigate()
   const sdk = useSDK()
+  const params = useParams()
+  const projectName = createMemo(() => {
+    const dir = params.dir ? decode64(params.dir) : ""
+    return dir ? getFilename(dir) : ""
+  })
 
   const [load, setLoad] = createStore({
     lspDone: false,
@@ -342,6 +349,11 @@ export function StatusPopoverBody(props: { shown: Accessor<boolean> }) {
         <Tabs.Content value="mcp">
           <div class="flex flex-col px-2 pb-2">
             <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
+              <Show when={projectName()}>
+                <div class="text-11-regular text-text-weak text-center pb-2">
+                  {language.t("status.popover.currentProject")}: {projectName()}
+                </div>
+              </Show>
               <Show
                 when={mcpNames().length > 0}
                 fallback={

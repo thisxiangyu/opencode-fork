@@ -493,6 +493,7 @@ export const dict = {
   "session.header.open.copyPath": "パスをコピー",
   "status.popover.trigger": "ステータス",
   "status.popover.ariaLabel": "サーバー設定",
+  "status.popover.currentProject": "現在のプロジェクト",
   "status.popover.tab.servers": "サーバー",
   "status.popover.tab.mcp": "MCP",
   "status.popover.tab.lsp": "LSP",

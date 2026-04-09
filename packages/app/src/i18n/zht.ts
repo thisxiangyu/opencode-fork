@@ -545,6 +545,7 @@ export const dict = {
 
   "status.popover.trigger": "狀態",
   "status.popover.ariaLabel": "伺服器設定",
+  "status.popover.currentProject": "目前專案",
   "status.popover.tab.servers": "伺服器",
   "status.popover.tab.mcp": "MCP",
   "status.popover.tab.lsp": "LSP",

@@ -559,6 +559,7 @@ export const dict = {
 
   "status.popover.trigger": "Durum",
   "status.popover.ariaLabel": "Sunucu yapılandırmaları",
+  "status.popover.currentProject": "Mevcut proje",
   "status.popover.tab.servers": "Sunucular",
   "status.popover.tab.mcp": "MCP",
   "status.popover.tab.lsp": "LSP",

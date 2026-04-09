@@ -495,6 +495,7 @@ export const dict = {
   "session.header.open.copyPath": "경로 복사",
   "status.popover.trigger": "상태",
   "status.popover.ariaLabel": "서버 구성",
+  "status.popover.currentProject": "현재 프로젝트",
   "status.popover.tab.servers": "서버",
   "status.popover.tab.mcp": "MCP",
   "status.popover.tab.lsp": "LSP",

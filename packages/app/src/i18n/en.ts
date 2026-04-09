@@ -602,6 +602,7 @@ export const dict = {
 
   "status.popover.trigger": "Status",
   "status.popover.ariaLabel": "Server configurations",
+  "status.popover.currentProject": "Current project",
   "status.popover.tab.servers": "Servers",
   "status.popover.tab.mcp": "MCP",
   "status.popover.tab.lsp": "LSP",
