@@ -556,6 +556,22 @@ export namespace Config {
         .describe("Maximum number of agentic iterations before forcing text-only response"),
       maxSteps: z.number().int().positive().optional().describe("@deprecated Use 'steps' field instead."),
       permission: Permission.optional(),
+      autoReview: z
+        .object({
+          enabled: z.boolean().optional().describe("Enable auto-review after model responses"),
+          patterns: z
+            .array(
+              z.object({
+                trigger: z.string().describe("Regex pattern to match against model response"),
+                action: z.enum(["question", "custom"]).describe("Action to take when pattern matches"),
+                prompt: z.string().optional().describe("Custom prompt template (use {response} for matched text)"),
+              }),
+            )
+            .optional()
+            .describe("Patterns to detect and corresponding actions"),
+        })
+        .optional()
+        .describe("Auto-review: detect patterns in model responses and trigger follow-up actions"),
     })
     .catchall(z.any())
     .transform((agent, ctx) => {
@@ -576,6 +592,7 @@ export namespace Config {
         "permission",
         "disable",
         "tools",
+        "autoReview",
       ])
 
       // Extract unknown properties into options
@@ -1119,6 +1136,15 @@ export namespace Config {
             .describe("Timeout in milliseconds for model context protocol (MCP) requests"),
         })
         .optional(),
+      interaction: z
+        .object({
+          question: z
+            .boolean()
+            .optional()
+            .describe("Enable question tool dialogs. When enabled, auto-review will be triggered for questions."),
+        })
+        .optional()
+        .describe("Interaction settings"),
     })
     .strict()
     .meta({
@@ -1349,7 +1375,8 @@ export namespace Config {
             ),
             Effect.orElseSucceed((): Info => ({})),
           ),
-          Duration.infinity,
+          // 500ms TTL确保配置更新后及时生效
+          Duration.millis(500),
         )
 
         const getGlobal = Effect.fn("Config.getGlobal")(function* () {

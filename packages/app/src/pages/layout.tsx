@@ -452,6 +452,34 @@ export default function Layout(props: ParentProps) {
           return
         }
 
+        if ((e.details as any)?.type === "autoReview.completed") {
+          const props = (e.details as any).properties as { sessionID: string; result: string }
+          console.info("[强制回顾] 完成", props)
+
+          // 仅在非预期行为时显示警告
+          if (props.result === "unexpected") {
+            const directory = e.name
+            const [store] = globalSync.child(directory, { bootstrap: false })
+            const session = store.session.find((s) => s.id === props.sessionID)
+            const sessionTitle = session?.title ?? language.t("command.session.new")
+            const projectName = getFilename(directory)
+
+            const title = language.t("notification.autoReview.warning")
+            const description = `${projectName} · ${sessionTitle}: 【非预期行为】模型规避了question工具调用决策。`
+
+            showToast({
+              icon: "warning",
+              title,
+              description,
+            })
+
+            // 同时显示系统通知
+            const href = `/${base64Encode(directory)}/session/${props.sessionID}`
+            void platform.notify(title, description, href)
+          }
+          return
+        }
+
         if (e.details?.type !== "permission.asked" && e.details?.type !== "question.asked") return
         const title =
           e.details.type === "permission.asked"

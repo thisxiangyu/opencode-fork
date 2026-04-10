@@ -30,6 +30,7 @@ import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import * as Stream from "effect/Stream"
 import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
+import { Config } from "../config/config"
 import { ConfigMarkdown } from "../config/markdown"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/util/error"
@@ -48,6 +49,7 @@ import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { TaskTool } from "@/tool/task"
 import { SessionRunState } from "./run-state"
+import { AutoReview } from "@/auto-review"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -80,6 +82,7 @@ export namespace SessionPrompt {
     Service,
     Effect.gen(function* () {
       const bus = yield* Bus.Service
+      const config = yield* Config.Service
       const status = yield* SessionStatus.Service
       const sessions = yield* Session.Service
       const agents = yield* Agent.Service
@@ -1327,6 +1330,44 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
             if (!lastUser) throw new Error("No user message found in stream. This should never happen.")
 
+            // AutoReview: 检查是否有未处理的疑问句需要自动回顾
+            const arPending = AutoReview.findUnprocessed(msgs)
+            if (arPending && lastAssistant?.id === arPending.messageID) {
+              console.info("[强制回顾] 触发自动回合", { sessionID, question: arPending.question })
+
+              // 标记为已处理
+              AutoReview.markProcessed(arPending.messageID)
+
+              // 创建user消息，包含强制回顾提示词（非synthetic，让用户可见）
+              const arUserMsg: MessageV2.User = {
+                id: MessageID.ascending(),
+                role: "user",
+                sessionID,
+                time: { created: Date.now() },
+                agent: lastUser.agent,
+                model: {
+                  providerID: lastUser.model.providerID,
+                  modelID: lastUser.model.modelID,
+                },
+              }
+              yield* sessions.updateMessage(arUserMsg)
+
+              const arPrompt = AutoReview.buildPrompt(arPending.question)
+              const arPart: MessageV2.TextPart = {
+                id: PartID.ascending(),
+                messageID: arUserMsg.id,
+                sessionID,
+                type: "text",
+                text: arPrompt,
+                // 非synthetic，让用户在UI中能看到这条消息
+              }
+              yield* sessions.updatePart(arPart)
+
+              // 添加消息到msgs列表，继续循环
+              msgs.push({ info: arUserMsg, parts: [arPart] })
+              continue
+            }
+
             const lastAssistantMsg = msgs.findLast(
               (msg) => msg.info.role === "assistant" && msg.info.id === lastAssistant?.id,
             )
@@ -1397,6 +1438,10 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             const isLastStep = step >= maxSteps
             msgs = yield* insertReminders({ messages: msgs, agent, session })
 
+            // 检查是否启用AutoReview（由interaction.question设置决定）- 使用getGlobal获取全局配置
+            const globalCfg = yield* config.getGlobal()
+            const autoReviewEnabled = globalCfg.interaction?.question ?? true
+
             const msg: MessageV2.Assistant = {
               id: MessageID.ascending(),
               parentID: lastUser.id,
@@ -1417,6 +1462,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               assistantMessage: msg,
               sessionID,
               model,
+              autoReviewEnabled,
             })
 
             const outcome: "break" | "continue" = yield* Effect.gen(function* () {
@@ -1468,11 +1514,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 Effect.promise(() => SystemPrompt.skills(agent)),
                 Effect.promise(() => SystemPrompt.environment(model)),
                 instruction.system().pipe(Effect.orDie),
-                MessageV2.toModelMessagesEffect(msgs, model),
+                Effect.promise(() => MessageV2.toModelMessages(msgs, model)),
               ])
               const system = [...env, ...(skills ? [skills] : []), ...instructions]
               const format = lastUser.format ?? { type: "text" as const }
               if (format.type === "json_schema") system.push(STRUCTURED_OUTPUT_SYSTEM_PROMPT)
+
               const result = yield* handle.process({
                 user: lastUser,
                 agent,
@@ -1485,6 +1532,45 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 model,
                 toolChoice: format.type === "json_schema" ? "required" : undefined,
               })
+
+              // AutoReview: 验证助手回复是否符合预期
+              const lastUserParts = msgs.find((m) => m.info.id === lastUser.id)?.parts ?? []
+              const isAutoReviewUser = lastUserParts.some(
+                (p) => p.type === "text" && p.text.includes("<强制回顾提示词>"),
+              )
+              if (isAutoReviewUser) {
+                const arPending = AutoReview.findUnprocessed(msgs)
+                const originalMsgID = arPending?.messageID
+
+                const assistantParts = MessageV2.parts(handle.message.id)
+                const check = AutoReview.checkResponse(assistantParts)
+
+                if (check.type === "unexpected") {
+                  console.warn("[强制回顾] 模型规避了question工具调用决策", {
+                    sessionID,
+                    messageID: handle.message.id,
+                  })
+                  yield* bus.publish(AutoReview.Completed, {
+                    sessionID,
+                    messageID: handle.message.id,
+                    result: "unexpected",
+                  })
+                } else {
+                  console.info("[强制回顾] 模型响应符合预期", {
+                    sessionID,
+                    result: check.type,
+                  })
+                  yield* bus.publish(AutoReview.Completed, {
+                    sessionID,
+                    messageID: handle.message.id,
+                    result: check.type,
+                  })
+                }
+
+                if (originalMsgID) {
+                  AutoReview.clearPending(originalMsgID)
+                }
+              }
 
               if (structured !== undefined) {
                 handle.message.structured = structured
@@ -1500,8 +1586,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     message: "Model did not produce structured output",
                     retries: 0,
                   }).toObject()
-                  yield* sessions.updateMessage(handle.message)
-                  return "break" as const
                 }
               }
 
@@ -1685,6 +1769,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         Layer.provide(Plugin.defaultLayer),
         Layer.provide(Session.defaultLayer),
         Layer.provide(Agent.defaultLayer),
+        Layer.provide(Config.defaultLayer),
         Layer.provide(Bus.layer),
         Layer.provide(CrossSpawnSpawner.defaultLayer),
       ),

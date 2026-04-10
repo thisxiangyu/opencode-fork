@@ -20,6 +20,7 @@ import type { Provider } from "@/provider/provider"
 import { Question } from "@/question"
 import { errorMessage } from "@/util/error"
 import { isRecord } from "@/util/record"
+import { AutoReview } from "@/auto-review"
 
 export namespace SessionProcessor {
   const DOOM_LOOP_THRESHOLD = 3
@@ -51,6 +52,7 @@ export namespace SessionProcessor {
     assistantMessage: MessageV2.Assistant
     sessionID: SessionID
     model: Provider.Model
+    autoReviewEnabled?: boolean
   }
 
   export interface Interface {
@@ -119,6 +121,7 @@ export namespace SessionProcessor {
           needsCompaction: false,
           currentText: undefined,
           reasoningMap: {},
+          autoReviewEnabled: input.autoReviewEnabled ?? false,
         }
         let aborted = false
 
@@ -440,6 +443,38 @@ export namespace SessionProcessor {
                 ctx.currentText.time = { start: ctx.currentText.time?.start ?? end, end }
               }
               if (value.providerMetadata) ctx.currentText.metadata = value.providerMetadata
+
+              // AutoReview: 检测疑问句结尾
+              if (ctx.autoReviewEnabled) {
+                const matched = AutoReview.matchQuestionPattern(ctx.currentText.text)
+                if (matched) {
+                  // 提取疑问句
+                  const lastQuestion = ctx.currentText.text
+                    .split(/[。！.!\n]/)
+                    .filter((s) => /[?？]$/.test(s.trim()))
+                    .pop()
+                    ?.trim()
+
+                  if (lastQuestion && !AutoReview.getPending(ctx.assistantMessage.id)) {
+                    // 发布检测事件给前端
+                    yield* bus.publish(AutoReview.Detected, {
+                      sessionID: ctx.sessionID,
+                      messageID: ctx.assistantMessage.id,
+                      partID: ctx.currentText.id,
+                      preview: lastQuestion,
+                    })
+
+                    // 标记需要AutoReview
+                    AutoReview.setPending(ctx.assistantMessage.id, lastQuestion)
+
+                    console.info("[强制回顾] 检测到问句，将触发自动回合", {
+                      sessionID: ctx.sessionID,
+                      question: lastQuestion,
+                    })
+                  }
+                }
+              }
+
               yield* session.updatePart(ctx.currentText)
               ctx.currentText = undefined
               return
