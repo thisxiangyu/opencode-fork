@@ -512,6 +512,8 @@ export const dict = {
   "notification.permission.description": "{{sessionTitle}} in {{projectName}} needs permission",
   "notification.question.title": "Question",
   "notification.question.description": "{{sessionTitle}} in {{projectName}} has a question",
+  "notification.autoReview.detected": "Forced Review",
+  "notification.autoReview.warning": "Unexpected Behavior",
   "notification.action.goToSession": "Go to session",
 
   "notification.session.responseReady.title": "Response ready",
@@ -709,12 +711,15 @@ export const dict = {
   "debugBar.mem.label": "MEM",
   "debugBar.mem.tipUnavailable": "Used JS heap vs heap limit. Chromium only.",
   "debugBar.mem.tip": "Used JS heap vs heap limit. {{used}} of {{limit}}.",
+  "debugBar.show": "Show debug bar",
+  "debugBar.hide": "Hide debug bar",
 
   "app.name.desktop": "OpenCode Desktop",
 
   "settings.section.desktop": "Desktop",
   "settings.section.server": "Server",
   "settings.tab.general": "General",
+  "settings.tab.interaction": "Interaction",
   "settings.tab.shortcuts": "Shortcuts",
   "settings.tab.data": "Data",
   "settings.desktop.section.wsl": "WSL",
@@ -752,6 +757,12 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.title": "Expand edit tool parts",
   "settings.general.row.editToolPartsExpanded.description":
     "Show edit, write, and patch tool parts expanded by default in the timeline",
+
+  "settings.interaction.autoReview.title": "Forced Review",
+  "settings.interaction.autoReview.description": "Detect patterns in model responses and prompt for follow-up actions",
+
+  "settings.interaction.question.title": "Question dialogs",
+  "settings.interaction.question.description": "Show option dialogs when the agent asks questions",
 
   "settings.general.row.wayland.title": "Use native Wayland",
   "settings.general.row.wayland.description": "Disable X11 fallback on Wayland. Requires restart.",

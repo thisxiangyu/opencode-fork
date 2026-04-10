@@ -487,6 +487,8 @@ export const dict = {
   "notification.permission.description": "{{sessionTitle}}（{{projectName}}）需要权限",
   "notification.question.title": "问题",
   "notification.question.description": "{{sessionTitle}}（{{projectName}}）有一个问题",
+  "notification.autoReview.detected": "强制回顾",
+  "notification.autoReview.warning": "非预期行为",
   "notification.action.goToSession": "前往会话",
   "notification.session.responseReady.title": "回复已就绪",
   "notification.session.error.title": "会话错误",
@@ -611,6 +613,7 @@ export const dict = {
   "settings.section.server": "服务器",
 
   "settings.tab.general": "通用",
+  "settings.tab.interaction": "交互",
   "settings.tab.shortcuts": "快捷键",
   "settings.tab.data": "数据",
 
@@ -646,6 +649,13 @@ export const dict = {
   "settings.general.row.shellToolPartsExpanded.description": "默认在时间线中展开 shell 工具部分",
   "settings.general.row.editToolPartsExpanded.title": "展开编辑工具部分",
   "settings.general.row.editToolPartsExpanded.description": "默认在时间线中展开 edit、write 和 patch 工具部分",
+
+  "settings.interaction.autoReview.title": "强制回顾",
+  "settings.interaction.autoReview.description": "检测模型回复中的特定模式并触发后续动作",
+
+  "settings.interaction.question.title": "问题对话框",
+  "settings.interaction.question.description": "当智能体询问问题时显示选项对话框",
+
   "settings.general.row.wayland.title": "使用原生 Wayland",
   "settings.general.row.wayland.description": "在 Wayland 上禁用 X11 回退。需要重启。",
   "settings.general.row.wayland.tooltip": "在混合刷新率显示器的 Linux 系统上，原生 Wayland 可能更稳定。",
@@ -909,6 +919,9 @@ export const dict = {
   "debugBar.mem.label": "MEM",
   "debugBar.mem.tipUnavailable": "使用的 JS 堆与堆限制。仅限 Chromium。",
   "debugBar.mem.tip": "使用的 JS 堆与堆限制。{{used}} / {{limit}}。",
+  "debugBar.show": "显示调试栏",
+  "debugBar.hide": "隐藏调试栏",
+
   "common.key.ctrl": "Ctrl",
   "common.key.alt": "Alt",
   "common.key.shift": "Shift",
