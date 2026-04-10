@@ -5,6 +5,7 @@ import { Icon } from "@opencode-ai/ui/icon"
 import { useLanguage } from "@/context/language"
 import { usePlatform } from "@/context/platform"
 import { SettingsGeneral } from "./settings-general"
+import { SettingsInteraction } from "./settings-interaction"
 import { SettingsKeybinds } from "./settings-keybinds"
 import { SettingsProviders } from "./settings-providers"
 import { SettingsModels } from "./settings-models"
@@ -27,6 +28,10 @@ export const DialogSettings: Component = () => {
                     <Tabs.Trigger value="general">
                       <Icon name="sliders" />
                       {language.t("settings.tab.general")}
+                    </Tabs.Trigger>
+                    <Tabs.Trigger value="interaction">
+                      <Icon name="bubble-5" />
+                      {language.t("settings.tab.interaction")}
                     </Tabs.Trigger>
                     <Tabs.Trigger value="shortcuts">
                       <Icon name="keyboard" />
@@ -62,6 +67,9 @@ export const DialogSettings: Component = () => {
         </Tabs.List>
         <Tabs.Content value="general" class="no-scrollbar">
           <SettingsGeneral />
+        </Tabs.Content>
+        <Tabs.Content value="interaction" class="no-scrollbar">
+          <SettingsInteraction />
         </Tabs.Content>
         <Tabs.Content value="shortcuts" class="no-scrollbar">
           <SettingsKeybinds />

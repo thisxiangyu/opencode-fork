@@ -8,6 +8,7 @@ import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
 import { usePermission } from "@/context/permission"
 import { useSDK } from "@/context/sdk"
+import { useSettings } from "@/context/settings"
 import { useSync } from "@/context/sync"
 import { composerDriver, composerEnabled, composerEvent } from "@/testing/session-composer"
 import { sessionPermissionRequest, sessionQuestionRequest } from "./session-request-tree"
@@ -32,8 +33,10 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
   const globalSync = useGlobalSync()
   const language = useLanguage()
   const permission = usePermission()
+  const settings = useSettings()
 
   const questionRequest = createMemo((): QuestionRequest | undefined => {
+    if (!settings.interaction.question()) return
     return sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
   })
 
