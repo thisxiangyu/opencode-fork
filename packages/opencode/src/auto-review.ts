@@ -71,9 +71,9 @@ export namespace AutoReview {
   export function buildPrompt(detectedQuestion: string): string {
     return `<强制回顾提示词>
 你刚才的回复以疑问句结尾："${detectedQuestion}"
-根据语境思考是否要将这个疑问句转为一次question工具调用以优化用户的交互体验。
-如果决定要调用，请直接用你最后的疑问句发起一次question工具调用。
+根据语境思考是否要将这个疑问句转为一次question工具调用。
 如果认为不合适，请只回复"不必"。
+如果决定要调用，请围绕你最后疑问句的主题发起一次question工具调用。(提醒: question工具有助于消除歧义、提供选择、对齐细节)
 </强制回顾提示词>`
   }
 
