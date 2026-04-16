@@ -10,9 +10,7 @@
     "customConditions": ["browser"],
     "paths": {
       "@/*": ["./src/*"],
-      "@tui/*": ["./src/cli/cmd/tui/*"],
-      "effect": ["./node_modules/effect/dist/index.d.ts"],
-      "effect/*": ["./node_modules/effect/dist/*.d.ts"]
+      "@tui/*": ["./src/cli/cmd/tui/*"]
     },
     "plugins": [
       {
