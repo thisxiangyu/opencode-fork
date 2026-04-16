@@ -3,6 +3,7 @@ import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { formatPatch, structuredPatch } from "diff"
 import path from "path"
 import z from "zod"
+import ignore from "ignore"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
@@ -158,6 +159,17 @@ export namespace Snapshot {
             yield* fs.writeFileString(target, text ? `${text}\n` : "").pipe(Effect.orDie)
           })
 
+          const parseIgnore = Effect.fnUntraced(function* () {
+            const ig = ignore()
+            const gitignorePath = path.join(state.worktree, ".gitignore")
+            const gitignoreText = yield* read(gitignorePath)
+            if (gitignoreText) ig.add(gitignoreText)
+            const ignorePath = path.join(state.worktree, ".ignore")
+            const ignoreText = yield* read(ignorePath)
+            if (ignoreText) ig.add(ignoreText)
+            return ig.ignores.bind(ig)
+          })
+
           const add = Effect.fnUntraced(function* () {
             yield* sync()
             const [diff, other] = yield* Effect.all(
@@ -185,6 +197,23 @@ export namespace Snapshot {
             const untracked = other.text.split("\0").filter(Boolean)
             const all = Array.from(new Set([...tracked, ...untracked]))
             if (!all.length) return
+
+            const ignored = new Set<string>()
+            const isIgnored = yield* parseIgnore()
+            for (const item of all) {
+              if (isIgnored(item) || isIgnored(item + "/")) ignored.add(item)
+            }
+            const filtered = all.filter((item) => !ignored.has(item))
+
+            if (ignored.size > 0) {
+              const ignoredFiles = Array.from(ignored)
+              log.info("removing gitignored files from snapshot", { count: ignoredFiles.length })
+              yield* git([...cfg, ...args(["rm", "--cached", "-f", "--", ...ignoredFiles])], {
+                cwd: state.directory,
+              })
+            }
+
+            if (!filtered.length) return
 
             const large = (yield* Effect.all(
               all.map((item) =>
@@ -268,14 +297,24 @@ export namespace Snapshot {
                   log.warn("failed to get diff", { hash, exitCode: result.code })
                   return { hash, files: [] }
                 }
+                const files = result.text
+                  .trim()
+                  .split("\n")
+                  .map((x) => x.trim())
+                  .filter(Boolean)
+
+                if (files.length > 0) {
+                  const isIgnored = yield* parseIgnore()
+                  const filtered = files.filter((item) => !isIgnored(item) && !isIgnored(item + "/"))
+                  return {
+                    hash,
+                    files: filtered.map((x) => path.join(state.worktree, x).replaceAll("\\", "/")),
+                  }
+                }
+
                 return {
                   hash,
-                  files: result.text
-                    .trim()
-                    .split("\n")
-                    .map((x) => x.trim())
-                    .filter(Boolean)
-                    .map((x) => path.join(state.worktree, x).replaceAll("\\", "/")),
+                  files: [],
                 }
               }),
             )
@@ -622,10 +661,18 @@ export namespace Snapshot {
                         binary,
                         additions: Number.isFinite(additions) ? additions : 0,
                         deletions: Number.isFinite(deletions) ? deletions : 0,
-                      } satisfies Row,
+} satisfies Row,
                     ]
                   })
-                const step = 100
+
+                  if (rows.length > 0) {
+                    const isIgnored = yield* parseIgnore()
+                    const filtered = rows.filter((r) => !isIgnored(r.file) && !isIgnored(r.file + "/"))
+                    rows.length = 0
+                    rows.push(...filtered)
+                  }
+
+                  const step = 100
                 const patch = (file: string, before: string, after: string) =>
                   formatPatch(structuredPatch(file, file, before, after, "", "", { context: Number.MAX_SAFE_INTEGER }))
 
