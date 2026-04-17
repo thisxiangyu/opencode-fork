@@ -6,7 +6,6 @@ import z from "zod"
 import ignore from "ignore"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import { InstanceState } from "@/effect/instance-state"
-import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@/filesystem"
 import { Hash } from "@/util/hash"
 import { Config } from "../config/config"
@@ -198,6 +197,10 @@ export namespace Snapshot {
             const all = Array.from(new Set([...tracked, ...untracked]))
             if (!all.length) return
 
+            // Filter out files that are now gitignored even if previously tracked
+            // Files may have been tracked before being gitignored, so we need to check
+            // against the source project's current gitignore rules
+            // Use local ignore library to avoid command line length limits
             const ignored = new Set<string>()
             const isIgnored = yield* parseIgnore()
             for (const item of all) {
@@ -205,6 +208,7 @@ export namespace Snapshot {
             }
             const filtered = all.filter((item) => !ignored.has(item))
 
+            // Remove newly-ignored files from snapshot index to prevent re-adding
             if (ignored.size > 0) {
               const ignoredFiles = Array.from(ignored)
               log.info("removing gitignored files from snapshot", { count: ignoredFiles.length })
@@ -216,7 +220,7 @@ export namespace Snapshot {
             if (!filtered.length) return
 
             const large = (yield* Effect.all(
-              all.map((item) =>
+              filtered.map((item) =>
                 fs
                   .stat(path.join(state.directory, item))
                   .pipe(Effect.catch(() => Effect.void))
@@ -303,6 +307,7 @@ export namespace Snapshot {
                   .map((x) => x.trim())
                   .filter(Boolean)
 
+                // Filter out files that are now gitignored
                 if (files.length > 0) {
                   const isIgnored = yield* parseIgnore()
                   const filtered = files.filter((item) => !isIgnored(item) && !isIgnored(item + "/"))
@@ -661,18 +666,18 @@ export namespace Snapshot {
                         binary,
                         additions: Number.isFinite(additions) ? additions : 0,
                         deletions: Number.isFinite(deletions) ? deletions : 0,
-} satisfies Row,
+                      } satisfies Row,
                     ]
                   })
 
-                  if (rows.length > 0) {
-                    const isIgnored = yield* parseIgnore()
-                    const filtered = rows.filter((r) => !isIgnored(r.file) && !isIgnored(r.file + "/"))
-                    rows.length = 0
-                    rows.push(...filtered)
-                  }
+                if (rows.length > 0) {
+                  const isIgnored = yield* parseIgnore()
+                  const filtered = rows.filter((r) => !isIgnored(r.file) && !isIgnored(r.file + "/"))
+                  rows.length = 0
+                  rows.push(...filtered)
+                }
 
-                  const step = 100
+                const step = 100
                 const patch = (file: string, before: string, after: string) =>
                   formatPatch(structuredPatch(file, file, before, after, "", "", { context: Number.MAX_SAFE_INTEGER }))
 
@@ -746,34 +751,4 @@ export namespace Snapshot {
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(Config.defaultLayer),
   )
-
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export async function init() {
-    return runPromise((svc) => svc.init())
-  }
-
-  export async function track() {
-    return runPromise((svc) => svc.track())
-  }
-
-  export async function patch(hash: string) {
-    return runPromise((svc) => svc.patch(hash))
-  }
-
-  export async function restore(snapshot: string) {
-    return runPromise((svc) => svc.restore(snapshot))
-  }
-
-  export async function revert(patches: Patch[]) {
-    return runPromise((svc) => svc.revert(patches))
-  }
-
-  export async function diff(hash: string) {
-    return runPromise((svc) => svc.diff(hash))
-  }
-
-  export async function diffFull(from: string, to: string) {
-    return runPromise((svc) => svc.diffFull(from, to))
-  }
 }
