@@ -34,7 +34,6 @@ export function createSessionComposerState(options?: { closeMs?: number | (() =>
   const settings = useSettings()
 
   const questionRequest = createMemo((): QuestionRequest | undefined => {
-    if (!settings.interaction.question()) return
     return sessionQuestionRequest(sync.data.session, sync.data.question, params.id)
   })
 

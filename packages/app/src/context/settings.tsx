@@ -18,10 +18,6 @@ export interface SoundSettings {
   errors: string
 }
 
-export interface InteractionSettings {
-  question: boolean
-}
-
 export interface Settings {
   general: {
     autoSave: boolean
@@ -45,42 +41,6 @@ export interface Settings {
   }
   notifications: NotificationSettings
   sounds: SoundSettings
-  interaction: InteractionSettings
-}
-
-// 同步interaction设置到后端Config
-async function syncInteractionToBackend(question: boolean) {
-  try {
-    const url = window.location.origin
-    const headers: Record<string, string> = { "Content-Type": "application/json" }
-
-    const getRes = await fetch(`${url}/global/config`, { headers })
-    if (!getRes.ok) {
-      console.error("[Settings] Failed to get config")
-      return
-    }
-
-    const currentConfig = await getRes.json()
-
-    const updatedConfig = {
-      ...currentConfig,
-      interaction: {
-        question: question,
-      },
-    }
-
-    const patchRes = await fetch(`${url}/global/config`, {
-      method: "PATCH",
-      headers,
-      body: JSON.stringify(updatedConfig),
-    })
-
-    if (!patchRes.ok) {
-      console.error("[Settings] Failed to sync interaction setting")
-    }
-  } catch (err) {
-    console.error("[Settings] Error syncing interaction setting:", err)
-  }
 }
 
 export const monoDefault = "System Mono"
@@ -157,9 +117,6 @@ const defaultSettings: Settings = {
     permissions: "staplebops-02",
     errorsEnabled: true,
     errors: "nope-03",
-  },
-  interaction: {
-    question: true,
   },
 }
 
@@ -311,14 +268,6 @@ export const { use: useSettings, provider: SettingsProvider } = createSimpleCont
         errors: withFallback(() => store.sounds?.errors, defaultSettings.sounds.errors),
         setErrors(value: string) {
           setStore("sounds", "errors", value)
-        },
-      },
-      interaction: {
-        question: withFallback(() => store.interaction?.question, defaultSettings.interaction.question),
-        setQuestion(value: boolean) {
-          setStore("interaction", "question", value)
-          // 同步到后端Config
-          void syncInteractionToBackend(value)
         },
       },
     }
