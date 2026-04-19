@@ -10,11 +10,11 @@ import { AppRuntime } from "@/effect/app-runtime"
 import { AsyncQueue } from "@/util/queue"
 import { Instance } from "../../project/instance"
 import { Installation } from "@/installation"
-import { CHANNEL } from "@/installation/meta"
-import { Log } from "../../util/log"
+import { InstallationVersion, InstallationChannel } from "@/installation/version"
+import { Log } from "../../util"
 import { lazy } from "../../util/lazy"
-import { Config } from "../../config/config"
-import { Database } from "../../storage/db"
+import { Config } from "../../config"
+import { Path as DatabasePath } from "../../storage/db"
 import { StorageConfig } from "../../storage/storage-config"
 import { Worktree } from "../../worktree"
 import { Snapshot } from "../../snapshot"
@@ -94,7 +94,7 @@ export const GlobalRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        return c.json({ healthy: true, version: Installation.VERSION })
+        return c.json({ healthy: true, version: InstallationVersion })
       },
     )
     .get(
@@ -302,7 +302,8 @@ export const GlobalRoutes = lazy(() =>
                 schema: resolver(
                   z.object({
                     path: z.string().describe("Absolute path to the database file"),
-                    configured: z.string().optional().describe("Configured value from settings, if set"),
+                    channel: z.string().optional().describe("Installation channel"),
+                    configFiles: z.array(z.string()).optional().describe("Config files"),
                   }),
                 ),
               },
@@ -312,8 +313,8 @@ export const GlobalRoutes = lazy(() =>
       }),
       async (c) => {
         return c.json({
-          path: Database.Path,
-          channel: CHANNEL,
+          path: DatabasePath,
+          channel: InstallationChannel,
           configFiles: StorageConfig.configFiles(),
         })
       },
@@ -332,7 +333,7 @@ export const GlobalRoutes = lazy(() =>
                 schema: resolver(
                   z.object({
                     path: z.string().describe("Absolute path to the log directory"),
-                    configured: z.string().optional().describe("Configured value from settings, if set"),
+                    configFiles: z.array(z.string()).optional().describe("Config files"),
                   }),
                 ),
               },
@@ -361,7 +362,7 @@ export const GlobalRoutes = lazy(() =>
                 schema: resolver(
                   z.object({
                     path: z.string().describe("Absolute path to the worktree directory"),
-                    configured: z.string().optional().describe("Configured value from settings, if set"),
+                    configFiles: z.array(z.string()).optional().describe("Config files"),
                   }),
                 ),
               },
@@ -390,7 +391,7 @@ export const GlobalRoutes = lazy(() =>
                 schema: resolver(
                   z.object({
                     path: z.string().describe("Absolute path to the snapshot directory"),
-                    configured: z.string().optional().describe("Configured value from settings, if set"),
+                    configFiles: z.array(z.string()).optional().describe("Config files"),
                   }),
                 ),
               },

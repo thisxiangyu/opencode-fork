@@ -7,13 +7,15 @@ import { UI } from "../ui"
 import { MCP } from "../../mcp"
 import { McpAuth } from "../../mcp/auth"
 import { McpOAuthProvider } from "../../mcp/oauth-provider"
-import { Config } from "../../config/config"
+import { Config } from "../../config"
+import { ConfigMCP } from "../../config/mcp"
 import { Instance } from "../../project/instance"
 import { Installation } from "../../installation"
+import { InstallationVersion } from "../../installation/version"
 import path from "path"
 import { Global } from "../../global"
 import { modify, applyEdits } from "jsonc-parser"
-import { Filesystem } from "../../util/filesystem"
+import { Filesystem } from "../../util"
 import { Bus } from "../../bus"
 import { AppRuntime } from "../../effect/app-runtime"
 import { Effect } from "effect"
@@ -42,7 +44,7 @@ function getAuthStatusText(status: MCP.AuthStatus): string {
 
 type McpEntry = NonNullable<Config.Info["mcp"]>[string]
 
-type McpConfigured = Config.Mcp
+type McpConfigured = ConfigMCP.Info
 function isMcpConfigured(config: McpEntry): config is McpConfigured {
   return typeof config === "object" && config !== null && "type" in config
 }
@@ -108,6 +110,52 @@ export const McpCommand = cmd({
   async handler() {},
 })
 
+export const McpToolsCommand = cmd({
+  command: "tools",
+  aliases: ["t"],
+  describe: "list available tools from MCP servers",
+  async handler() {
+    await Instance.provide({
+      directory: process.cwd(),
+      async fn() {
+        UI.empty()
+        prompts.intro("MCP Tools")
+
+        const allTools = await AppRuntime.runPromise(MCP.Service.use((mcp) => mcp.tools()))
+        const toolEntries = Object.entries(allTools)
+
+        if (toolEntries.length === 0) {
+          prompts.log.warn("No MCP tools available")
+          prompts.log.info("Connect to an MCP server first with: opencode mcp add")
+          prompts.outro("Done")
+          return
+        }
+
+        const { config } = await listState()
+        const servers = configuredServers(config)
+
+        for (const [name, serverConfig] of servers) {
+          const serverTools = toolEntries.filter(([toolName]) =>
+            toolName.startsWith(name.replace(/[^a-zA-Z0-9_-]/g, "_") + "_"),
+          )
+          if (serverTools.length === 0) continue
+
+          prompts.log.info(`${UI.Style.TEXT_HIGHLIGHT}${name}${UI.Style.TEXT_NORMAL}`)
+          for (const [toolName, tool] of serverTools) {
+            const localName = toolName.replace(/^[^_]+_/, "")
+            prompts.log.info(`  ${UI.Style.TEXT_DIM}${localName}${UI.Style.TEXT_NORMAL}`)
+            if (tool.description) {
+              prompts.log.info(`    ${tool.description}`)
+            }
+          }
+        }
+
+        prompts.outro(`${toolEntries.length} tool(s) from ${servers.length} server(s)`)
+      },
+    })
+  },
+})
+
 export const McpListCommand = cmd({
   command: "list",
   aliases: ["ls"],
@@ -169,67 +217,6 @@ export const McpListCommand = cmd({
         }
 
         prompts.outro(`${servers.length} server(s)`)
-      },
-    })
-  },
-})
-
-export const McpToolsCommand = cmd({
-  command: "tools [name]",
-  describe: "list tools for an MCP server",
-  builder: (yargs) =>
-    yargs.positional("name", {
-      describe: "name of the MCP server",
-      type: "string",
-    }),
-  async handler(args) {
-    await Instance.provide({
-      directory: process.cwd(),
-      async fn() {
-        UI.empty()
-        prompts.intro("MCP Tools")
-
-        const config = await Config.get()
-        const mcpServers = config.mcp ?? {}
-        const allTools = await MCP.tools()
-
-        if (!args.name) {
-          prompts.log.info("All available MCP tools:")
-          for (const [toolName, tool] of Object.entries(allTools)) {
-            prompts.log.info(`  ${toolName}`)
-            if (tool.description) {
-              prompts.log.info(`    ${tool.description}`)
-            }
-          }
-          prompts.outro(`${Object.keys(allTools).length} tool(s)`)
-          return
-        }
-
-        const serverConfig = mcpServers[args.name]
-        if (!serverConfig) {
-          prompts.log.error(`MCP server not found: ${args.name}`)
-          prompts.outro("Done")
-          return
-        }
-
-        const prefix = args.name.replace(/[^a-zA-Z0-9]/g, "_")
-        const serverTools = Object.entries(allTools).filter(([name]) => name.startsWith(prefix + "_"))
-
-        if (serverTools.length === 0) {
-          prompts.log.warn(`No tools found for ${args.name}`)
-          prompts.outro("Done")
-          return
-        }
-
-        prompts.log.info(`Tools for ${args.name}:`)
-        for (const [toolName, tool] of serverTools) {
-          const shortName = toolName.replace(prefix + "_", "")
-          prompts.log.info(`  ${shortName}`)
-          if (tool.description) {
-            prompts.log.info(`    ${tool.description}`)
-          }
-        }
-        prompts.outro(`${serverTools.length} tool(s)`)
       },
     })
   },
@@ -487,7 +474,7 @@ async function resolveConfigPath(baseDir: string, global = false) {
   return candidates[0]
 }
 
-async function addMcpToConfig(name: string, mcpConfig: Config.Mcp, configPath: string) {
+async function addMcpToConfig(name: string, mcpConfig: ConfigMCP.Info, configPath: string) {
   let text = "{}"
   if (await Filesystem.exists(configPath)) {
     text = await Filesystem.readText(configPath)
@@ -575,7 +562,7 @@ export const McpAddCommand = cmd({
           })
           if (prompts.isCancel(command)) throw new UI.CancelledError()
 
-          const mcpConfig: Config.Mcp = {
+          const mcpConfig: ConfigMCP.Info = {
             type: "local",
             command: command.split(" "),
           }
@@ -605,7 +592,7 @@ export const McpAddCommand = cmd({
           })
           if (prompts.isCancel(useOAuth)) throw new UI.CancelledError()
 
-          let mcpConfig: Config.Mcp
+          let mcpConfig: ConfigMCP.Info
 
           if (useOAuth) {
             const hasClientId = await prompts.confirm({
@@ -759,7 +746,7 @@ export const McpDebugCommand = cmd({
               params: {
                 protocolVersion: "2024-11-05",
                 capabilities: {},
-                clientInfo: { name: "opencode-debug", version: Installation.VERSION },
+                clientInfo: { name: "opencode-debug", version: InstallationVersion },
               },
               id: 1,
             }),
@@ -808,7 +795,7 @@ export const McpDebugCommand = cmd({
             try {
               const client = new Client({
                 name: "opencode-debug",
-                version: Installation.VERSION,
+                version: InstallationVersion,
               })
               await client.connect(transport)
               prompts.log.success("Connection successful (already authenticated)")
