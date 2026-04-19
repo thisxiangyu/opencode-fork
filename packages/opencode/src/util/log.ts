@@ -77,6 +77,7 @@ export namespace Log {
   export async function init(options: Options) {
     if (options.level) level = options.level
     const dir = resolveLogDir()
+    await fs.mkdir(dir, { recursive: true })
     cleanup(dir)
 
     // tee 模式：同时输出到控制台和文件
