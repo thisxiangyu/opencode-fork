@@ -11,11 +11,13 @@ import { Hash } from "@opencode-ai/shared/util/hash"
 import { Config } from "../config"
 import { Global } from "../global"
 import { Log } from "../util"
+import { Flag } from "../flag/flag"
 import { StorageConfig } from "../storage/storage-config"
 
 export function resolveDir(projectID?: string): string {
   const base = StorageConfig.resolvePath({
     type: "snapshot",
+    flag: Flag.OPENCODE_SNAPSHOT,
     defaultPath: path.join(Global.Path.data, "snapshot"),
     allowRelative: true,
   })
@@ -143,6 +145,26 @@ export const layer: Layer.Layer<
           return ig.ignores.bind(ig)
         })
 
+        const parseFolderPatterns = Effect.fnUntraced(function* () {
+          const gitignorePath = path.join(state.worktree, ".gitignore")
+          const gitignoreText = yield* read(gitignorePath)
+          const ignorePath = path.join(state.worktree, ".ignore")
+          const ignoreText = yield* read(ignorePath)
+          const allText = [gitignoreText, ignoreText].filter(Boolean).join("\n")
+
+          const folderPatterns = new Set<string>()
+          for (const line of allText.split("\n")) {
+            const trimmed = line.trim()
+            if (!trimmed || trimmed.startsWith("#")) continue
+            if (trimmed.endsWith("/")) {
+              folderPatterns.add(trimmed)
+            } else if (!trimmed.includes("*") && !trimmed.includes("?") && !trimmed.includes("[")) {
+              folderPatterns.add(trimmed + "/")
+            }
+          }
+          return folderPatterns
+        })
+
         const drop = Effect.fnUntraced(function* (files: string[]) {
           if (!files.length) return
           yield* git(
@@ -238,14 +260,76 @@ export const layer: Layer.Layer<
           const ignored = new Set<string>()
           const isIgnored = yield* parseIgnore()
           for (const item of all) {
-            if (isIgnored(item) || isIgnored(item + "/")) ignored.add(item)
+            // Check if the path itself matches ignore patterns
+            if (isIgnored(item)) {
+              ignored.add(item)
+              continue
+            }
+            // For potential directories, also check with trailing slash
+            const stat = yield* fs
+              .stat(path.join(state.directory, item))
+              .pipe(Effect.catch(() => Effect.succeed(undefined)))
+            if (stat?.type === "Directory" && isIgnored(item + "/")) {
+              ignored.add(item)
+            }
           }
 
           // Remove newly-ignored files from snapshot index to prevent re-adding
+          // Use folder-first approach: batch remove by directory to avoid ENAMETOOLONG
           if (ignored.size > 0) {
             const ignoredFiles = Array.from(ignored)
             log.info("removing gitignored files from snapshot", { count: ignoredFiles.length })
-            yield* drop(ignoredFiles)
+
+            const folderPatterns = yield* parseFolderPatterns()
+
+            // Group ignored files by top-level directory
+            const dirToFiles = new Map<string, string[]>()
+            const rootFiles: string[] = []
+            for (const file of ignoredFiles) {
+              const idx = file.indexOf("/")
+              if (idx === -1) {
+                rootFiles.push(file)
+              } else {
+                const dir = file.substring(0, idx)
+                if (!dirToFiles.has(dir)) dirToFiles.set(dir, [])
+                dirToFiles.get(dir)!.push(file)
+              }
+            }
+
+            // Determine which directories can be batch-removed entirely
+            const dirBatches: string[] = []
+            const fileBatches: string[] = [...rootFiles]
+            for (const [dir, files] of dirToFiles) {
+              const dirPattern = dir + "/"
+              if (folderPatterns.has(dirPattern)) {
+                dirBatches.push(dir)
+              } else {
+                fileBatches.push(...files)
+              }
+            }
+
+            const BATCH_SIZE = 500
+
+            // Remove directories first (using -r for recursive)
+            if (dirBatches.length > 0) {
+              for (let i = 0; i < dirBatches.length; i += BATCH_SIZE) {
+                const batch = dirBatches.slice(i, i + BATCH_SIZE)
+                const result = yield* git([...cfg, ...args(["rm", "-r", "--cached", "-f", "--", ...batch])], {
+                  cwd: state.directory,
+                })
+                if (result.code !== 0 && result.stderr && !result.stderr.includes("did not match")) {
+                  log.warn("failed to remove ignored directories from snapshot", {
+                    exitCode: result.code,
+                    stderr: result.stderr,
+                  })
+                }
+              }
+            }
+
+            // Remove remaining files in batches
+            if (fileBatches.length > 0) {
+              yield* drop(fileBatches)
+            }
           }
 
           const allow = all.filter((item) => !ignored.has(item))
@@ -340,7 +424,15 @@ export const layer: Layer.Layer<
               // Hide ignored-file removals from the user-facing patch output.
               if (files.length > 0) {
                 const isIgnored = yield* parseIgnore()
-                const filtered = files.filter((item) => !isIgnored(item) && !isIgnored(item + "/"))
+                const filtered: string[] = []
+                for (const item of files) {
+                  if (isIgnored(item)) continue
+                  const stat = yield* fs
+                    .stat(path.join(state.directory, item))
+                    .pipe(Effect.catch(() => Effect.succeed(undefined)))
+                  if (stat?.type === "Directory" && isIgnored(item + "/")) continue
+                  filtered.push(item)
+                }
                 return {
                   hash,
                   files: filtered.map((x) => path.join(state.worktree, x).replaceAll("\\", "/")),
@@ -701,7 +793,15 @@ export const layer: Layer.Layer<
               // Hide ignored-file removals from the user-facing diff output.
               if (rows.length > 0) {
                 const isIgnored = yield* parseIgnore()
-                const filtered = rows.filter((r) => !isIgnored(r.file) && !isIgnored(r.file + "/"))
+                const filtered: typeof rows = []
+                for (const row of rows) {
+                  if (isIgnored(row.file)) continue
+                  const stat = yield* fs
+                    .stat(path.join(state.directory, row.file))
+                    .pipe(Effect.catch(() => Effect.succeed(undefined)))
+                  if (stat?.type === "Directory" && isIgnored(row.file + "/")) continue
+                  filtered.push(row)
+                }
                 rows.length = 0
                 rows.push(...filtered)
               }

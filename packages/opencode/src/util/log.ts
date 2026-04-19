@@ -2,6 +2,7 @@ import path from "path"
 import fs from "fs/promises"
 import { createWriteStream } from "fs"
 import { Global } from "../global"
+import { Flag } from "../flag/flag"
 import z from "zod"
 import { Glob } from "@opencode-ai/shared/util/glob"
 import { StorageConfig } from "../storage/storage-config"
@@ -62,16 +63,22 @@ let write = (msg: any) => {
 export function resolveLogDir(): string {
   return StorageConfig.resolvePath({
     type: "log",
+    flag: Flag.OPENCODE_LOG,
     defaultPath: Global.Path.log,
     allowRelative: true,
   })
 }
 
-export const LogDir = resolveLogDir()
+// 延迟计算 LogDir，避免循环依赖问题
+// global/index.ts 使用 "export * as Global from '.'" 在 await 之后才导出 Global
+// 如果这里直接调用 resolveLogDir()，会在 Global 还未初始化时访问 Global.Path.log
+// 改为函数形式后，只在调用时才求值，此时 Global 已经完成初始化
+export const LogDir = (): string => resolveLogDir()
 
 export async function init(options: Options) {
   if (options.level) level = options.level
   const dir = resolveLogDir()
+  await fs.mkdir(dir, { recursive: true })
   void cleanup(dir)
 
   if (options.tee) {

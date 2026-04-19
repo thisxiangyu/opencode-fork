@@ -21,6 +21,7 @@ import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { BootstrapRuntime } from "@/effect/bootstrap-runtime"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
 import { InstanceState } from "@/effect"
+import { Flag } from "../flag/flag"
 import { StorageConfig } from "../storage/storage-config"
 
 const log = Log.create({ service: "worktree" })
@@ -28,6 +29,7 @@ const log = Log.create({ service: "worktree" })
 export function resolveDir(projectID?: string): string {
   const base = StorageConfig.resolvePath({
     type: "worktree",
+    flag: Flag.OPENCODE_WORKTREE,
     defaultPath: path.join(Global.Path.data, "worktree"),
     allowRelative: true,
   })

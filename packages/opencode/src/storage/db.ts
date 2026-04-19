@@ -15,6 +15,7 @@ import { InstallationChannel } from "../installation/version"
 import { InstanceState } from "@/effect"
 import { iife } from "@/util/iife"
 import { init } from "#db"
+import { StorageConfig } from "./storage-config"
 
 declare const OPENCODE_MIGRATIONS: { sql: string; timestamp: number; name: string }[] | undefined
 
@@ -27,20 +28,20 @@ export const NotFoundError = NamedError.create(
 
 const log = Log.create({ service: "db" })
 
-export function getChannelPath() {
+export function getChannelPath(): string {
   if (["latest", "beta", "prod"].includes(InstallationChannel) || Flag.OPENCODE_DISABLE_CHANNEL_DB)
     return path.join(Global.Path.data, "opencode.db")
   const safe = InstallationChannel.replace(/[^a-zA-Z0-9._-]/g, "-")
   return path.join(Global.Path.data, `opencode-${safe}.db`)
 }
 
-export const Path = iife(() => {
-  if (Flag.OPENCODE_DB) {
-    if (Flag.OPENCODE_DB === ":memory:" || path.isAbsolute(Flag.OPENCODE_DB)) return Flag.OPENCODE_DB
-    return path.join(Global.Path.data, Flag.OPENCODE_DB)
-  }
-  return getChannelPath()
-})
+export const Path = iife(() =>
+  StorageConfig.resolvePath({
+    type: "database",
+    flag: Flag.OPENCODE_DB,
+    defaultPath: getChannelPath(),
+  }),
+)
 
 export type Transaction = SQLiteTransaction<"sync", void>
 

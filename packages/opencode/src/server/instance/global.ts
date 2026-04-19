@@ -343,7 +343,7 @@ export const GlobalRoutes = lazy(() =>
       }),
       async (c) => {
         return c.json({
-          path: Log.LogDir,
+          path: Log.LogDir(),
           configFiles: StorageConfig.configFiles(),
         })
       },
