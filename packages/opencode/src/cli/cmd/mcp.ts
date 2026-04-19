@@ -111,10 +111,16 @@ export const McpCommand = cmd({
 })
 
 export const McpToolsCommand = cmd({
-  command: "tools",
+  command: "tools [name]",
   aliases: ["t"],
   describe: "list available tools from MCP servers",
-  async handler() {
+  builder(zod) {
+    return zod.positional("name", {
+      describe: "name of the MCP server",
+      type: "string",
+    })
+  },
+  async handler(args: { name?: string }) {
     await Instance.provide({
       directory: process.cwd(),
       async fn() {
@@ -133,6 +139,36 @@ export const McpToolsCommand = cmd({
 
         const { config } = await listState()
         const servers = configuredServers(config)
+
+        if (args.name) {
+          const serverConfig = servers.find(([name]) => name === args.name)
+          if (!serverConfig) {
+            prompts.log.error(`MCP server not found: ${args.name}`)
+            prompts.outro("Done")
+            return
+          }
+
+          const [serverName] = serverConfig
+          const prefix = serverName.replace(/[^a-zA-Z0-9_-]/g, "_") + "_"
+          const serverTools = toolEntries.filter(([toolName]) => toolName.startsWith(prefix))
+
+          if (serverTools.length === 0) {
+            prompts.log.warn(`No tools found for ${args.name}`)
+            prompts.outro("Done")
+            return
+          }
+
+          prompts.log.info(`${UI.Style.TEXT_HIGHLIGHT}${args.name}${UI.Style.TEXT_NORMAL}`)
+          for (const [toolName, tool] of serverTools) {
+            const localName = toolName.replace(/^[^_]+_/, "")
+            prompts.log.info(`  ${UI.Style.TEXT_DIM}${localName}${UI.Style.TEXT_NORMAL}`)
+            if (tool.description) {
+              prompts.log.info(`    ${tool.description}`)
+            }
+          }
+          prompts.outro(`${serverTools.length} tool(s)`)
+          return
+        }
 
         for (const [name, serverConfig] of servers) {
           const serverTools = toolEntries.filter(([toolName]) =>

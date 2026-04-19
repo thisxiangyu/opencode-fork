@@ -14,6 +14,7 @@ import { AppRuntime } from "@/effect/app-runtime"
 
 await Log.init({
   print: process.argv.includes("--print-logs"),
+  tee: process.argv.includes("--log-tee"),
   dev: Installation.isLocal(),
   level: (() => {
     if (Installation.isLocal()) return "DEBUG"
