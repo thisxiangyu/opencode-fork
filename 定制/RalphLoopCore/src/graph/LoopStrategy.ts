@@ -306,29 +306,43 @@ export function createLoopNode(
 /**
  * 创建跳转
  */
-export function createTransition(
-  from: string,
-  to: string,
-  condition: TransitionCondition,
-  description?: string,
-  priority?: number,
-): Transition {
+export function createTransition({
+  from,
+  to,
+  condition,
+  description,
+  priority,
+}: {
+  from: string
+  to: string
+  condition: TransitionCondition
+  description?: string
+  priority?: number
+}): Transition {
   return { from, to, condition, description, priority }
 }
 
 /**
  * 创建条件跳转
  */
-export function createConditionalTransition(
-  from: string,
-  to: string,
-  field: string,
-  value: unknown,
-  conditionType: TransitionConditionType = "equals",
-  description?: string,
-  priority?: number,
-): Transition {
-  return createTransition(from, to, { type: conditionType, field, value }, description, priority)
+export function createConditionalTransition({
+  from,
+  to,
+  field,
+  value,
+  conditionType = "equals",
+  description,
+  priority,
+}: {
+  from: string
+  to: string
+  field: string
+  value: unknown
+  conditionType?: TransitionConditionType
+  description?: string
+  priority?: number
+}): Transition {
+  return createTransition({ from, to, condition: { type: conditionType, field, value }, description, priority })
 }
 
 /**
@@ -343,10 +357,10 @@ export function createKeywordTransition(
   description?: string,
   priority?: number,
 ): Transition {
-  return createTransition(
+  return createTransition({
     from,
     to,
-    {
+    condition: {
       type: matchMode === "all" ? "keywordAll" : "keywordAny",
       field,
       keywords,
@@ -354,5 +368,5 @@ export function createKeywordTransition(
     },
     description,
     priority,
-  )
+  })
 }
