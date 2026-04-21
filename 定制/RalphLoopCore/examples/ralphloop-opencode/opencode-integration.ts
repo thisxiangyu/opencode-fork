@@ -8,6 +8,11 @@
  * 启动服务器：opencode web
  */
 
+/**
+ * 测试题: 本实现当前采用消息轮询的方式检测用户是否暂停了消息, 该做法不够稳定, 需要改成基于返回的消息判断用户是否暂停了消息。
+ * 预期结果: 用户触发Abort的时候, 节点运行要暂停并告知用户已暂停, 直到用户再发消息给模型, 等拿到模型返回消息后经过节点验证, 才往后跳。 
+*/
+
 import { LoopEngine } from "../../src/index.js"
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk"
 import { ralphLoopStrategy } from "./strategy.js"
@@ -63,6 +68,7 @@ class OpenCodeSessionAdapter {
       console.log(`[事件监听] 已订阅事件, sessionId: ${this.id}`)
       ;(async () => {
         try {
+          console.log(`[调试-事件监听] 开始监听事件流...`)
           for await (const event of events.stream) {
             if (event.type === "session.status") {
               console.log(`[事件] 收到 session.status: ${JSON.stringify(event.properties)}`)
@@ -71,6 +77,7 @@ class OpenCodeSessionAdapter {
               const part = (event.properties as any)?.part
               if (part?.sessionID === this.id && part?.type === "text") {
                 const text = (part as any)?.text
+                console.log(`[调试-事件] 收到 message.part.updated, text长度: ${text?.length ?? 0}, 内容: ${(text as string)?.substring(0, 50)}...`)
                 if (text && this.messageCallback) {
                   this.messageCallback({ role: "assistant", content: text })
                 }
@@ -142,6 +149,7 @@ class OpenCodeSessionAdapter {
   }
 
   async sendMessage(message: { role: string; content: string }): Promise<string> {
+    console.log(`[调试-sendMessage] >>> 开始发送消息, role=${message.role}, 内容长度=${message.content.length}`)
     this.messageHistory.push(message)
 
     this.messageSequence++
@@ -182,6 +190,7 @@ class OpenCodeSessionAdapter {
 
     const pollPromise = pollForActivity()
 
+    console.log(`[调试-sendMessage] 调用 client.session.prompt 发送消息, role: ${message.role}, 内容: ${message.content.substring(0, 50)}...`)
     const response = await this.client.session.prompt({
       path: { id: this.id },
       body: {
@@ -191,6 +200,7 @@ class OpenCodeSessionAdapter {
       query: { directory: this.directory },
     })
 
+    console.log(`[调试-sendMessage] prompt API调用完成, response.data存在: ${!!response.data}`)
     abortCtrl.abort()
     this.abortController = null
     this.pendingMessage = null
@@ -207,8 +217,10 @@ class OpenCodeSessionAdapter {
           responseText += (p as { text: string }).text + "\n"
         }
       }
+      console.log(`[调试-sendMessage] API响应parts数量: ${response.data.parts.length}, responseText长度: ${responseText.length}`)
       if (responseText) {
         const trimmed = responseText.trim()
+        console.log(`[调试-sendMessage] 成功获取assistant消息, trimmed长度: ${trimmed.length}`)
         this.messageHistory.push({ role: "assistant", content: trimmed })
         this.lastReceivedMessageContent = trimmed
 
@@ -227,6 +239,7 @@ class OpenCodeSessionAdapter {
         return trimmed
       }
     }
+    console.log(`[调试-sendMessage] 返回空的responseText (parts为空或无text类型)`)
     return responseText
   }
 
@@ -235,12 +248,15 @@ class OpenCodeSessionAdapter {
   }
 
   getLastAssistantMessage(): string | null {
+    console.log(`[调试-getLastAssistantMessage] messageHistory长度=${this.messageHistory.length}`)
     for (let i = this.messageHistory.length - 1; i >= 0; i--) {
       const msg = this.messageHistory[i]
       if (msg && msg.role === "assistant") {
+        console.log(`[调试-getLastAssistantMessage] 找到assistant消息, 索引=${i}, 内容长度=${msg.content.length}`)
         return msg.content
       }
     }
+    console.log(`[调试-getLastAssistantMessage] 未找到assistant消息`)
     return null
   }
 
@@ -437,6 +453,9 @@ async function controlledExecute(engine: LoopEngine, session: OpenCodeSessionAda
   let iteration = 0
   const maxIterations = 500
 
+  console.log(`[调试-controlledExecute] 初始状态: entryNode=${strategy.entryNode}, 节点总数=${strategy.nodes.length}`)
+  console.log(`[调试-controlledExecute] 所有节点: ${strategy.nodes.map(n => n.name).join(", ")}`)
+
   let pendingInterrupt: InterruptedMessage | null = null
 
   session.onInterruption((msg) => {
@@ -449,6 +468,7 @@ async function controlledExecute(engine: LoopEngine, session: OpenCodeSessionAda
     console.log(
       `\n[循环] iteration=${iteration}, currentNodeId=${currentNodeId}, pendingInterrupt=${pendingInterrupt ? "有" : "无"}`,
     )
+    console.log(`[调试-循环] ===== 开始第 ${iteration} 轮节点执行 =====`)
 
     if (pendingInterrupt) {
       console.log(`[中断处理] 调用askUserWhereToGo`)
@@ -479,10 +499,18 @@ async function controlledExecute(engine: LoopEngine, session: OpenCodeSessionAda
 
     try {
       console.log(`\x1b[38;2;0;255;0m[发送>>]\x1b[0m system: ${systemPrompt.substring(0, 60)}...`)
+      console.log(`[调试] 节点 ${node.name} 发送system消息, 时间: ${new Date().toISOString()}`)
       await session.sendMessage({ role: "system", content: systemPrompt })
       console.log(`\x1b[38;2;0;255;0m[发送]\x1b[0m user: ${userMessage}`)
+      console.log(`[调试] 节点 ${node.name} 发送user消息, 时间: ${new Date().toISOString()}`)
       const response = await session.sendMessage({ role: "user", content: userMessage })
-
+      console.log(`[调试] 节点 ${node.name} 收到assistant响应, 时间: ${new Date().toISOString()}`)
+      console.log(`[调试] 响应长度: ${response.length} 字符`)
+      if (!response || response.trim().length === 0) {
+        console.log(`[调试-警告] 节点 ${node.name} 收到的response为空!`)
+      } else {
+        console.log(`[调试-验证] 节点 ${node.name} 成功收到assistant消息, 内容预览: ${response.substring(0, 50)}...`)
+      }
       console.log(`\x1b[38;2;0;255;0m[<<收到]\x1b[0m ${response.substring(0, 80)}...`)
 
       const result: Record<string, unknown> = {
@@ -508,6 +536,7 @@ async function controlledExecute(engine: LoopEngine, session: OpenCodeSessionAda
       }
 
       console.log(`<<< 离开节点: ${node.name} [completed]`)
+      console.log(`[调试-nodeComplete] 节点 ${node.name} 完成的response内容: ${response.substring(0, 100)}...`)
       engine.emit("nodeComplete", node, result as any, engine.getState())
 
       const ctx = engine.getContext()
@@ -522,10 +551,13 @@ async function controlledExecute(engine: LoopEngine, session: OpenCodeSessionAda
       }
 
       const nextTransition = strategy.transitions.find((t) => t.from === currentNodeId && t.condition.type === "always")
+      console.log(`[调试-跳转] 当前节点 ${currentNodeId}, 可用跳转: ${strategy.transitions.filter(t => t.from === currentNodeId).map(t => `${t.from}->${t.to}`).join(", ") || "无"}`)
 
       if (nextTransition) {
         const nextNodeId = nextTransition.to
         console.log(`\n⇢ 跳转: ${currentNodeId} → ${nextNodeId}`)
+        console.log(`[调试] 跳转前验证: 上一节点 ${currentNodeId} 的response是否有效: ${response ? "是" : "否"} (长度: ${response?.length ?? 0})`)
+        console.log(`[调试] 即将进入节点 ${nextNodeId}, 等待下一轮循环获取assistant消息`)
         engine.emit(
           "transition",
           currentNodeId,
