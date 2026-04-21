@@ -99,18 +99,14 @@ class OpenCodeSessionAdapter {
 
   private currentNodeName: string = ""
   private currentRoleName: string = ""
-  private messageSequence: number = 0
   private lastReceivedMessageContent: string = ""
 
   private receiveState: MessageReceiveState = MessageReceiveState.IDLE
   private pendingMessageContent: string = ""
-  private lastSentPromptId: string | null = null
   private lastUserMessageId: string | null = null
   private lastAssistantMessageId: string | null = null
   private messageRoles = new Map<string, string>()
   private messageTextById = new Map<string, string>()
-
-  private abortController: AbortController | null = null
 
   private pendingInterruption: InterruptedMessage | null = null
   private interruptionResolve: ((value: string) => void) | null = null
@@ -138,10 +134,6 @@ class OpenCodeSessionAdapter {
 
   getReceiveState(): MessageReceiveState {
     return this.receiveState
-  }
-
-  getStateDebug(): string {
-    return `state=${this.receiveState}, pendingMsg=${this.pendingMessageContent.substring(0, 30) || "(none)"}, lastUserMsgId=${this.lastUserMessageId || "(none)"}`
   }
 
   async startEventListener(): Promise<void> {
@@ -350,15 +342,6 @@ class OpenCodeSessionAdapter {
     }
   }
 
-  private extractTextContent(info: any): string | null {
-    if (!info?.parts) return null
-    const textParts = (info.parts as any[])
-      .filter((p) => p.type === "text")
-      .map((p) => p.text)
-      .join("")
-    return textParts || null
-  }
-
   private isResumedUserMessage(messageId: string): boolean {
     if (!this.waitContext) return false
     if (this.waitContext.phase !== "waiting_user") return false
@@ -427,10 +410,7 @@ class OpenCodeSessionAdapter {
     consoleAndLogFile.info(`[发送消息] role=${message.role}, content="${message.content.substring(0, 60)}...", state=${this.receiveState}, directory=${this.directory}, agent=${agent ?? "default"}`)
     consoleAndLogFile.info(`[DEBUG sendMessage] 开始, state=${this.receiveState}`)
     this.messageHistory.push(message)
-    this.messageSequence++
     this.pendingMessageContent = message.content
-
-    const previousContent = this.lastReceivedMessageContent
 
     if (message.role === "user" && this.receiveState === MessageReceiveState.IDLE) {
       this.receiveState = MessageReceiveState.WAITING_PROMPT_RESPONSE
@@ -577,7 +557,6 @@ class OpenCodeSessionAdapter {
   }
 
   private waitForUserMessagePromise: Promise<string> | null = null
-  private waitForUserMessageReject: ((error: Error) => void) | null = null
 
   async waitForUserMessage(timeoutMs: number = 300000): Promise<string> {
     if (this.waitForUserMessagePromise) {
@@ -644,29 +623,6 @@ class OpenCodeSessionAdapter {
 
   async getMessages(): Promise<Array<{ role: string; content: string }>> {
     return [...this.messageHistory]
-  }
-
-  getLastAssistantMessage(): string | null {
-    console.log(`[调试-getLastAssistantMessage] messageHistory长度=${this.messageHistory.length}`)
-    for (let i = this.messageHistory.length - 1; i >= 0; i--) {
-      const msg = this.messageHistory[i]
-      if (msg && msg.role === "assistant") {
-        console.log(`[调试-getLastAssistantMessage] 找到assistant消息, 索引=${i}, 内容长度=${msg.content.length}`)
-        return msg.content
-      }
-    }
-    console.log(`[调试-getLastAssistantMessage] 未找到assistant消息`)
-    return null
-  }
-
-  clearLastAssistantMessage(): void {
-    for (let i = this.messageHistory.length - 1; i >= 0; i--) {
-      const msg = this.messageHistory[i]
-      if (msg && msg.role === "assistant") {
-        this.messageHistory.splice(i, 1)
-        break
-      }
-    }
   }
 }
 
@@ -798,8 +754,8 @@ async function selectSession(
     logger.info(`[配置] 标题: ${sessionTitle}`)
 
     const session = await client.session.create({
-      query: { directory: sessionDir },
-      body: { title: sessionTitle },
+      directory: sessionDir,
+      title: sessionTitle,
     })
     if (!session.data) {
       throw new Error("创建会话失败")
@@ -858,7 +814,7 @@ async function askUserWhereToGo(
 
   while (true) {
     const current = strategy.nodes.findIndex((n) => n.name === interruptedMsg.nodeName) + 1 
-    const answer = await prompt(`将消息派发给哪个节点? (1-${nodeNames.length}, 当前节点: ${current}.${interruptedMsg.nodeName}): `)
+    const answer = await prompt(`将消息派发给哪个节点? (1-${nodeNames.length}, 当前: ${current}.${interruptedMsg.nodeName}): `)
     const idx = parseInt(answer, 10) - 1
     if (!isNaN(idx) && idx >= 0 && idx < nodeNames.length) {
       const targetNode = strategy.nodes[idx]
@@ -901,7 +857,8 @@ async function controlledExecute(
     console.log()
 
     if (pendingInterrupt) {
-      logger.info(`[中断处理] reason=${pendingInterrupt.reason}`)
+      const interrupt = pendingInterrupt as InterruptedMessage
+      logger.info(`[中断处理] reason=${interrupt.reason}`)
       const targetNodeId = await askUserWhereToGo(engine, pendingInterrupt)
       logger.info(`[用户决策] 跳转: ${targetNodeId}`)
       currentNodeId = targetNodeId
@@ -1089,7 +1046,7 @@ async function controlledExecute(
           engine.emit("nodeError", node, error as Error, engine.getState())
           break
         }
-        const targetNodeId = await askUserWhereToGo(engine, pendingInterrupt)
+        const targetNodeId = await askUserWhereToGo(engine, pendingInterrupt as InterruptedMessage)
         logger.info(`[用户决策] 跳转: ${targetNodeId}`)
         currentNodeId = targetNodeId
         pendingInterrupt = null
