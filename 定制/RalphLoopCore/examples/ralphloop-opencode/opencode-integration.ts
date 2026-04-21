@@ -1,22 +1,59 @@
 /**
- * RalphLoopCore × OpenCode 集成示例 - 可控循环版本
+ * RalphLoopCore × OpenCode 集成示例 - 事件驱动版本
  *
  * 本示例展示如何将 RalphLoopCore 的节点图执行引擎与 OpenCode 会话连接
- * 支持 WebUI 暂停/回滚时手动选择消息派发节点
+ * 支持三种用户操作检测：
+ * 1. 用户按下 ESC 暂停 - RLC 节点暂停，以下一条用户消息作为接收
+ * 2. 用户触发回滚 - 以回滚后新消息的返回作为 RLC 接收
+ * 3. 用户直接发新消息引导 - 以新消息的返回作为接收
  *
  * 运行前提：OpenCode 服务器必须正在运行
  * 启动服务器：opencode web
+ *
+ * ============================================================================
+ * Opencode SDK 版本坑点说明 (v1 vs v2)
+ * ============================================================================
+ *
+ * 1. 导入差异:
+ *    - v1: import { createOpencodeClient } from "@opencode-ai/sdk"
+ *    - v2: import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
+ *
+ * 2. 事件订阅端点差异:
+ *    - v1: client.event.subscribe() -> /event (按目录过滤)
+ *    - v2: client.global.event() -> /global/event (全局事件流)
+ *    重要: 必须使用 v2 的 global.event 才能接收到 session.error 等事件!
+ *
+ * 3. session.prompt 参数结构差异:
+ *    - v1: client.session.prompt({ path: { id: sessionId }, body: { parts: [...] } })
+ *    - v2: client.session.prompt({ sessionID: sessionId, parts: [...] })
+ *    重要: v2 使用平铺的参数结构，不是嵌套在 path/body 中!
+ *
+ * 4. 事件结构差异:
+ *    - v1: event.type, event.properties
+ *    - v2: event.payload.type, event.payload.properties
+ *    重要: v2 的事件嵌套在 payload 字段中!
+ *
+ * 5. directory 参数:
+ *    - v2 中 directory 是 query 参数: client.session.prompt({ sessionID, directory })
+ *    不是 body 参数!
+ *
+ * ============================================================================
+ * 日志分级说明
+ * ============================================================================
+ * - 控制台输出: 精简的关键信息
+ * - 文件输出: 详细日志，保存在 ./log 目录下，按日期命名
+ *
+ * ============================================================================
  */
 
-/**
- * 测试题: 本实现当前采用消息轮询的方式检测用户是否暂停了消息, 该做法不够稳定, 需要改成基于返回的消息判断用户是否暂停了消息。
- * 预期结果: 用户触发Abort的时候, 节点运行要暂停并告知用户已暂停, 直到用户再发消息给模型, 等拿到模型返回消息后经过节点验证, 才往后跳。 
-*/
-
 import { LoopEngine } from "../../src/index.js"
-import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk"
+import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { ralphLoopStrategy } from "./strategy.js"
+import { logger, consoleAndLogFile } from "../../src/logger"
+import * as path from "path"
 import * as readline from "readline"
+
+type InterruptionReason = "pause" | "rollback" | "new_message" | "aborted"
 
 interface InterruptedMessage {
   nodeName: string
@@ -24,13 +61,31 @@ interface InterruptedMessage {
   beforeMessage: string
   receivedMessage: string
   timestamp: Date
-  reason: "pause" | "resend" | "unknown"
+  reason: InterruptionReason
 }
 
-interface PendingMessage {
-  content: string
-  timestamp: Date
-  sequence: number
+enum MessageReceiveState {
+  IDLE = "IDLE",
+  WAITING_PROMPT_RESPONSE = "WAITING_PROMPT_RESPONSE",
+  EXPECTING_NEXT_MESSAGE = "EXPECTING_NEXT_MESSAGE",
+  RECEIVED_INTERRUPTION = "RECEIVED_INTERRUPTION",
+}
+
+type WaitPhase = "waiting_user" | "waiting_assistant"
+
+interface WaitContext {
+  phase: WaitPhase
+  startedAt: number
+  baselineUserMessageId: string | null
+  baselineAssistantMessageId: string | null
+  resumedUserMessageId: string | null
+}
+
+class AbortError extends Error {
+  constructor() {
+    super("Session aborted by user (ESC)")
+    this.name = "AbortError"
+  }
 }
 
 class OpenCodeSessionAdapter {
@@ -39,13 +94,27 @@ class OpenCodeSessionAdapter {
   private directory: string
   private messageHistory: Array<{ role: string; content: string }> = []
   private eventSource: AbortController | null = null
-  private lastStatus: "idle" | "busy" = "idle"
   private interruptionCallback: ((msg: InterruptedMessage) => void) | null = null
   private messageCallback: ((msg: { role: string; content: string }) => void) | null = null
-  private pendingMessage: PendingMessage | null = null
+
+  private currentNodeName: string = ""
+  private currentRoleName: string = ""
   private messageSequence: number = 0
   private lastReceivedMessageContent: string = ""
+
+  private receiveState: MessageReceiveState = MessageReceiveState.IDLE
+  private pendingMessageContent: string = ""
+  private lastSentPromptId: string | null = null
+  private lastUserMessageId: string | null = null
+  private lastAssistantMessageId: string | null = null
+  private messageRoles = new Map<string, string>()
+  private messageTextById = new Map<string, string>()
+
   private abortController: AbortController | null = null
+
+  private pendingInterruption: InterruptedMessage | null = null
+  private interruptionResolve: ((value: string) => void) | null = null
+  private waitContext: WaitContext | null = null
 
   constructor(client: OpencodeClient, sessionId: string, directory: string) {
     this.client = client
@@ -61,35 +130,289 @@ class OpenCodeSessionAdapter {
     this.messageCallback = callback
   }
 
+  setCurrentContext(nodeName: string, roleName: string): void {
+    this.currentNodeName = nodeName
+    this.currentRoleName = roleName
+    consoleAndLogFile.info(`[状态] 设置上下文 -> node=${nodeName}, role=${roleName}, state=${this.receiveState}`)
+  }
+
+  getReceiveState(): MessageReceiveState {
+    return this.receiveState
+  }
+
+  getStateDebug(): string {
+    return `state=${this.receiveState}, pendingMsg=${this.pendingMessageContent.substring(0, 30) || "(none)"}, lastUserMsgId=${this.lastUserMessageId || "(none)"}`
+  }
+
   async startEventListener(): Promise<void> {
     this.eventSource = new AbortController()
-    try {
-      const events = await this.client.event.subscribe()
-      console.log(`[事件监听] 已订阅事件, sessionId: ${this.id}`)
-      ;(async () => {
-        try {
-          console.log(`[调试-事件监听] 开始监听事件流...`)
-          for await (const event of events.stream) {
-            if (event.type === "session.status") {
-              console.log(`[事件] 收到 session.status: ${JSON.stringify(event.properties)}`)
-            }
-            if (event.type === "message.part.updated") {
-              const part = (event.properties as any)?.part
-              if (part?.sessionID === this.id && part?.type === "text") {
-                const text = (part as any)?.text
-                console.log(`[调试-事件] 收到 message.part.updated, text长度: ${text?.length ?? 0}, 内容: ${(text as string)?.substring(0, 50)}...`)
-                if (text && this.messageCallback) {
-                  this.messageCallback({ role: "assistant", content: text })
-                }
-              }
+    logger.info(`[事件监听] 已订阅事件, sessionId: ${this.id}`)
+
+    const IGNORED_EVENTS = new Set([
+      "server.heartbeat",
+      "sync",
+      "message.part.delta",
+      "session.diff",
+      "session.updated",
+    ])
+
+    ;(async () => {
+      try {
+        const events = await this.client.global.event()
+        logger.info(`[事件监听] 订阅成功`)
+        let eventCount = 0
+        for await (const event of events.stream) {
+          eventCount++
+          const payload = (event as any).payload
+          const type = payload?.type
+          const sessionId = payload?.properties?.sessionID ?? payload?.properties?.info?.sessionID
+
+          if (IGNORED_EVENTS.has(type)) {
+            continue
+          }
+
+          const isMySession = sessionId === this.id
+
+          if (type === "session.error") {
+            logger.info(`[事件!] #${eventCount} session.error: ${JSON.stringify(payload.error)}`)
+          } else if (type === "session.status" || type === "session.idle") {
+            logger.info(`[事件] #${eventCount} ${type}: ${payload.properties.status?.type ?? payload.properties.sessionID}`)
+          } else if (type === "message.updated" || type === "message.created") {
+            if (isMySession) {
+              const role = payload.properties?.info?.role
+              logger.info(`[事件!] #${eventCount} ${type}: role=${role ?? "unknown"}`)
             }
           }
-        } catch (e) {
-          console.error("[事件监听] 错误:", e)
+          await this.handleEvent(event)
         }
-      })()
-    } catch (e) {
-      console.error("[事件订阅] 失败:", e)
+      } catch (e) {
+        logger.error("[事件监听] 错误:", e)
+      }
+    })()
+  }
+
+  private async handleEvent(event: any): Promise<void> {
+    const payload = event.payload
+    if (!payload) return
+
+    const type = payload.type
+    const props = payload.properties ?? payload
+    const sessionId = props?.sessionID ?? props?.info?.sessionID
+    if (sessionId && sessionId !== this.id) return
+
+    switch (type) {
+      case "session.status": {
+        break
+      }
+
+      case "message.updated": {
+        const info = props?.info
+        if (!info) break
+        if (info.sessionID !== this.id) break
+
+        if (info.role === "user") {
+          this.messageRoles.set(info.id, info.role)
+          logger.info(
+            `[事件-DEBUG] 用户消息, state=${this.receiveState}, role=${info.role}, waitPhase=${this.waitContext?.phase ?? "none"}, baselineUser=${this.waitContext?.baselineUserMessageId ?? "none"}, currentId=${info.id}`,
+          )
+          logger.info(`[事件-DEBUG] 用户消息等待 part.updated 提供文本`)
+        } else if (info.role === "assistant") {
+          this.messageRoles.set(info.id, info.role)
+          logger.info(
+            `[事件-DEBUG] 助手消息, state=${this.receiveState}, role=${info.role}, waitPhase=${this.waitContext?.phase ?? "none"}, baselineAssistant=${this.waitContext?.baselineAssistantMessageId ?? "none"}, currentId=${info.id}, pendingReason=${this.pendingInterruption?.reason || "none"}`,
+          )
+          logger.info(`[事件-DEBUG] 助手消息等待 part.updated 提供文本`)
+        }
+        break
+      }
+
+      case "message.created": {
+        const info = props?.info
+        if (!info) break
+        if (info.sessionID !== this.id) break
+
+        if (info.role === "user") {
+          this.messageRoles.set(info.id, info.role)
+          logger.info(
+            `[事件-DEBUG] 用户消息(created), state=${this.receiveState}, role=${info.role}, waitPhase=${this.waitContext?.phase ?? "none"}, baselineUser=${this.waitContext?.baselineUserMessageId ?? "none"}, currentId=${info.id}`,
+          )
+          logger.info(`[事件-DEBUG] 用户消息(created)等待 part.updated 提供文本`)
+        }
+        break
+      }
+
+      case "message.part.updated": {
+        const part = props?.part
+        if (!part) break
+        if (part.sessionID !== this.id) break
+        if (part.type !== "text") break
+        if (part.ignored) break
+
+        const role = this.messageRoles.get(part.messageID)
+        if (!role) {
+          logger.info(`[事件-DEBUG] part.updated 未知角色, messageId=${part.messageID}, partId=${part.id}`)
+          break
+        }
+
+        this.messageTextById.set(part.messageID, part.text)
+        logger.info(
+          `[事件-DEBUG] part.updated role=${role}, state=${this.receiveState}, waitPhase=${this.waitContext?.phase ?? "none"}, messageId=${part.messageID}, partId=${part.id}, textEnd=${part.time?.end ?? "none"}, text="${part.text.substring(0, 30)}..."`,
+        )
+
+        if (role === "user") {
+          this.lastUserMessageId = part.messageID
+          if (this.receiveState === MessageReceiveState.EXPECTING_NEXT_MESSAGE && this.isResumedUserMessage(part.messageID)) {
+            this.pendingInterruption = {
+              nodeName: this.currentNodeName,
+              roleName: this.currentRoleName,
+              beforeMessage: this.pendingMessageContent,
+              receivedMessage: part.text,
+              timestamp: new Date(),
+              reason: "new_message",
+            }
+
+            if (this.waitContext) {
+              this.waitContext.phase = "waiting_assistant"
+              this.waitContext.resumedUserMessageId = part.messageID
+            }
+
+            logger.info(`[事件] 新用户消息(part): "${part.text.substring(0, 30)}..."`)
+            if (this.interruptionCallback) {
+              this.interruptionCallback(this.pendingInterruption)
+            }
+          }
+          break
+        }
+
+        this.lastAssistantMessageId = part.messageID
+        if (!part.time?.end) break
+        if (this.receiveState !== MessageReceiveState.EXPECTING_NEXT_MESSAGE) break
+        if (this.waitContext?.phase !== "waiting_assistant") break
+        if (!this.isResumedAssistantMessage(part.messageID)) break
+
+        this.pendingInterruption = {
+          nodeName: this.currentNodeName,
+          roleName: this.currentRoleName,
+          beforeMessage: this.pendingMessageContent,
+          receivedMessage: part.text,
+          timestamp: new Date(),
+          reason: "rollback",
+        }
+
+        this.waitContext = null
+        logger.info(`[事件] 助手新消息(part): "${part.text.substring(0, 30)}..."`)
+        if (this.interruptionCallback) {
+          this.interruptionCallback(this.pendingInterruption)
+        }
+        break
+      }
+
+      case "session.error": {
+        const error = props?.error
+        if (!error) break
+
+        const errorName = error.name
+        if (errorName === "MessageAbortedError") {
+          logger.info(`[事件] ESC暂停 (MessageAbortedError)`)
+          this.triggerInterruption({
+            reason: "aborted",
+            receivedMessage: error.data?.message ?? "用户按下了暂停键",
+          })
+        }
+        break
+      }
+
+      case "session.idle": {
+        if (props?.sessionID === this.id && this.receiveState === MessageReceiveState.EXPECTING_NEXT_MESSAGE) {
+          logger.info(`[事件] 会话空闲，等待用户消息...`)
+        }
+        break
+      }
+
+      case "tui.command.execute": {
+        const command = props?.command
+        if (command === "session.interrupt" && this.receiveState !== MessageReceiveState.IDLE) {
+          logger.info(`[事件] session.interrupt 命令`)
+          this.receiveState = MessageReceiveState.EXPECTING_NEXT_MESSAGE
+          if (this.interruptionCallback) {
+            this.interruptionCallback({
+              nodeName: this.currentNodeName,
+              roleName: this.currentRoleName,
+              beforeMessage: this.pendingMessageContent,
+              receivedMessage: "用户按下了暂停键",
+              timestamp: new Date(),
+              reason: "pause",
+            })
+          }
+        }
+        break
+      }
+    }
+  }
+
+  private extractTextContent(info: any): string | null {
+    if (!info?.parts) return null
+    const textParts = (info.parts as any[])
+      .filter((p) => p.type === "text")
+      .map((p) => p.text)
+      .join("")
+    return textParts || null
+  }
+
+  private isResumedUserMessage(messageId: string): boolean {
+    if (!this.waitContext) return false
+    if (this.waitContext.phase !== "waiting_user") return false
+    return messageId !== this.waitContext.baselineUserMessageId
+  }
+
+  private isResumedAssistantMessage(messageId: string): boolean {
+    if (!this.waitContext) return false
+    if (this.waitContext.phase !== "waiting_assistant") return false
+    return messageId !== this.waitContext.baselineAssistantMessageId
+  }
+
+  private triggerInterruption(params: { reason: InterruptionReason; receivedMessage: string }): void {
+    const { reason, receivedMessage } = params
+
+    // aborted 只用于中断 sendMessage
+    if (reason === "aborted") {
+      if (this.receiveState === MessageReceiveState.EXPECTING_NEXT_MESSAGE) {
+        consoleAndLogFile.info(`[中断] 忽略等待阶段的 aborted 残留事件`)
+        return
+      }
+      this.receiveState = MessageReceiveState.RECEIVED_INTERRUPTION
+      consoleAndLogFile.info(`[中断] reason=aborted (仅中断当前操作)`)
+      return
+    }
+
+    // 如果是 rollback 且已经有 new_message，允许覆盖（这是正常的流程）
+    // 如果是重复的 new_message，也允许（用户可能发了多条消息）
+    this.receiveState = MessageReceiveState.RECEIVED_INTERRUPTION
+    consoleAndLogFile.info(`[中断] reason=${reason}`)
+
+    this.pendingInterruption = {
+      nodeName: this.currentNodeName,
+      roleName: this.currentRoleName,
+      beforeMessage: this.pendingMessageContent,
+      receivedMessage,
+      timestamp: new Date(),
+      reason,
+    }
+
+    if (this.interruptionCallback) {
+      this.interruptionCallback({
+        nodeName: this.currentNodeName,
+        roleName: this.currentRoleName,
+        beforeMessage: this.pendingMessageContent,
+        receivedMessage,
+        timestamp: new Date(),
+        reason,
+      })
+    }
+
+    if (this.interruptionResolve) {
+      this.interruptionResolve(receivedMessage)
+      this.interruptionResolve = null
     }
   }
 
@@ -100,147 +423,223 @@ class OpenCodeSessionAdapter {
     }
   }
 
-  private messageBaselineId: string = ""
-  private messageBaselineTime: number = 0
-
-  private async checkForExternalActivity(): Promise<{ detected: boolean; newUserMessage: string | null }> {
-    try {
-      const messages = await this.client.session.messages({
-        path: { id: this.id },
-        query: { directory: this.directory, limit: 20 },
-      })
-      const msgList = messages.data || []
-
-      const pendingContent = this.pendingMessage?.content ?? ""
-
-      for (let i = msgList.length - 1; i >= 0; i--) {
-        const m = msgList[i] as any
-        if (m?.info?.role === "user") {
-          const msgId = m.info?.id ?? ""
-          const msgTime = new Date(m.info?.createdAt ?? 0).getTime()
-
-          if (msgId === this.messageBaselineId && msgTime <= this.messageBaselineTime) {
-            continue
-          }
-
-          const userContent = (m.parts || [])
-            .filter((p: any) => p.type === "text")
-            .map((p: any) => p.text)
-            .join("")
-
-          console.log(`[检测] 发现新的用户消息 (id=${msgId}, time=${msgTime})`)
-          if (userContent !== pendingContent) {
-            console.log(
-              `[检测] 内容不同于我们发送的: 我们=${pendingContent.substring(0, 30)}..., 实际=${userContent.substring(0, 30)}...`,
-            )
-            return { detected: true, newUserMessage: userContent }
-          }
-        }
-      }
-    } catch (e) {
-      console.log("[检测] 检查外部活动出错:", e)
-    }
-    return { detected: false, newUserMessage: null }
-  }
-
-  setMessageBaseline(): void {
-    this.messageBaselineTime = Date.now()
-    this.messageBaselineId = ""
-  }
-
-  async sendMessage(message: { role: string; content: string }): Promise<string> {
-    console.log(`[调试-sendMessage] >>> 开始发送消息, role=${message.role}, 内容长度=${message.content.length}`)
+  async sendMessage(message: { role: string; content: string }, agent?: string): Promise<string> {
+    consoleAndLogFile.info(`[发送消息] role=${message.role}, content="${message.content.substring(0, 60)}...", state=${this.receiveState}, directory=${this.directory}, agent=${agent ?? "default"}`)
+    consoleAndLogFile.info(`[DEBUG sendMessage] 开始, state=${this.receiveState}`)
     this.messageHistory.push(message)
-
     this.messageSequence++
-    this.pendingMessage = {
-      content: message.content,
-      timestamp: new Date(),
-      sequence: this.messageSequence,
-    }
+    this.pendingMessageContent = message.content
 
     const previousContent = this.lastReceivedMessageContent
-    const abortCtrl = new AbortController()
-    this.abortController = abortCtrl
 
-    const pollForActivity = async () => {
-      while (!abortCtrl.signal.aborted) {
-        await new Promise((r) => setTimeout(r, 1000))
-        if (abortCtrl.signal.aborted) break
-
-        const { detected, newUserMessage } = await this.checkForExternalActivity()
-        if (detected && newUserMessage) {
-          console.log("[检测] 检测到外部活动（新用户消息），触发中断")
-          abortCtrl.abort()
-          if (this.interruptionCallback) {
-            this.interruptionCallback({
-              nodeName: "未知节点",
-              roleName: "未知角色",
-              beforeMessage: this.pendingMessage?.content ?? "",
-              receivedMessage: newUserMessage,
-              timestamp: new Date(),
-              reason: "resend",
-            })
-          }
-          return true
-        }
-      }
-      return false
+    if (message.role === "user" && this.receiveState === MessageReceiveState.IDLE) {
+      this.receiveState = MessageReceiveState.WAITING_PROMPT_RESPONSE
+      consoleAndLogFile.info(`[状态变更] WAITING_PROMPT_RESPONSE (等待prompt响应)`)
     }
 
-    const pollPromise = pollForActivity()
+    if (this.receiveState === MessageReceiveState.EXPECTING_NEXT_MESSAGE) {
+      consoleAndLogFile.info(`[发送] state=EXPECTING_NEXT_MESSAGE，跳过发送，返回""`)
+      return ""
+    }
 
-    console.log(`[调试-sendMessage] 调用 client.session.prompt 发送消息, role: ${message.role}, 内容: ${message.content.substring(0, 50)}...`)
-    const response = await this.client.session.prompt({
-      path: { id: this.id },
-      body: {
+    if (this.receiveState === MessageReceiveState.RECEIVED_INTERRUPTION) {
+      consoleAndLogFile.info(`[发送] state=RECEIVED_INTERRUPTION，将抛出AbortError`)
+    }
+
+    let promptPromise: Promise<any>
+    try {
+      const promptParams: any = {
+        sessionID: this.id,
+        directory: this.directory,
         parts: [{ type: "text", text: message.content }],
         system: message.role === "system" ? message.content : undefined,
-      },
-      query: { directory: this.directory },
+      }
+      if (agent) {
+        promptParams.agent = agent
+      }
+      const promptResult = this.client.session.prompt(promptParams)
+      promptPromise = Promise.resolve(promptResult)
+    } catch (err) {
+      this.receiveState = MessageReceiveState.IDLE
+      this.pendingMessageContent = ""
+      throw err
+    }
+
+    let aborted = false
+    let abortReason: string | null = null
+
+    const checkInterruption = () => {
+      if (this.receiveState === MessageReceiveState.RECEIVED_INTERRUPTION) {
+        logger.info(`[发送] 检测到中断, reason=${this.pendingInterruption?.reason}`)
+        aborted = true
+        abortReason = this.pendingInterruption?.receivedMessage ?? "用户按下了暂停键"
+      }
+    }
+
+    try {
+      const response = await Promise.race([
+        promptPromise,
+        new Promise<never>((_, reject) => {
+          const interval = setInterval(() => {
+            checkInterruption()
+            if (aborted) {
+              clearInterval(interval)
+              reject(new AbortError())
+            }
+          }, 100)
+          const cleanup = () => clearInterval(interval)
+          promptPromise.then(cleanup, cleanup)
+        }),
+      ])
+
+      checkInterruption()
+
+      let responseText = ""
+      if (response.data?.parts) {
+        for (const p of response.data.parts) {
+          if (p.type === "text") {
+            responseText += (p as { text: string }).text + "\n"
+          }
+        }
+        if (responseText) {
+          const trimmed = responseText.trim()
+          this.messageHistory.push({ role: "assistant", content: trimmed })
+          this.lastReceivedMessageContent = trimmed
+          this.receiveState = MessageReceiveState.IDLE
+          return trimmed
+        }
+      }
+      this.receiveState = MessageReceiveState.IDLE
+      return responseText
+    } catch (error) {
+      const err = error as Error
+      if (err instanceof AbortError || err.name === "AbortError") {
+        throw error
+      }
+
+      this.receiveState = MessageReceiveState.IDLE
+
+      const isAbortRelated =
+        err?.name === "AbortError" ||
+        err?.name === "AbortController" ||
+        err?.message?.includes("abort") ||
+        err?.message?.includes("cancelled") ||
+        err?.message?.includes("取消")
+
+      if (isAbortRelated) {
+        this.pendingInterruption = {
+          nodeName: this.currentNodeName,
+          roleName: this.currentRoleName,
+          beforeMessage: this.pendingMessageContent,
+          receivedMessage: "用户按下了暂停键",
+          timestamp: new Date(),
+          reason: "aborted",
+        }
+        throw new AbortError()
+      }
+
+      logger.error(`[发送消息] 其他错误: ${err.message}`)
+      throw error
+    } finally {
+      this.pendingMessageContent = ""
+    }
+  }
+
+  async waitForInterruption(timeoutMs: number = 0): Promise<string> {
+    consoleAndLogFile.info(`[等待中断] timeout=${timeoutMs}ms, state=${this.receiveState}`)
+
+    if (this.receiveState === MessageReceiveState.RECEIVED_INTERRUPTION) {
+      const msg = this.pendingInterruption?.receivedMessage ?? ""
+      this.pendingInterruption = null
+      this.receiveState = MessageReceiveState.IDLE
+      return msg
+    }
+
+    return new Promise((resolve) => {
+      this.interruptionResolve = resolve
+      if (timeoutMs > 0) {
+        setTimeout(() => {
+          if (this.interruptionResolve === resolve) {
+            this.interruptionResolve = null
+            this.receiveState = MessageReceiveState.IDLE
+            resolve("")
+          }
+        }, timeoutMs)
+      }
+    })
+  }
+
+  clearInterruption(): void {
+    this.pendingInterruption = null
+    this.receiveState = MessageReceiveState.IDLE
+    this.interruptionResolve = null
+    this.waitContext = null
+  }
+
+  private waitForUserMessagePromise: Promise<string> | null = null
+  private waitForUserMessageReject: ((error: Error) => void) | null = null
+
+  async waitForUserMessage(timeoutMs: number = 300000): Promise<string> {
+    if (this.waitForUserMessagePromise) {
+      consoleAndLogFile.info(`[等待用户消息] 已在等待中，返回现有Promise`)
+      return this.waitForUserMessagePromise
+    }
+
+    consoleAndLogFile.info(`[等待用户消息] timeout=${timeoutMs / 1000}s, 设置状态为 EXPECTING_NEXT_MESSAGE`)
+    this.receiveState = MessageReceiveState.EXPECTING_NEXT_MESSAGE
+    this.pendingInterruption = null
+    this.waitContext = {
+      phase: "waiting_user",
+      startedAt: Date.now(),
+      baselineUserMessageId: this.lastUserMessageId,
+      baselineAssistantMessageId: this.lastAssistantMessageId,
+      resumedUserMessageId: null,
+    }
+    consoleAndLogFile.info(`[等待用户消息] 状态已设置，开始等待...`)
+
+    this.waitForUserMessagePromise = new Promise<string>((resolve, reject) => {
+      let userMessageReceived = false
+      let resolved = false
+
+      const cleanup = () => {
+        this.waitForUserMessagePromise = null
+        this.waitContext = null
+      }
+
+      const checkInterval = setInterval(() => {
+        if (resolved) return
+
+        // 检查是否收到用户消息
+        if (!userMessageReceived && this.pendingInterruption?.reason === "new_message") {
+          userMessageReceived = true
+          consoleAndLogFile.info(`[等待用户消息] 检测到用户消息，继续等待模型响应...`)
+          this.pendingInterruption = null
+          return
+        }
+
+        // 检查是否收到助手响应
+        if (userMessageReceived && this.pendingInterruption?.reason === "rollback") {
+          const response = this.pendingInterruption.receivedMessage
+          consoleAndLogFile.info(`[等待用户消息] 检测到模型响应: "${response.substring(0, 30)}..."`)
+          resolved = true
+          clearInterval(checkInterval)
+          cleanup()
+          this.receiveState = MessageReceiveState.IDLE
+          resolve(response)
+        }
+      }, 100)
+
+      // 超时处理
+      setTimeout(() => {
+        if (resolved) return
+        clearInterval(checkInterval)
+        cleanup()
+        this.receiveState = MessageReceiveState.IDLE
+        reject(new Error("等待用户消息超时"))
+      }, timeoutMs)
     })
 
-    console.log(`[调试-sendMessage] prompt API调用完成, response.data存在: ${!!response.data}`)
-    abortCtrl.abort()
-    this.abortController = null
-    this.pendingMessage = null
-
-    const activityDetected = await pollPromise
-    if (activityDetected) {
-      throw new Error("检测到外部活动，消息发送被中断")
-    }
-
-    let responseText = ""
-    if (response.data?.parts) {
-      for (const p of response.data.parts) {
-        if (p.type === "text") {
-          responseText += (p as { text: string }).text + "\n"
-        }
-      }
-      console.log(`[调试-sendMessage] API响应parts数量: ${response.data.parts.length}, responseText长度: ${responseText.length}`)
-      if (responseText) {
-        const trimmed = responseText.trim()
-        console.log(`[调试-sendMessage] 成功获取assistant消息, trimmed长度: ${trimmed.length}`)
-        this.messageHistory.push({ role: "assistant", content: trimmed })
-        this.lastReceivedMessageContent = trimmed
-
-        const messages = await this.client.session.messages({
-          path: { id: this.id },
-          query: { directory: this.directory, limit: 5 },
-        })
-        const msgList = messages.data || []
-        const lastUserMsg = msgList.find((m: any) => m.info?.role === "user")
-        if (lastUserMsg) {
-          this.messageBaselineId = lastUserMsg.info?.id ?? ""
-          this.messageBaselineTime = lastUserMsg.info?.time?.created ?? 0
-          console.log(`[基准] 更新基准: id=${this.messageBaselineId}, time=${this.messageBaselineTime}`)
-        }
-
-        return trimmed
-      }
-    }
-    console.log(`[调试-sendMessage] 返回空的responseText (parts为空或无text类型)`)
-    return responseText
+    return this.waitForUserMessagePromise
   }
 
   async getMessages(): Promise<Array<{ role: string; content: string }>> {
@@ -293,6 +692,10 @@ async function selectSession(
   console.log("=".repeat(60))
   console.log()
 
+  logger.info("=".repeat(60))
+  logger.info("选择会话")
+  logger.info("=".repeat(60))
+
   const client = createOpencodeClient({ baseUrl })
   const sessions = await client.session.list()
   const sessionList = sessions.data ?? []
@@ -310,8 +713,8 @@ async function selectSession(
       if (!s) continue
       const title = s.title ?? "(无标题)"
       const updatedAt = s.time?.updated ? new Date(s.time.updated).toLocaleString() : "未知"
-      console.log(`  ${i + 1}. ${title}`)
-      console.log(`     更新于: ${updatedAt}`)
+      console.log(`  ${i + 1}. ${title}  ( SessionID: ${s.id})`)
+      console.log(`     ${updatedAt}`)
       console.log()
     }
   } else {
@@ -323,7 +726,25 @@ async function selectSession(
   let selectedSession: (typeof sessionList)[0] | null = null
 
   while (true) {
-    const answer = await prompt("请输入选项 (0-新增, 1-" + MAX_RECENT + "选最近会话, 或输入字符按会话名称搜索): ")
+    const answer = await prompt("请输入选项 (0-新增, 1-" + MAX_RECENT + "选最近会话, s-输入会话ID, 或输入字符按会话名称搜索): ")
+
+    if (answer.trim().toLowerCase() === "s") {
+      const sessionIdInput = await prompt("请输入会话ID (ses_xxx): ")
+      const inputId = sessionIdInput.trim()
+      if (inputId.startsWith("ses_")) {
+        logger.info(`[连接] ${inputId}`)
+        return { client, sessionId: inputId, directory }
+      } else {
+        consoleAndLogFile.info("无效的会话ID格式，应以 ses_ 开头")
+        continue
+      }
+    }
+
+    if (answer.trim() === "") {
+      selected = 0
+      break
+    }
+
     selected = parseInt(answer, 10)
 
     if (!isNaN(selected) && selected >= 0 && selected <= MAX_RECENT) {
@@ -358,14 +779,14 @@ async function selectSession(
         console.log()
       }
     } else {
-      console.log("无效的选项，请重新输入")
+    consoleAndLogFile.warn("无效的选项，请重新输入")
     }
   }
 
   console.log()
 
   if (selected === 0) {
-    console.log("[创建] 打开新会话...")
+    logger.info("[创建] 打开新会话...")
     const defaultDir = directory
     const dirAnswer = await prompt(`项目目录 (直接回车使用: ${defaultDir}): `)
     const sessionDir = dirAnswer.trim() || defaultDir
@@ -373,8 +794,8 @@ async function selectSession(
     const titleAnswer = await prompt("会话标题 (直接回车使用默认): ")
     const sessionTitle = titleAnswer.trim() || "RalphLoopCore 集成测试"
 
-    console.log(`[配置] 目录: ${sessionDir}`)
-    console.log(`[配置] 标题: ${sessionTitle}`)
+    logger.info(`[配置] 目录: ${sessionDir}`)
+    logger.info(`[配置] 标题: ${sessionTitle}`)
 
     const session = await client.session.create({
       query: { directory: sessionDir },
@@ -383,10 +804,10 @@ async function selectSession(
     if (!session.data) {
       throw new Error("创建会话失败")
     }
-    console.log(`[创建] 新会话: ${session.data.id}`)
+    logger.info(`[创建] 新会话: ${session.data.id}`)
     return { client, sessionId: session.data.id, directory: sessionDir }
   } else if (selectedSession) {
-    console.log(`[选择] 使用已有会话: ${selectedSession.id} - ${selectedSession.title ?? "(无标题)"}`)
+    logger.info(`[选择] 使用已有会话: ${selectedSession.id} - ${selectedSession.title ?? "(无标题)"}`)
     return { client, sessionId: selectedSession.id, directory }
   } else {
     const recentSessions = sessionList.slice(0, MAX_RECENT)
@@ -394,23 +815,31 @@ async function selectSession(
     if (!s) {
       throw new Error("会话不存在")
     }
-    console.log(`[选择] 使用已有会话: ${s.id} - ${s.title ?? "(无标题)"}`)
+    logger.info(`[选择] 使用已有会话: ${s.id} - ${s.title ?? "(无标题)"}`)
     return { client, sessionId: s.id, directory }
   }
 }
 
-async function askUserWhereToGo(engine: LoopEngine, interruptedMsg: InterruptedMessage): Promise<string> {
-  const reasonText = interruptedMsg.reason === "resend" ? "⚠️  检测到您在WebUI中变更了消息" : "⚠️  检测到会话被中断"
+async function askUserWhereToGo(
+  engine: LoopEngine,
+  interruptedMsg: InterruptedMessage,
+): Promise<string> {
+  const reasonText =
+    interruptedMsg.reason === "rollback"
+      ? "[回滚] 检测到消息回滚"
+      : interruptedMsg.reason === "new_message"
+        ? "[新消息] 检测到新消息"
+        : "[暂停] 检测到会话中断"
 
-  console.log("\n" + "=".repeat(60))
-  console.log(reasonText)
-  console.log("=".repeat(60))
-  console.log(`  节点名称: ${interruptedMsg.nodeName}`)
-  console.log(`  角色名称: ${interruptedMsg.roleName}`)
-  console.log(`  中断前消息: ${interruptedMsg.beforeMessage.substring(0, 100)}...`)
-  console.log(`  当前收到消息: ${interruptedMsg.receivedMessage.substring(0, 100)}...`)
-  console.log(`  检测时间: ${interruptedMsg.timestamp.toLocaleString()}`)
-  console.log()
+  logger.info("\n" + "=".repeat(60))
+  logger.info(reasonText)
+  logger.info("=".repeat(60))
+  logger.info(`  节点名称: ${interruptedMsg.nodeName}`)
+  logger.info(`  角色名称: ${interruptedMsg.roleName}`)
+  logger.info(`  中断前消息: ${interruptedMsg.beforeMessage.substring(0, 100)}...`)
+  logger.info(`  当前收到消息: ${interruptedMsg.receivedMessage.substring(0, 100)}...`)
+  logger.info(`  检测时间: ${interruptedMsg.timestamp.toLocaleString()}`)
+  logger.info()
 
   const strategy = engine.getStrategy()
   if (!strategy) {
@@ -418,20 +847,18 @@ async function askUserWhereToGo(engine: LoopEngine, interruptedMsg: InterruptedM
   }
 
   const nodeNames = strategy.nodes.map((n) => n.name)
-  console.log("当前策略可用节点:")
+  consoleAndLogFile.info("当前策略可用节点:")
   for (let i = 0; i < nodeNames.length; i++) {
-    console.log(`  ${i + 1}. ${nodeNames[i]}`)
+    logger.info(`  ${i + 1}. ${nodeNames[i]}`)
   }
-  console.log()
+  logger.info()
 
-  if (interruptedMsg.reason === "resend") {
-    console.log("提示: 您在WebUI中重新发送了消息，原执行流程已中断。")
-    console.log("请选择将新消息派发给哪个节点继续执行。")
-    console.log()
-  }
+  logger.info("提示: 请选择将消息派发给哪个节点继续执行。")
+  logger.info()
 
   while (true) {
-    const answer = await prompt(`请选择将消息派发给哪个节点 (1-${nodeNames.length}): `)
+    const current = strategy.nodes.findIndex((n) => n.name === interruptedMsg.nodeName) + 1 
+    const answer = await prompt(`将消息派发给哪个节点? (1-${nodeNames.length}, 当前节点: ${current}.${interruptedMsg.nodeName}): `)
     const idx = parseInt(answer, 10) - 1
     if (!isNaN(idx) && idx >= 0 && idx < nodeNames.length) {
       const targetNode = strategy.nodes[idx]
@@ -439,11 +866,15 @@ async function askUserWhereToGo(engine: LoopEngine, interruptedMsg: InterruptedM
         return targetNode.id
       }
     }
-    console.log("无效的选项，请重新输入")
+    consoleAndLogFile.info("无效的选项，请重新输入")
   }
 }
 
-async function controlledExecute(engine: LoopEngine, session: OpenCodeSessionAdapter, task: string): Promise<void> {
+async function controlledExecute(
+  engine: LoopEngine,
+  session: OpenCodeSessionAdapter,
+  task: string,
+): Promise<void> {
   const strategy = engine.getStrategy()
   if (!strategy) {
     throw new Error("策略未加载")
@@ -460,37 +891,37 @@ async function controlledExecute(engine: LoopEngine, session: OpenCodeSessionAda
 
   session.onInterruption((msg) => {
     pendingInterrupt = msg
-    console.log("\n[中断] 检测到会话中断，等待用户决策...")
+    logger.info(`[中断] reason=${msg.reason}`)
   })
 
   while (iteration < maxIterations) {
     iteration++
-    console.log(
-      `\n[循环] iteration=${iteration}, currentNodeId=${currentNodeId}, pendingInterrupt=${pendingInterrupt ? "有" : "无"}`,
-    )
-    console.log(`[调试-循环] ===== 开始第 ${iteration} 轮节点执行 =====`)
+    
+    logger.info(`[迭代 iteration=${iteration}] node=${currentNodeId}, sessionState=${session.getReceiveState()}`)
+    console.log()
 
     if (pendingInterrupt) {
-      console.log(`[中断处理] 调用askUserWhereToGo`)
+      logger.info(`[中断处理] reason=${pendingInterrupt.reason}`)
       const targetNodeId = await askUserWhereToGo(engine, pendingInterrupt)
-      console.log(`\n[用户决策] 跳转到节点: ${targetNodeId}`)
+      logger.info(`[用户决策] 跳转: ${targetNodeId}`)
       currentNodeId = targetNodeId
       pendingInterrupt = null
+      session.clearInterruption()
       continue
     }
 
     const node = strategy.nodes.find((n) => n.id === currentNodeId)
     if (!node) {
-      console.error(`[错误] 节点 ${currentNodeId} 未找到`)
+      logger.error(`[错误] 节点 ${currentNodeId} 未找到`)
       break
     }
 
-    console.log(`\n>>> 进入节点: ${node.name}`)
+    consoleAndLogFile.info(`>>> ${node.name}`)
     engine.emit("nodeStart", node, engine.getState())
 
     const roleInstance = node.roles[0]
     if (!roleInstance) {
-      console.log(`[跳过] 节点 ${node.name} 没有角色`)
+      logger.info(`[跳过] 节点 ${node.name} 没有角色`)
       continue
     }
 
@@ -498,20 +929,21 @@ async function controlledExecute(engine: LoopEngine, session: OpenCodeSessionAda
     const userMessage = task
 
     try {
-      console.log(`\x1b[38;2;0;255;0m[发送>>]\x1b[0m system: ${systemPrompt.substring(0, 60)}...`)
-      console.log(`[调试] 节点 ${node.name} 发送system消息, 时间: ${new Date().toISOString()}`)
-      await session.sendMessage({ role: "system", content: systemPrompt })
-      console.log(`\x1b[38;2;0;255;0m[发送]\x1b[0m user: ${userMessage}`)
-      console.log(`[调试] 节点 ${node.name} 发送user消息, 时间: ${new Date().toISOString()}`)
-      const response = await session.sendMessage({ role: "user", content: userMessage })
-      console.log(`[调试] 节点 ${node.name} 收到assistant响应, 时间: ${new Date().toISOString()}`)
-      console.log(`[调试] 响应长度: ${response.length} 字符`)
-      if (!response || response.trim().length === 0) {
-        console.log(`[调试-警告] 节点 ${node.name} 收到的response为空!`)
-      } else {
-        console.log(`[调试-验证] 节点 ${node.name} 成功收到assistant消息, 内容预览: ${response.substring(0, 50)}...`)
+      session.setCurrentContext(node.name, roleInstance.role.name)
+      const agent = node.accessMode === "readonly" ? "plan" : "build"
+      consoleAndLogFile.info(`[DEBUG] node.accessMode=${node.accessMode}, calculated agent=${agent}`)
+      await session.sendMessage({ role: "system", content: systemPrompt }, agent)
+      logger.info(`[发送] user: ${userMessage.substring(0, 50)}...`)
+      const response = await session.sendMessage({ role: "user", content: userMessage }, agent)
+
+      if (session.getReceiveState() === MessageReceiveState.EXPECTING_NEXT_MESSAGE) {
+        consoleAndLogFile.info(`[节点暂停] 等待用户消息...`)
+        const userInput = await session.waitForUserMessage()
+        consoleAndLogFile.info(`[节点继续] 收到用户消息: "${userInput.substring(0, 30)}..."`)
+        continue
       }
-      console.log(`\x1b[38;2;0;255;0m[<<收到]\x1b[0m ${response.substring(0, 80)}...`)
+
+      logger.info(`[收到] ${response.substring(0, 50)}...`)
 
       const result: Record<string, unknown> = {
         step: `role:${roleInstance.role.name}`,
@@ -535,8 +967,7 @@ async function controlledExecute(engine: LoopEngine, session: OpenCodeSessionAda
         result.needsReplan = false
       }
 
-      console.log(`<<< 离开节点: ${node.name} [completed]`)
-      console.log(`[调试-nodeComplete] 节点 ${node.name} 完成的response内容: ${response.substring(0, 100)}...`)
+      logger.info(`<<< ${node.name} 完成`)
       engine.emit("nodeComplete", node, result as any, engine.getState())
 
       const ctx = engine.getContext()
@@ -550,14 +981,13 @@ async function controlledExecute(engine: LoopEngine, session: OpenCodeSessionAda
         continue
       }
 
-      const nextTransition = strategy.transitions.find((t) => t.from === currentNodeId && t.condition.type === "always")
-      console.log(`[调试-跳转] 当前节点 ${currentNodeId}, 可用跳转: ${strategy.transitions.filter(t => t.from === currentNodeId).map(t => `${t.from}->${t.to}`).join(", ") || "无"}`)
+      const nextTransition = strategy.transitions.find(
+        (t) => t.from === currentNodeId && t.condition.type === "always",
+      )
 
       if (nextTransition) {
         const nextNodeId = nextTransition.to
-        console.log(`\n⇢ 跳转: ${currentNodeId} → ${nextNodeId}`)
-        console.log(`[调试] 跳转前验证: 上一节点 ${currentNodeId} 的response是否有效: ${response ? "是" : "否"} (长度: ${response?.length ?? 0})`)
-        console.log(`[调试] 即将进入节点 ${nextNodeId}, 等待下一轮循环获取assistant消息`)
+        logger.info(`⇢ 跳转: ${currentNodeId} → ${nextNodeId}`)
         engine.emit(
           "transition",
           currentNodeId,
@@ -567,22 +997,104 @@ async function controlledExecute(engine: LoopEngine, session: OpenCodeSessionAda
         )
         currentNodeId = nextNodeId
       } else if (strategy.exitNodes.includes(currentNodeId)) {
-        console.log("\n到达退出节点，执行完成")
+        consoleAndLogFile.info(`[完成] 到达退出节点`)
         break
       } else {
-        console.log(`\n[警告] 节点 ${currentNodeId} 没有出边`)
+        logger.info(`[警告] 节点 ${currentNodeId} 没有出边`)
         break
       }
     } catch (error) {
-      console.error(`[错误] ${error}`)
-      const errMsg = error instanceof Error ? error.message : String(error)
+      const err = error as Error
+      if (err.name === "AbortError" || err.message.includes("Session aborted")) {
+        consoleAndLogFile.info(`[暂停] ========== [已暂停] ==========, 当前state=${session.getReceiveState()}`)
+        session.setCurrentContext(node.name, roleInstance.role.name)
+
+        try {
+          // 等待用户发消息，然后获取模型响应
+          consoleAndLogFile.info(`[暂停] 开始等待用户消息和模型响应...`)
+          const modelResponse = await session.waitForUserMessage()
+          consoleAndLogFile.info(`[暂停] 收到模型响应: "${modelResponse.substring(0, 30)}..."`)
+          
+          // 使用模型响应作为节点结果继续执行
+          const result: Record<string, unknown> = {
+            step: `role:${roleInstance.role.name}`,
+            executed: `Role ${roleInstance.role.name} executed (after pause)`,
+            systemPrompt,
+            weight: roleInstance.weight,
+            status: "completed",
+            session_output: modelResponse,
+          }
+
+          if (node.name === "终评节点") {
+            result.qualityPassed = modelResponse.includes("通过") || modelResponse.includes("达标")
+          }
+
+          if (node.name === "体验节点") {
+            result.ueApproved = modelResponse.includes("完成") || modelResponse.includes("通过")
+            result.shouldExit = result.ueApproved === true
+          }
+
+          if (node.name === "分析节点") {
+            result.needsReplan = false
+          }
+
+          logger.info(`<<< ${node.name} 完成 (暂停后)`)
+          engine.emit("nodeComplete", node, result as any, engine.getState())
+
+          const ctx = engine.getContext()
+          if (ctx.nodeResults) {
+            ctx.nodeResults[currentNodeId] = result as any
+          }
+
+          session.clearInterruption()
+
+          // 继续跳转到下一个节点
+          const nextTransition = strategy.transitions.find(
+            (t) => t.from === currentNodeId && t.condition.type === "always",
+          )
+
+          if (nextTransition) {
+            const nextNodeId = nextTransition.to
+            logger.info(`⇢ 跳转: ${currentNodeId} → ${nextNodeId}`)
+            engine.emit(
+              "transition",
+              currentNodeId,
+              nextNodeId,
+              { matched: true, targetNode: nextNodeId },
+              engine.getState(),
+            )
+            currentNodeId = nextNodeId
+          } else if (strategy.exitNodes.includes(currentNodeId)) {
+            consoleAndLogFile.info(`[完成] 到达退出节点`)
+            break
+          } else {
+            logger.info(`[警告] 节点 ${currentNodeId} 没有出边`)
+            break
+          }
+          
+          continue
+        } catch (e) {
+          const waitErr = e as Error
+          logger.info(`[暂停] 等待结束: ${waitErr.message}`)
+          break
+        }
+      }
+      
+      logger.error(`[错误] ${error}`)
+      const errMsg = err.message
       if (errMsg.includes("检测到外部活动")) {
-        console.log("[错误恢复] 检测到外部活动，等待用户决策...")
+        logger.info(`[错误恢复] 检测到外部活动`)
         if (!pendingInterrupt) {
-          console.error("[错误] pendingInterrupt 未设置，但检测到外部活动错误")
+          logger.error(`[错误] pendingInterrupt 未设置`)
           engine.emit("nodeError", node, error as Error, engine.getState())
           break
         }
+        const targetNodeId = await askUserWhereToGo(engine, pendingInterrupt)
+        logger.info(`[用户决策] 跳转: ${targetNodeId}`)
+        currentNodeId = targetNodeId
+        pendingInterrupt = null
+        session.clearInterruption()
+        continue
       } else {
         engine.emit("nodeError", node, error as Error, engine.getState())
         break
@@ -594,19 +1106,12 @@ async function controlledExecute(engine: LoopEngine, session: OpenCodeSessionAda
 }
 
 async function main() {
-  console.log("=".repeat(60))
-  console.log("RalphLoopCore × OpenCode 集成测试 (可控循环版)")
-  console.log("=".repeat(60))
-  console.log()
+  consoleAndLogFile.info(`RLC × OpenCode 集成测试`)
+  consoleAndLogFile.info(`服务器: http://127.0.0.1:4096`)
+  consoleAndLogFile.info(`工作目录: ${process.cwd()}`)
+  consoleAndLogFile.info(`日志目录: ${path.join(process.cwd(), "log")}`)
 
-  const baseUrl = "http://127.0.0.1:4096"
-  const directory = process.cwd()
-
-  console.log(`[配置] 服务器: ${baseUrl}`)
-  console.log(`[配置] 项目目录: ${directory}`)
-  console.log()
-
-  const { client, sessionId, directory: sessionDir } = await selectSession(baseUrl, directory)
+  const { client, sessionId, directory: sessionDir } = await selectSession("http://127.0.0.1:4096", process.cwd())
 
   const session = new OpenCodeSessionAdapter(client, sessionId, sessionDir)
   await session.startEventListener()
@@ -619,45 +1124,42 @@ async function main() {
   engine.loadStrategy(ralphLoopStrategy)
 
   engine.on("paused", (node, reason) => {
-    console.log(`\n[暂停] 节点 ${node.name} 已暂停，原因: ${reason}`)
+    logger.info(`[暂停] ${node.name}: ${reason}`)
   })
 
   engine.on("resumed", (node) => {
-    console.log(`\n[恢复] 节点 ${node.name} 已恢复`)
+    logger.info(`[恢复] ${node.name}`)
   })
 
   engine.on("waitingForDecision", (node, options) => {
-    console.log(`\n[等待决策] 节点 ${node.name} 等待决策，可选节点: ${options.join(", ")}`)
+    consoleAndLogFile.info(`[等待决策] ${node.name}: ${options.join(", ")}`)
   })
 
   engine.on("decisionMade", (node, selected) => {
-    console.log(`\n[决策] 节点 ${node.name} 决策完成，选择: ${selected}`)
+    logger.info(`[决策] ${node.name}: ${selected}`)
   })
 
   engine.on("cycleComplete", (cycle) => {
-    console.log(`\n${"=".repeat(40)}`)
-    console.log(`第 ${cycle} 轮循环完成`)
-    console.log(`${"=".repeat(40)}`)
+    logger.info(`[循环 ${cycle}] 完成`)
   })
 
   engine.on("error", (error) => {
-    console.error(`\n[执行错误] ${error.message}`)
+    logger.error(`[执行错误] ${error.message}`)
   })
 
-  // const task = "在F:/WebProjects/PTK_Official_Site/下面创建音乐游戏\"琴神排名\"的官方网站"
-  const task = "在F:/WebProjects/PTK_Official_Site/下面写一个简单的python测试脚本, 实现print hello world"
+  const task = "路径: F:/WebProjects/PTK_Official_Site/  任务:为名为\"琴神排名\"的音乐游戏项目开发官方网站"
 
-  console.log(`\n开始任务: ${task}\n`)
+  logger.info(`任务: ${task}`)
 
   await controlledExecute(engine, session, task)
 
-  console.log("\n历史记录:")
+  logger.info("\n历史记录:")
   for (const record of engine.getExecutionHistory()) {
     const status = record.state === "pass" ? "✓" : "✗"
-    console.log(`  ${status} ${record.nodeName} (轮次: ${record.cycle}, 迭代: ${record.iteration})`)
+    logger.info(`  ${status} ${record.nodeName} (轮次: ${record.cycle}, 迭代: ${record.iteration})`)
   }
 
   await session.stopEventListener()
 }
 
-main().catch(console.error)
+main().catch((e) => logger.error("主函数错误:", e))

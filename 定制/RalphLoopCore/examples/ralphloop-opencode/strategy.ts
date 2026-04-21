@@ -60,6 +60,7 @@ function createNode({
   roleName,
   prompt,
   description,
+  accessMode,
 }: {
   id: string
   name: string
@@ -67,12 +68,13 @@ function createNode({
   roleName: string
   prompt: string
   description?: string
+  accessMode?: "readonly" | "readwrite"
 }) {
   return createLoopNode(
     id,
     name,
     [createRoleInst({ roleId, name: roleName, systemPrompt: prompt })],
-    { timeout: DEFAULT_TIMEOUT, retryable: DEFAULT_RETRYABLE, maxRetries: DEFAULT_MAX_RETRIES },
+    { timeout: DEFAULT_TIMEOUT, retryable: DEFAULT_RETRYABLE, maxRetries: DEFAULT_MAX_RETRIES, accessMode },
     description,
   )
 }
@@ -81,14 +83,19 @@ const opinionNode = createNode({
   id: "opinion",
   name: "意见节点",
   roleId: "domain_expert",
-  roleName: "领域专家",
+  roleName: "行业思想领袖",
   prompt: buildRolePrompt({
-    roleName: "资深的领域专家，拥有10年以上的行业经验",
-    roleDescription: "提供深度的领域见解和技术趋势分析，识别潜在的风险和机会，提供专业的建议和指导",
-    responsibilities: ["提供深度的领域见解和技术趋势分析", "识别潜在的风险和机会", "提供专业的建议和指导"],
+    roleName: "网站开发领域, 行业思想领袖",
+    roleDescription: "提供前沿见解和技术趋势分析",
+    responsibilities: ["搜索和阅读", "辨别真创新和假创新", "围绕主题深度思考, 为开发引入创新","提供工作方法的指导"],
     actionKeyword: "分析问题",
-    guidelines: ["结合最新的行业动态", "提供多角度的思考", "给出具体的建议而非泛泛而谈"],
+    guidelines: [
+      "设定N个角度, 每个角度开一个子Agent探寻前沿见解、技术趋势、行业动态",
+      "对探索结果进行多角度的剖析",
+      "提出自己的创新思考",
+      "探索当前项目的进展, 逐个角度出200-800字具体的建议, 要求语句连贯, 不要泛泛而谈或思维跳跃"],
   }),
+  accessMode: "readonly",
 })
 
 const planNode = createNode({
@@ -97,12 +104,18 @@ const planNode = createNode({
   roleId: "planner",
   roleName: "规划者",
   prompt: buildRolePrompt({
-    roleName: "经验丰富的规划专家，擅长将复杂任务分解为可执行的步骤",
+    roleName: "经验丰富的规划专家，擅长理解局面和将复杂任务分解为可执行的步骤",
     roleDescription: "理解任务目标和约束条件，制定详细的执行计划，识别关键里程碑和依赖关系",
-    responsibilities: ["理解任务目标和约束条件", "制定详细的执行计划", "识别关键里程碑和依赖关系"],
+    responsibilities: ["理解任务目标和约束条件", "制定详细的执行计划", "分析每一步骤要干什么、不要干什么","识别关键里程碑和依赖关系"],
     actionKeyword: "制定计划",
-    guidelines: ["使用清晰的结构化格式", "明确每个步骤的输入输出", "标注重要的时间节点", "识别潜在风险和备选方案"],
+    guidelines: ["使用清晰的结构化格式",
+      "明确每个步骤的输入输出",
+      "标注重要的时间节点",
+      "识别潜在风险和备选方案",
+      "遇到未掌握充分信息的情况不要擅做决定,先记录下来,想一个最佳临时灵活方案以ADLIB<时间戳>.md文件记录,等待老板提供信息(举例, 缺乏项目某张重要主题图片, 先用临时图片代替)",
+      "每一轮逐个查询所有ADLIB, 看老板是否提供了足够信息(举例: 查询发现老板提供了之前缺乏的主题图片, 将临时图片替换掉)"],
   }),
+  accessMode: "readonly",
 })
 
 const executeNode = createNode({
@@ -111,12 +124,13 @@ const executeNode = createNode({
   roleId: "executor",
   roleName: "执行者",
   prompt: buildRolePrompt({
-    roleName: "高效的执行者，擅长按照计划快速完成任务",
+    roleName: "执行者，热爱工作, 仔细耐心, 全神贯注, 不畏困难。能按照计划逐一完成任务",
     roleDescription: "严格按照计划执行任务，及时记录执行过程中的问题，汇报执行进度和结果",
     responsibilities: ["严格按照计划执行任务", "及时记录执行过程中的问题", "汇报执行进度和结果"],
     actionKeyword: "执行任务",
     guidelines: ["遵循计划中的步骤顺序", "如遇问题及时记录并继续", "保持高质量的输出"],
   }),
+  accessMode: "readwrite",
 })
 
 const analyzeNode = createNode({
@@ -126,18 +140,19 @@ const analyzeNode = createNode({
   roleName: "资深分析师",
   prompt: buildRolePrompt({
     roleName: "资深的分析师，擅长从多个角度发现潜在问题",
-    roleDescription: "从N个角度分析可能出现的问题：大数据量情况、边缘条件、边缘逻辑、整体架构视角、被依赖文件、未来破坏性变更影响等等。汇报并列出必须要测试的点。",
+    roleDescription: "从N个角度分析可能出现的问题：大数据量情况、边缘条件、边缘逻辑、整体架构视角、未来破坏性变更影响等等。汇报并列出必须要测试的点。",
     responsibilities: [
       "大数据量情况分析",
       "边缘条件分析",
       "边缘逻辑分析",
       "整体架构视角分析",
-      "被依赖文件分析",
       "未来破坏性变更影响分析",
+      "同层拓扑分析(清理这几种冗余: 一轮改动更新了某个新的实现, 但忘记删除旧版同层次代码; 一个模块用两种方式被实现了两遍; 同层次的函数或文件以不同形式出现两次。)",
     ],
     actionKeyword: "分析",
     guidelines: ["提供具体的问题描述", "列出必须测试的关键点", "给出优先级建议"],
   }),
+  accessMode: "readonly",
 })
 
 const testNode = createNode({
@@ -152,6 +167,7 @@ const testNode = createNode({
     actionKeyword: "编写测试",
     guidelines: ["覆盖正常流程和异常流程", "包含边界值测试", "使用清晰的测试命名", "提供完整的测试断言"],
   }),
+  accessMode: "readwrite",
 })
 
 const reviewNode = createNode({
@@ -166,6 +182,7 @@ const reviewNode = createNode({
     actionKeyword: "审核",
     guidelines: ["独立重新执行测试", "分析性能瓶颈", "检查代码风格和规范", "提供具体的改进建议"],
   }),
+  accessMode: "readonly",
 })
 
 const verifyNode = createNode({
@@ -184,8 +201,9 @@ const verifyNode = createNode({
       "检查是否把简单的事情搞复杂",
     ],
     actionKeyword: "校验",
-    guidelines: ["保持功能不变", "优先优化性能瓶颈", "提升代码可读性", "确保测试通过"],
+    guidelines: ["保持功能不变", "优化性能", "提升代码AI阅读友好", "添加足够多的调试代码 - 调试验证对逻辑梳理非常有帮助", "确保测试通过","临时做法 vs 最佳实现"],
   }),
+  accessMode: "readwrite",
 })
 
 const finalEvalNode = createLoopNode(
@@ -204,7 +222,7 @@ const finalEvalNode = createLoopNode(
       }),
     }),
   ],
-  { timeout: DEFAULT_TIMEOUT, retryable: DEFAULT_RETRYABLE, maxRetries: DEFAULT_MAX_RETRIES },
+  { timeout: DEFAULT_TIMEOUT, retryable: DEFAULT_RETRYABLE, maxRetries: DEFAULT_MAX_RETRIES, accessMode: "readonly" },
   "整体质量、可靠性闭环终评纠错",
 )
 
@@ -220,17 +238,17 @@ const experienceNode = createLoopNode(
         roleDescription: "从用户角度体验产品，测评并提供真实的使用反馈",
         responsibilities: ["从用户角度体验产品", "提供真实的使用反馈", "识别用户体验问题"],
         actionKeyword: "体验",
-        guidelines: ["模拟真实用户场景", "关注细节和整体感受", "提供具体的反馈", "保持客观公正"],
+        guidelines: ["模拟真实用户场景","模拟不同用户类型", "关注细节和整体感受", "提供具体的反馈", "保持挑剔"],
       }),
     }),
   ],
-  { timeout: DEFAULT_TIMEOUT, retryable: DEFAULT_RETRYABLE, maxRetries: DEFAULT_MAX_RETRIES },
+  { timeout: DEFAULT_TIMEOUT, retryable: DEFAULT_RETRYABLE, maxRetries: DEFAULT_MAX_RETRIES, accessMode: "readonly" },
   "随机性格用户体验官测评",
 )
 
-const commitNode = createLoopNode("commit", "提交节点", [], { timeout: 5000 }, "Git/SVN提交")
+const commitNode = createLoopNode("commit", "提交节点", [], { timeout: 5000, accessMode: "readonly" }, "Git/SVN提交")
 
-const exitNode = createLoopNode("exit", "流程结束", [], { timeout: 1000 }, "正常结束流程")
+const exitNode = createLoopNode("exit", "流程结束", [], { timeout: 1000, accessMode: "readonly" }, "正常结束流程")
 
 export const ralphLoopStrategy: LoopStrategy = {
   id: "ralph_loop_custom",

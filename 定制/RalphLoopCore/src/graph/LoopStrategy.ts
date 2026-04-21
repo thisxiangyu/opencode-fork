@@ -44,6 +44,13 @@ export interface RoleInstance {
 }
 
 /**
+ * 节点访问模式
+ * - readonly: 只读模式，使用 Plan agent (不执行写入操作)
+ * - readwrite: 读写模式，使用 Build agent (可以执行写入操作)
+ */
+export type NodeAccessMode = "readonly" | "readwrite"
+
+/**
  * 节点配置
  */
 export interface NodeConfig {
@@ -52,6 +59,7 @@ export interface NodeConfig {
   maxRetries?: number
   parallel?: boolean
   continueOnError?: boolean
+  accessMode?: NodeAccessMode
 }
 
 /**
@@ -73,6 +81,7 @@ export interface LoopNode {
   description?: string
   roles: RoleInstance[]
   config: NodeConfig
+  accessMode: NodeAccessMode
   onEnter?: (context: Context) => void
   onExit?: (context: Context, result: NodeResult) => void
 }
@@ -292,6 +301,7 @@ export function createLoopNode(
     name,
     description,
     roles,
+    accessMode: config.accessMode ?? "readwrite",
     config: {
       timeout: config.timeout ?? DEFAULT_TIMEOUT,
       retryable: config.retryable ?? DEFAULT_RETRYABLE,
