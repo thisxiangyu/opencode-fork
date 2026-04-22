@@ -3,16 +3,13 @@ import { Npm } from "./index"
 import { which } from "../util/which"
 
 describe("Npm.which", () => {
-  it("should return undefined when package not found and install is false", async () => {
-    // Use a non-existent package name to test
-    const result = await Npm.which("non-existent-package-for-test-12345", false)
+  it("should return undefined when package not found", async () => {
+    const result = await Npm.which("non-existent-package-for-test-12345")
     expect(result).toBeUndefined()
   })
 
-  it("should check if bash-language-server exists without installing when install is false", async () => {
-    const result = await Npm.which("bash-language-server", false)
-    // Result should be either undefined (if not cached) or a path (if cached)
-    // The key point is it should not hang trying to install
+  it("should check if bash-language-server exists without installing", async () => {
+    const result = await Npm.which("bash-language-server")
     expect(result === undefined || typeof result === "string").toBe(true)
   })
 })

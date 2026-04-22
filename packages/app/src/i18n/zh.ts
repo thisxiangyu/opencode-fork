@@ -636,7 +636,9 @@ export const dict = {
   "settings.general.row.theme.title": "主题",
   "settings.general.row.theme.description": "自定义 OpenCode 的主题。",
   "settings.general.row.font.title": "代码字体",
-  "settings.general.row.font.description": "自定义代码块和终端使用的字体",
+  "settings.general.row.font.description": "自定义代码块使用的字体",
+  "settings.general.row.terminalFont.title": "Terminal Font",
+  "settings.general.row.terminalFont.description": "Customise the font used in the terminal",
   "settings.general.row.uiFont.title": "界面字体",
   "settings.general.row.uiFont.description": "自定义整个界面使用的字体",
   "settings.general.row.followup.title": "跟进消息行为",
@@ -649,13 +651,14 @@ export const dict = {
   "settings.general.row.shellToolPartsExpanded.description": "默认在时间线中展开 shell 工具部分",
   "settings.general.row.editToolPartsExpanded.title": "展开编辑工具部分",
   "settings.general.row.editToolPartsExpanded.description": "默认在时间线中展开 edit、write 和 patch 工具部分",
-
-  "settings.interaction.autoReview.title": "强制回顾",
+"settings.interaction.autoReview.title": "强制回顾",
   "settings.interaction.autoReview.description": "检测模型回复中的特定模式并触发后续动作",
 
   "settings.interaction.question.title": "问题对话框",
   "settings.interaction.question.description": "当智能体询问问题时显示选项对话框",
 
+  "settings.general.row.showSessionProgressBar.title": "显示会话进度条",
+  "settings.general.row.showSessionProgressBar.description": "当智能体正在工作时，在会话顶部显示动画进度条",
   "settings.general.row.wayland.title": "使用原生 Wayland",
   "settings.general.row.wayland.description": "在 Wayland 上禁用 X11 回退。需要重启。",
   "settings.general.row.wayland.tooltip": "在混合刷新率显示器的 Linux 系统上，原生 Wayland 可能更稳定。",

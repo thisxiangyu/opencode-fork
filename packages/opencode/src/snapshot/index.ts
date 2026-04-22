@@ -1,4 +1,4 @@
-import { Cause, Duration, Effect, Layer, Schedule, Semaphore, Context, Stream } from "effect"
+import { Cause, Duration, Effect, Layer, Schedule, Schema, Semaphore, Context, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { formatPatch, structuredPatch } from "diff"
 import path from "path"
@@ -13,6 +13,8 @@ import { Global } from "../global"
 import { Log } from "../util"
 import { Flag } from "../flag/flag"
 import { StorageConfig } from "../storage/storage-config"
+import { withStatics } from "@/util/schema"
+import { zod } from "@/util/effect-zod"
 
 export function resolveDir(projectID?: string): string {
   const base = StorageConfig.resolvePath({
@@ -24,24 +26,22 @@ export function resolveDir(projectID?: string): string {
   return projectID ? path.join(base, projectID) : base
 }
 
-export const Patch = z.object({
-  hash: z.string(),
-  files: z.string().array(),
-})
-export type Patch = z.infer<typeof Patch>
+export const Patch = Schema.Struct({
+  hash: Schema.String,
+  files: Schema.mutable(Schema.Array(Schema.String)),
+}).pipe(withStatics((s) => ({ zod: zod(s) })))
+export type Patch = typeof Patch.Type
 
-export const FileDiff = z
-  .object({
-    file: z.string(),
-    patch: z.string(),
-    additions: z.number(),
-    deletions: z.number(),
-    status: z.enum(["added", "deleted", "modified"]).optional(),
-  })
-  .meta({
-    ref: "SnapshotFileDiff",
-  })
-export type FileDiff = z.infer<typeof FileDiff>
+export const FileDiff = Schema.Struct({
+  file: Schema.String,
+  patch: Schema.String,
+  additions: Schema.Number,
+  deletions: Schema.Number,
+  status: Schema.optional(Schema.Literals(["added", "deleted", "modified"])),
+})
+  .annotate({ identifier: "SnapshotFileDiff" })
+  .pipe(withStatics((s) => ({ zod: zod(s) })))
+export type FileDiff = typeof FileDiff.Type
 
 const log = Log.create({ service: "snapshot" })
 const prune = "7.days"
