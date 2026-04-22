@@ -9,7 +9,7 @@
   "mcp": {
     "github": {
       "type": "local",
-      "command": ["bunx", "-y", "@modelcontextprotocol/server-github"],
+      "command": ["bun", "x", "@modelcontextprotocol/server-github"],
       "enabled": true,
       "environment": {
         "GITHUB_PERSONAL_ACCESS_TOKEN": ""

@@ -41,6 +41,19 @@ https://github.com/anomalyco/models.dev
   bun dev
   ```
 
+### 后端2种运行方式: 
+1.bun dev serve （开发模式）
+
+2.opencode serve（win平台exe启动）
+ ./opencode serve（mac平台exe启动）
+
+如果后端开发模式要设置密码:
+
+windows ： $env:OPENCODE_SERVER_USERNAME="myopencode";$env:OPENCODE_SERVER_PASSWORD="123"; bun dev -- serve --hostname 0.0.0.0 --port 9999
+
+mac：OPENCODE_SERVER_USERNAME="myopencode" OPENCODE_SERVER_PASSWORD="123" bun dev serve --hostname 0.0.0.0 --port 9999
+
+
 ### 前端3种运行方式: 
 1.bun dev web (远程WebUI) 
 
@@ -59,19 +72,6 @@ export VITE_OPENCODE_SERVER_PORT=9999
 export VITE_OPENCODE_SERVER_USERNAME=myopencode
 export VITE_OPENCODE_SERVER_PASSWORD=123
 bun run --cwd packages/app dev
-
-
-### 后端2种运行方式: 
-1.bun dev serve （开发模式）
-
-2.opencode serve（win平台exe启动）
- ./opencode serve（mac平台exe启动）
-
-如果后端开发模式要设置密码:
-
-windows ： $env:OPENCODE_SERVER_USERNAME="myopencode";$env:OPENCODE_SERVER_PASSWORD="123"; bun dev -- serve --hostname 0.0.0.0 --port 9999
-
-mac：OPENCODE_SERVER_USERNAME="myopencode" OPENCODE_SERVER_PASSWORD="123" bun dev serve --hostname 0.0.0.0 --port 9999
 
 
 ### 指定运行目录

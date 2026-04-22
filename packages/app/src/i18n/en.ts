@@ -512,8 +512,6 @@ export const dict = {
   "notification.permission.description": "{{sessionTitle}} in {{projectName}} needs permission",
   "notification.question.title": "Question",
   "notification.question.description": "{{sessionTitle}} in {{projectName}} has a question",
-  "notification.autoReview.detected": "Forced Review",
-  "notification.autoReview.warning": "Unexpected Behavior",
   "notification.action.goToSession": "Go to session",
 
   "notification.session.responseReady.title": "Response ready",
@@ -773,12 +771,6 @@ export const dict = {
   "settings.general.row.showSessionProgressBar.title": "Show session progress bar",
   "settings.general.row.showSessionProgressBar.description":
     "Display the animated progress bar at the top of the session when the agent is working",
-
-  "settings.interaction.autoReview.title": "Forced Review",
-  "settings.interaction.autoReview.description": "Detect patterns in model responses and prompt for follow-up actions",
-
-  "settings.interaction.question.title": "Question dialogs",
-  "settings.interaction.question.description": "Show option dialogs when the agent asks questions",
 
   "settings.general.row.wayland.title": "Use native Wayland",
   "settings.general.row.wayland.description": "Disable X11 fallback on Wayland. Requires restart.",
