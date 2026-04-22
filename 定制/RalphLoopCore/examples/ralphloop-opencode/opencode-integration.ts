@@ -49,7 +49,7 @@
 export { main } from "./main"
 export { controlledExecute } from "./engine-runner"
 export { OpenCodeSessionAdapter } from "./session-adapter"
-export { selectSession, askUserWhereToGo, prompt } from "./session-manager"
+export { selectSessionInstance as selectSession, askUserWhereToGo, askUser as prompt } from "./session-manager"
 export type {
   InterruptionReason,
   InterruptedMessage,

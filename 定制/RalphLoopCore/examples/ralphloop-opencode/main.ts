@@ -3,18 +3,19 @@ import { logger, consoleAndLogFile } from "../../src/logger"
 import * as path from "path"
 import { ralphLoopStrategy } from "./strategy"
 import { OpenCodeSessionAdapter } from "./session-adapter"
-import { selectSession } from "./session-manager"
+import { selectSessionInstance } from "./session-manager"
 import { controlledExecute } from "./engine-runner"
 
+const ServerURL = "http://127.0.0.1:4096"
 const DEFAULT_TASK = "路径: F:/WebProjects/PTK_Official_Site/  任务:为名为\"琴神排名\"的音乐游戏项目开发官方网站"
 
 export async function main(task: string = DEFAULT_TASK): Promise<void> {
   consoleAndLogFile.info(`RLC × OpenCode 集成测试`)
-  consoleAndLogFile.info(`服务器: http://127.0.0.1:4096`)
-  consoleAndLogFile.info(`工作目录: ${process.cwd()}`)
+  consoleAndLogFile.info(`服务器URL: ${ServerURL}`)
+  consoleAndLogFile.info(`当前进程目录: ${process.cwd()}`)
   consoleAndLogFile.info(`日志目录: ${path.join(process.cwd(), "log")}`)
 
-  const { client, sessionId, directory: sessionDir } = await selectSession("http://127.0.0.1:4096", process.cwd())
+  const { client, sessionId, directory: sessionDir } = await selectSessionInstance(ServerURL, process.cwd(),"Opencode")
 
   const session = new OpenCodeSessionAdapter(client, sessionId, sessionDir)
   await session.startEventListener()

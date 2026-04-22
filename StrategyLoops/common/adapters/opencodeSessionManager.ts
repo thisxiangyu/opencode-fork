@@ -1,11 +1,9 @@
 import { createOpencodeClient, type OpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { Session } from "@opencode-ai/sdk/v2/client"
-import type { InterruptedMessage } from "./types"
-import type { LoopEngine } from "../../src/index.js"
-import { logger, consoleAndLogFile } from "../../src/logger"
+import { logFile, consoleAndLogFile } from "../logger"
 import * as readline from "readline"
 
-export async function askUser(question: string): Promise<string> {
+export async function prompt(question: string): Promise<string> {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
@@ -18,7 +16,7 @@ export async function askUser(question: string): Promise<string> {
   })
 }
 
-export async function selectSessionInstance(
+export async function 选择会话实例(
   baseUrl: string,
   directory: string,
   backend: "Opencode" | "Custom"
@@ -48,7 +46,8 @@ export async function selectSessionInstance(
       if (!s) continue
       const title = s.title ?? "(无标题)"
       const updatedAt = s.time?.updated ? new Date(s.time.updated).toLocaleString() : "未知"
-      console.log(`  ${i + 1}. ${title}  ( SessionID: ${s.id})`)
+      console.log(`  ${i + 1}. ${title}`)
+      logFile.info(`  ${i + 1}. ${title}  ( SessionID: ${s.id})`)
       console.log(`     ${updatedAt}`)
       console.log()
     }
@@ -61,13 +60,13 @@ export async function selectSessionInstance(
   let selectedSession: (typeof sessionList)[0] | null = null
 
   while (true) {
-    const answer = await askUser("请输入选项 (0-新增, 1-" + MAX_RECENT + "选最近会话, s-输入会话ID, 或输入字符按会话名称搜索): ")
+    const answer = await prompt("请输入选项 (0-新增, 1-" + MAX_RECENT + "选最近会话, s-输入会话ID, 或输入字符按会话名称搜索): ")
 
     if (answer.trim().toLowerCase() === "s") {
-      const sessionIdInput = await askUser("请输入会话ID (ses_xxx): ")
+      const sessionIdInput = await prompt("请输入会话ID (ses_xxx): ")
       const inputId = sessionIdInput.trim()
       if (inputId.startsWith("ses_")) {
-        logger.info(`[连接] ${inputId}`)
+        logFile.info(`[连接] ${inputId}`)
         return { client, sessionId: inputId, directory }
       } else {
         consoleAndLogFile.info("无效的会话ID格式，应以 ses_ 开头")
@@ -100,7 +99,7 @@ export async function selectSessionInstance(
         }
         console.log()
 
-        const pickAnswer = await askUser("选择会话 (1-" + Math.min(matched.length, 10) + "): ")
+        const pickAnswer = await prompt("选择会话 (1-" + Math.min(matched.length, 10) + "): ")
         const pickIdx = parseInt(pickAnswer, 10) - 1
         if (!isNaN(pickIdx) && pickIdx >= 0 && pickIdx < matched.length) {
           const selected = matched[pickIdx]
@@ -121,16 +120,16 @@ export async function selectSessionInstance(
   console.log()
 
   if (selected === 0) {
-    logger.info("[创建] 打开新会话...")
+    logFile.info("[创建] 打开新会话...")
     const defaultDir = directory
-    const dirAnswer = await askUser(`项目目录 (直接回车使用: ${defaultDir}): `)
+    const dirAnswer = await prompt(`项目目录 (直接回车使用: ${defaultDir}): `)
     const sessionDir = dirAnswer.trim() || defaultDir
 
-    const titleAnswer = await askUser("会话标题 (直接回车使用默认): ")
+    const titleAnswer = await prompt("会话标题 (直接回车使用默认): ")
     const sessionTitle = titleAnswer.trim() || "RalphLoopCore 集成测试"
 
-    logger.info(`[配置] 目录: ${sessionDir}`)
-    logger.info(`[配置] 标题: ${sessionTitle}`)
+    logFile.info(`[配置] 目录: ${sessionDir}`)
+    logFile.info(`[配置] 标题: ${sessionTitle}`)
 
     const session = await client.session.create({
       directory: sessionDir,
@@ -139,10 +138,10 @@ export async function selectSessionInstance(
     if (!session.data) {
       throw new Error("创建会话失败")
     }
-    logger.info(`[创建] 新会话: ${session.data.id}`)
+    logFile.info(`[创建] 新会话: ${session.data.id}`)
     return { client, sessionId: session.data.id, directory: sessionDir }
   } else if (selectedSession) {
-    logger.info(`[选择] 使用已有会话: ${selectedSession.id} - ${selectedSession.title ?? "(无标题)"}`)
+    logFile.info(`[选择] 使用已有会话: ${selectedSession.id} - ${selectedSession.title ?? "(无标题)"}`)
     return { client, sessionId: selectedSession.id, directory }
   } else {
     const recentSessions = sessionList.slice(0, MAX_RECENT)
@@ -150,57 +149,7 @@ export async function selectSessionInstance(
     if (!s) {
       throw new Error("会话不存在")
     }
-    logger.info(`[选择] 使用已有会话: ${s.id} - ${s.title ?? "(无标题)"}`)
+    logFile.info(`[选择] 使用已有会话: ${s.id} - ${s.title ?? "(无标题)"}`)
     return { client, sessionId: s.id, directory }
-  }
-}
-
-export async function askUserWhereToGo(
-  engine: LoopEngine,
-  interruptedMsg: InterruptedMessage,
-): Promise<string> {
-  const reasonText =
-    interruptedMsg.reason === "rollback"
-      ? "[回滚] 检测到消息回滚"
-      : interruptedMsg.reason === "new_message"
-        ? "[新消息] 检测到新消息"
-        : "[暂停] 检测到会话中断"
-
-  logger.info("\n" + "=".repeat(60))
-  logger.info(reasonText)
-  logger.info("=".repeat(60))
-  logger.info(`  节点名称: ${interruptedMsg.nodeName}`)
-  logger.info(`  角色名称: ${interruptedMsg.roleName}`)
-  logger.info(`  中断前消息: ${interruptedMsg.beforeMessage.substring(0, 100)}...`)
-  logger.info(`  当前收到消息: ${interruptedMsg.receivedMessage.substring(0, 100)}...`)
-  logger.info(`  检测时间: ${interruptedMsg.timestamp.toLocaleString()}`)
-  logger.info()
-
-  const strategy = engine.getStrategy()
-  if (!strategy) {
-    throw new Error("策略未加载")
-  }
-
-  const nodeNames = strategy.nodes.map((n) => n.name)
-  consoleAndLogFile.info("当前策略可用节点:")
-  for (let i = 0; i < nodeNames.length; i++) {
-    logger.info(`  ${i + 1}. ${nodeNames[i]}`)
-  }
-  logger.info()
-
-  logger.info("提示: 请选择将消息派发给哪个节点继续执行。")
-  logger.info()
-
-  while (true) {
-    const current = strategy.nodes.findIndex((n) => n.name === interruptedMsg.nodeName) + 1
-    const answer = await askUser(`将消息派发给哪个节点? (1-${nodeNames.length}, 当前: ${current}.${interruptedMsg.nodeName}): `)
-    const idx = parseInt(answer, 10) - 1
-    if (!isNaN(idx) && idx >= 0 && idx < nodeNames.length) {
-      const targetNode = strategy.nodes[idx]
-      if (targetNode) {
-        return targetNode.id
-      }
-    }
-    consoleAndLogFile.info("无效的选项，请重新输入")
   }
 }
