@@ -43,8 +43,17 @@
  * ============================================================================
  */
 
-import type { OpencodeClient, Part, SyncEventMessagePartUpdated, SyncEventMessageUpdated } from "@opencode-ai/sdk/v2/client"
+import { 
+ createOpencodeClient,
+ type OpencodeClient, 
+ type Part,
+ type SyncEventMessagePartUpdated, 
+ type SyncEventMessageUpdated,
+ type Session
+} from "@opencode-ai/sdk/v2/client"
+
 import type { GlobalEvent } from "@opencode-ai/sdk/v2"
+
 import type {
   InterruptionReason,
   InterruptedMessage,
@@ -52,9 +61,11 @@ import type {
   SendBaseline,
   SessionMessage,
   WaitContext,
-} from "./types"
-import { MessageReceiveState as State, AbortError, INTERRUPTION_REASON, MSG_SOURCE } from "./types"
+} from "../types"
+import { MessageReceiveState as State, AbortError, INTERRUPTION_REASON, MSG_SOURCE } from "../types"
 import { logFile, consoleAndLogFile } from "../logger"
+import type { ISession } from "../session"
+import { askUser } from "../system"
 
 type EventPropsWithSession = {
   sessionID?: string
@@ -112,16 +123,223 @@ function isSyncMessagePartUpdatedPayload(payload: GlobalEvent["payload"]): paylo
  */
 const IGNORED_EVENTS = new Set([
   "server.heartbeat",    // 心跳事件，无实际意义
-  "sync",                // 同步事件，不需要处理
   "message.part.delta",  // 消息部分增量更新，我们处理完整文本
   "session.diff",        // 会话差异，不影响主流程
   "session.updated",     // 会话更新通知，我们自己维护状态
 ])
 
+
+let client: OpencodeClient | undefined
+let globalEventManager: OpenCodeEventManager | undefined
+
+export function linkBackend(serverURL:string) : string {
+  client = createOpencodeClient({ baseUrl: serverURL })
+  globalEventManager = new OpenCodeEventManager(client)
+  return "opencode"
+}
+
+class OpenCodeEventManager {
+  private client: OpencodeClient
+  // WeakRef only prevents the manager from keeping abandoned adapters alive.
+  // Normal lifecycle cleanup still relies on explicit stopEventListener().
+  private adapters = new Map<string, WeakRef<OpenCodeSessionAdapter>>()
+  private running = false
+
+  constructor(client: OpencodeClient) {
+    this.client = client
+  }
+
+  subscribe(adapter: OpenCodeSessionAdapter): void {
+    this.adapters.set(adapter.id, new WeakRef(adapter))
+    if (!this.running) {
+      this.start()
+    }
+  }
+
+  unsubscribe(sessionId: string): void {
+    this.adapters.delete(sessionId)
+  }
+
+  private start(): void {
+    this.running = true
+
+    ;(async () => {
+      try {
+        const events = await this.client.global.event()
+        for await (const event of events.stream as AsyncIterable<GlobalEvent>) {
+          if (IGNORED_EVENTS.has(event.payload.type)) {
+            continue
+          }
+          const sessionId = this.getSessionId(event)
+          if (!sessionId) continue
+          const ref = this.adapters.get(sessionId)
+          const adapter = ref?.deref()
+          if (!adapter) {
+            this.adapters.delete(sessionId)
+            continue
+          }
+          await adapter.handleEventDirect(event)
+        }
+      } catch (err) {
+        consoleAndLogFile.error(`[事件流] 事件循环异常: ${(err as Error)?.message ?? err}`)
+      } finally {
+        this.running = false
+      }
+    })()
+  }
+
+  private getSessionId(event: GlobalEvent): string | undefined {
+    const payload = event.payload
+    if (payload.type === "sync") {
+      if ("data" in payload && payload.data && typeof payload.data === "object") {
+        return (payload.data as { sessionID?: string }).sessionID
+      }
+    }
+    if ("properties" in payload && payload.properties) {
+      const props = payload.properties as { sessionID?: string; info?: { sessionID?: string } }
+      return props.sessionID ?? props.info?.sessionID
+    }
+    return undefined
+  }
+}
+
+export async function selectOrCreateSession(
+  defaultDirectory: string,
+): Promise<ISession> {
+
+  if(client==null)
+  {
+    throw new Error("未连接到服务器,请先linkBackend")
+  }
+
+  console.log("=".repeat(60))
+  console.log("选择会话")
+  console.log("=".repeat(60))
+  console.log()
+
+  const sessions: { data: Session[] | undefined } = await client.session.list()
+  const sessionList: Session[] = sessions.data ?? []
+  const MAX_RECENT = 5
+
+  console.log("  0. 打开新会话")
+  console.log()
+
+  if (sessionList.length > 0) {
+    const recentSessions = sessionList.slice(0, MAX_RECENT)
+    console.log(`  最近 ${recentSessions.length} 个会话：`)
+    console.log()
+    for (let i = 0; i < recentSessions.length; i++) {
+      const s = recentSessions[i]
+      if (!s) continue
+      const title = s.title ?? "(无标题)"
+      const updatedAt = s.time?.updated ? new Date(s.time.updated).toLocaleString() : "未知"
+      console.log(`  ${i + 1}. ${title}`)
+      logFile.info(`  ${i + 1}. ${title}  ( SessionID: ${s.id})`)
+      console.log(`     ${updatedAt}`)
+      console.log()
+    }
+  } else {
+    console.log("  (暂无已有会话)")
+    console.log()
+  }
+
+  let selected = 0
+  let selectedSession: (typeof sessionList)[0] | null = null
+
+  while (true) {
+    const answer = await askUser("请输入选项 (0-新增, 1-" + MAX_RECENT + "选最近会话, 或输入字符按会话名称搜索): ")
+
+    if (answer.trim() === "") {
+      selected = 0
+      break
+    }
+
+    selected = parseInt(answer, 10)
+
+    if (!isNaN(selected) && selected >= 0 && selected <= MAX_RECENT) {
+      break
+    }
+
+    const searchTerm = answer.trim().toLowerCase()
+    if (searchTerm.length > 0) {
+      const matched = sessionList.filter((s) => (s.title ?? "").toLowerCase().includes(searchTerm))
+      if (matched.length > 0) {
+        console.log()
+        console.log(`  搜索 "${answer}" 结果 (${matched.length} 个)：`)
+        for (let i = 0; i < Math.min(matched.length, 10); i++) {
+          const s = matched[i]
+          if (!s) continue
+          console.log(`  ${i + 1}. ${s.title ?? "(无标题)"}`)
+          console.log(`     ID: ${s.id}`)
+        }
+        console.log()
+
+        const pickAnswer = await askUser("选择会话 (1-" + Math.min(matched.length, 10) + "): ")
+        const pickIdx = parseInt(pickAnswer, 10) - 1
+        if (!isNaN(pickIdx) && pickIdx >= 0 && pickIdx < matched.length) {
+          const selected = matched[pickIdx]
+          if (selected) {
+            selectedSession = selected
+            break
+          }
+        }
+      } else {
+        console.log(`  未找到包含 "${answer}" 的会话`)
+        console.log()
+      }
+    } else {
+      consoleAndLogFile.warn("无效的选项，请重新输入")
+    }
+  }
+
+  console.log()
+
+  if (selected === 0) {
+    logFile.info("[创建] 打开新会话...")
+    const dirAnswer = await askUser(`项目目录 (直接回车使用: ${defaultDirectory}): `)
+    const projectDir = dirAnswer.trim() || defaultDirectory
+
+    const titleAnswer = await askUser("会话标题 (直接回车使用默认): ")
+    const sessionTitle = titleAnswer.trim() || "RalphLoopCore 集成测试"
+
+    logFile.info(`[配置] 目录: ${projectDir}`)
+    logFile.info(`[配置] 标题: ${sessionTitle}`)
+    
+    return await createSession(sessionTitle, projectDir)
+  } else if (selectedSession) {
+    logFile.info(`[选择] 使用已有会话: ${selectedSession.id} - ${selectedSession.title ?? "(无标题)"}`)
+    return new OpenCodeSessionAdapter(client, selectedSession.id, selectedSession.directory)
+  } else {
+    const recentSessions = sessionList.slice(0, MAX_RECENT)
+    const s = recentSessions[selected - 1]
+    if (!s) {
+      throw new Error("会话不存在")
+    }
+    logFile.info(`[选择] 使用已有会话: ${s.id} - ${s.title ?? "(无标题)"}`)
+    return new OpenCodeSessionAdapter(client, s.id, s.directory)
+  }
+}
+
+export async function createSession(title: string, directory: string): Promise<ISession> {
+    if(client==null)
+    {
+      throw new Error("未连接到服务器,请先link")
+    }
+    const session = await client.session.create({
+      directory: directory,
+      title: title,
+    })
+    if (!session.data) {
+      throw new Error("创建会话失败")
+    }
+    logFile.info(`[创建] 新会话: ${session.data.id}`)
+    return new OpenCodeSessionAdapter(client, session.data.id, directory)
+}
+
 /**
- * OpenCode 会话类
+ * OpenCode 会话适配类
  */
-export class OpenCodeSession {
+export class OpenCodeSessionAdapter implements ISession {
   // ==================== 实例属性 ====================
 
   /** 会话唯一标识符 */
@@ -150,13 +368,6 @@ export class OpenCodeSession {
    * - getMessages() 可获取历史记录供外部使用
    */
   private messageHistory: SessionMessage[] = []
-
-  /**
-   * 事件源 AbortController
-   *
-   * 【作用】支持优雅停止事件监听
-   */
-  private eventListening: AbortController | null = null
 
   /**
    * 中断回调函数
@@ -288,6 +499,7 @@ export class OpenCodeSession {
     this.client = client
     this.id = sessionId
     this.directory = directory
+    globalEventManager?.subscribe(this)
   }
 
   // ==================== 公共方法 ====================
@@ -333,76 +545,28 @@ export class OpenCodeSession {
   }
 
   /**
-   * 启动事件监听
-   * 开始订阅 OpenCode 服务端事件
+   * 直接处理事件（由全局事件管理器调用）
    */
-  async startEventListener(): Promise<void> {
-    this.eventListening = new AbortController()
-    logFile.info(`[事件监听] 已订阅事件, sessionId: ${this.id}`)
-
-    ;(async () => {
-      try {
-        const events = await this.client.global.event()
-        logFile.info(`[事件监听] 订阅成功`)
-        let eventCount = 0
-        for await (const event of events.stream as AsyncIterable<GlobalEvent>) {
-          eventCount++
-          const payload = event.payload
-          const type = payload.type
-          const props = hasProperties(payload)
-            ? (payload.properties as EventPropsWithSession | SessionErrorProps | CommandExecuteProps | MessagePartProps | undefined)
-            : undefined
-          const sessionId = this.getEventSessionId(payload)
-
-          // 跳过无关事件
-          if (IGNORED_EVENTS.has(type)) {
-            continue
-          }
-
-          // 检查是否为本会话的事件
-          const isMySession = sessionId === this.id
-
-          // 记录重要事件日志
-          if (type === "session.error") {
-            logFile.info(`[事件!] #${eventCount} session.error: ${JSON.stringify((props as SessionErrorProps | undefined)?.error)}`)
-          } else if (type === "session.status" || type === "session.idle") {
-            logFile.info(`[事件] #${eventCount} ${type}: ${(props as EventPropsWithSession | undefined)?.status?.type ?? (props as EventPropsWithSession | undefined)?.sessionID}`)
-          } else if (type === "message.updated") {
-            if (isMySession) {
-              const role = (props as EventPropsWithSession | undefined)?.info?.role
-              logFile.info(`[事件!] #${eventCount} ${type}: role=${role ?? "unknown"}`)
-            }
-          } else if (isSyncMessageUpdatedPayload(payload) && isMySession) {
-            logFile.info(`[事件!] #${eventCount} sync(message.updated.1): role=${payload.data.info.role ?? "unknown"}`)
-          }
-          await this.handleEvent(event)
-        }
-      } catch (e) {
-        logFile.error("[事件监听] 错误:", e)
-      }
-    })()
+  async handleEventDirect(event: GlobalEvent): Promise<void> {
+    await this.handleEvent(event)
   }
 
   /**
-   * 停止事件监听
-   * 取消事件流订阅，释放资源，避免资源泄漏
+   * 释放资源，避免资源泄漏
    */
-  async stopEventListener(): Promise<void> {
-    if (this.eventListening) {
-      this.eventListening.abort()
-      this.eventListening = null
-    }
+  async disposeAsync(): Promise<void> {
+    globalEventManager?.unsubscribe(this.id)
   }
 
   /**
    * 向会话发送消息并等待响应
    *
    * @param message 要发送的消息
-   * @param agent 指定使用的 agent（可选）
+   * @param agentMode 指定使用的 agent模式（可选）
    * @returns 模型的响应文本
    */
-  async 发消息(message: SessionMessage, agent?: string): Promise<string> {
-    consoleAndLogFile.info(`[发送消息] msgSource=${message.msgSource}, content="${message.content.substring(0, 60)}...", state=${this.receiveState}, directory=${this.directory}, agent=${agent ?? "default"}`)
+  async sendMsg(message: SessionMessage, agentMode?: string): Promise<string> {
+    consoleAndLogFile.info(`[发送消息] msgSource=${message.msgSource}, content="${message.content.substring(0, 60)}...", state=${this.receiveState}, directory=${this.directory}, agent=${agentMode ?? "default"}`)
     consoleAndLogFile.info(`[DEBUG sendMessage] 开始, state=${this.receiveState}`)
     this.messageHistory.push(message)
     this.pendingMessageContent = message.content
@@ -436,8 +600,8 @@ export class OpenCodeSession {
         parts: [{ type: "text", text: message.content }],
         system: message.msgSource === MSG_SOURCE.system ? message.content : undefined,
       }
-      if (agent) {
-        promptParams.agent = agent
+      if (agentMode) {
+        promptParams.agent = agentMode
       }
       const promptResult = this.client.session.prompt(promptParams)
       promptPromise = Promise.resolve(promptResult)

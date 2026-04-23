@@ -1,16 +1,18 @@
-import { INTERRUPTION_REASON, type InterruptedMessage } from "./adapters/types"
+import { INTERRUPTION_REASON, type InterruptedMessage } from "./types"
+import type { ISession } from "./session"
 import { logFile,consoleAndLogFile } from "./logger"
 import { askUserWithTimeout } from "./system"
 
 /**
  * 角色
- * 代表单个角色，包含系统Prompt和长期记忆
+ * 代表单个角色，包含系统Prompt和长期记忆等信息
  */
-export interface Role {
+export interface IRole {
   name: string
-  systemPrompt: string
+  knowledgeDomainPrompt: string // 知识域提示词, 区分Role的系统提示词。这里命名很长, 但是为了强调Role必须由“知识域”作为核心识别属性, 所以采用了更长的命名。之前在某篇文章中看到: Less is more，单Agent很多时候比多Agent互通信的工作成功率更高, 衡量要不要开新Agent的关键在于两项任务是否 “跨知识域”。所以拿这个来作为系统提示词的命名。
   memory?: string
   accessMode: "readonly" | "writable"
+  currentSessionInstance?: ISession
 }
 
 export function 检查names重复(roles: { name: string }[]): { name: string }[] {
@@ -26,10 +28,10 @@ export function 检查names重复(roles: { name: string }[]): { name: string }[]
 }
 
 export async function AskTo重新定位角色(
-  allRoles : Role[],
-  nextRole: Role,
+  allRoles : IRole[],
+  nextRole: IRole,
   interruptedMsg: InterruptedMessage,
-): Promise<Role> {
+): Promise<IRole> {
   const reasonText =
     interruptedMsg.reason === INTERRUPTION_REASON.rollback
       ? "[回滚] 检测到消息回滚"
