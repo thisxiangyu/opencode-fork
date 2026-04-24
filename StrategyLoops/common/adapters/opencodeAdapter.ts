@@ -63,7 +63,7 @@ import type {
   WaitContext,
 } from "../types"
 import { MessageReceiveState as State, AbortError, INTERRUPTION_REASON, MSG_SOURCE } from "../types"
-import { logFile, consoleAndLogFile } from "../logger"
+import { logFile, consoleAndLogFile, LOG_COLOR } from "../logger"
 import type { ISession } from "../session"
 import { askUser } from "../system"
 
@@ -534,7 +534,7 @@ export class OpenCodeSessionAdapter implements ISession {
    */
   setCurrentContext(roleName: string): void {
     this.currentRoleName = roleName
-    consoleAndLogFile.info(`[状态] 设置上下文 -> role=${roleName}, state=${this.receiveState}`)
+    logFile.info(`[状态] 设置上下文 -> role=${roleName}, state=${this.receiveState}`)
   }
 
   /**
@@ -558,63 +558,33 @@ export class OpenCodeSessionAdapter implements ISession {
     globalEventManager?.unsubscribe(this.id)
   }
 
-  /**
-   * 向会话发送消息并等待响应
-   *
-   * @param message 要发送的消息
-   * @param agentMode 指定使用的 agent模式（可选）
-   * @returns 模型的响应文本
-   */
-  async sendMsg(message: SessionMessage, agentMode?: string): Promise<string> {
-    consoleAndLogFile.info(`[发送消息] msgSource=${message.msgSource}, content="${message.content.substring(0, 60)}...", state=${this.receiveState}, directory=${this.directory}, agent=${agentMode ?? "default"}`)
-    consoleAndLogFile.info(`[DEBUG sendMessage] 开始, state=${this.receiveState}`)
-    this.messageHistory.push(message)
-    this.pendingMessageContent = message.content
-    this.lastSendBaseline = {
-      userMessageId: this.lastUserMessageId,
-      assistantMessageId: this.lastAssistantMessageId,
-    }
+  private isModelNotFoundError(err: unknown): boolean {
+    const e = err as any
+    const msg = e?.message ?? ""
+    const isModelNotFound =
+      msg.includes("model") && (msg.includes("not found") || msg.includes("invalid") || msg.includes("does not exist"))
+    const isProviderNotFound =
+      msg.includes("provider") && (msg.includes("not found") || msg.includes("invalid"))
+    return isModelNotFound || isProviderNotFound
+  }
 
-    // StrategyLoops 主动发 system 消息，本质上就是一次新的 prompt 请求。
-    if (message.msgSource === MSG_SOURCE.system && this.receiveState === State.IDLE) {
-      this.receiveState = State.WAITING_PROMPT_RESPONSE
-      consoleAndLogFile.info(`[状态变更] WAITING_PROMPT_RESPONSE (等待prompt响应)`)
+  private async doSend(message: SessionMessage, agentMode?: string, model?: { providerID: string; modelID: string }): Promise<string> {
+    const promptParams: any = {
+      sessionID: this.id,
+      directory: this.directory,
+      parts: [{ type: "text", text: message.content }],
+      system: message.msgSource === MSG_SOURCE.system ? message.content : undefined,
     }
-
-    // 正在期待下一条消息 -> 跳过发送
-    if (this.receiveState === State.EXPECTING_NEXT_MESSAGE) {
-      consoleAndLogFile.info(`[发送] state=EXPECTING_NEXT_MESSAGE，跳过发送，返回""`)
-      return ""
+    if (agentMode) {
+      promptParams.agent = agentMode
     }
-
-    // 已收到中断 -> 抛出 AbortError
-    if (this.receiveState === State.RECEIVED_INTERRUPTION) {
-      consoleAndLogFile.info(`[发送] state=RECEIVED_INTERRUPTION，将抛出AbortError`)
-    }
-
-    let promptPromise: Promise<any>
-    try {
-      const promptParams: any = {
-        sessionID: this.id,
-        directory: this.directory,
-        parts: [{ type: "text", text: message.content }],
-        system: message.msgSource === MSG_SOURCE.system ? message.content : undefined,
-      }
-      if (agentMode) {
-        promptParams.agent = agentMode
-      }
-      const promptResult = this.client.session.prompt(promptParams)
-      promptPromise = Promise.resolve(promptResult)
-    } catch (err) {
-      this.receiveState = State.IDLE
-      this.pendingMessageContent = ""
-      throw err
+    if (model) {
+      promptParams.model = model
     }
 
     let aborted = false
     let abortReason: string | null = null
 
-    // 检查是否收到中断信号
     const checkInterruption = () => {
       if (this.receiveState === State.RECEIVED_INTERRUPTION) {
         logFile.info(`[发送] 检测到中断, reason=${this.pendingInterruption?.reason}`)
@@ -632,84 +602,138 @@ export class OpenCodeSessionAdapter implements ISession {
       }
     }
 
-    try {
-      // 竞态：等待 prompt 响应或中断信号
-      const response = await Promise.race([
-        promptPromise,
-        new Promise<never>((_, reject) => {
-          const interval = setInterval(() => {
-            checkInterruption()
-            if (aborted) {
-              clearInterval(interval)
-              reject(new AbortError())
-            }
-          }, 100)
-          const cleanup = () => clearInterval(interval)
-          promptPromise.then(cleanup, cleanup)
-        }),
-      ])
+    const promptPromise = this.client.session.prompt(promptParams)
 
-      checkInterruption()
-      await waitForLateAbort()
-      if (aborted) {
-        logFile.info(`[发送] prompt 已返回，但检测到中断，丢弃本次响应: ${abortReason ?? "unknown"}`)
-        throw new AbortError()
-      }
-
-      // 解析响应文本
-      let responseText = ""
-      if (response.data?.parts) {
-        for (const p of response.data.parts) {
-          if (p.type === "text") {
-            responseText += (p as { text: string }).text + "\n"
+    const response = await Promise.race([
+      Promise.resolve(promptPromise),
+      new Promise<never>((_, reject) => {
+        const interval = setInterval(() => {
+          checkInterruption()
+          if (aborted) {
+            clearInterval(interval)
+            reject(new AbortError())
           }
-        }
-        if (responseText) {
-          const trimmed = responseText.trim()
-          this.messageHistory.push({ msgSource: MSG_SOURCE.agent, content: trimmed })
-          this.lastReceivedMessageContent = trimmed
-          this.receiveState = State.IDLE
-          if (this.messageCallback) {
-            this.messageCallback({ msgSource: MSG_SOURCE.agent, content: trimmed })
-          }
-          return trimmed
-        }
-      }
-      this.receiveState = State.IDLE
-      return responseText
-    } catch (error) {
-      const err = error as Error
-      // AbortError 直接抛出
-      if (err instanceof AbortError || err.name === "AbortError") {
-        throw error
-      }
+        }, 100)
+        const cleanup = () => clearInterval(interval)
+        promptPromise.then(cleanup, cleanup)
+      }),
+    ])
 
-      this.receiveState = State.IDLE
-
-      // 检查是否与中止相关
-      const isAbortRelated =
-        err?.name === "AbortError" ||
-        err?.name === "AbortController" ||
-        err?.message?.includes("abort") ||
-        err?.message?.includes("cancelled") ||
-        err?.message?.includes("取消")
-
-      if (isAbortRelated) {
-        this.pendingInterruption = {
-          roleName: this.currentRoleName,
-          beforeMessage: this.pendingMessageContent,
-          receivedMessage: "用户按下了暂停键",
-          timestamp: new Date(),
-          reason: INTERRUPTION_REASON.aborted,
-        }
-        throw new AbortError()
-      }
-
-      logFile.error(`[发送消息] 其他错误: ${err.message}`)
-      throw error
-    } finally {
-      this.pendingMessageContent = ""
+    checkInterruption()
+    await waitForLateAbort()
+    if (aborted) {
+      logFile.info(`[发送] prompt 已返回，但检测到中断，丢弃本次响应: ${abortReason ?? "unknown"}`)
+      throw new AbortError()
     }
+
+    let responseText = ""
+    const respData = (response as any).data
+    const parts = (response as any).parts ?? respData?.parts
+    logFile.info(`[DEBUG doSend] response keys=${Object.keys(response)}, data exists=${respData != null}${respData ? ', data keys=' + Object.keys(respData) : ''}`)
+    logFile.info(`[DEBUG doSend] parts source=${(response as any).parts ? 'direct' : respData?.parts ? 'data' : 'none'}`)
+    if (parts) {
+      logFile.info(`[DEBUG doSend] parts.length=${parts.length}`)
+      for (const p of parts) {
+        logFile.info(`[DEBUG doSend] part type=${p.type}`)
+        if (p.type === "text") {
+          responseText += (p as { text: string }).text + "\n"
+        }
+      }
+      if (responseText) {
+        const trimmed = responseText.trim()
+        this.messageHistory.push({ msgSource: MSG_SOURCE.agent, content: trimmed })
+        this.lastReceivedMessageContent = trimmed
+        this.receiveState = State.IDLE
+        if (this.messageCallback) {
+          this.messageCallback({ msgSource: MSG_SOURCE.agent, content: trimmed })
+        }
+        return trimmed
+      }
+    }
+    this.receiveState = State.IDLE
+    return responseText
+  }
+
+  /**
+   * 向会话发送消息并等待响应
+   *
+   * @param message 要发送的消息
+   * @param agentMode 指定使用的 agent模式（可选）
+   * @param model 指定使用的模型（可选，格式：{ providerID, modelID }）
+   * @returns 模型的响应文本
+   */
+  async sendMsg(message: SessionMessage, agentMode?: string, model?: { providerID: string; modelID: string }): Promise<string> {
+    logFile.info(`[DEBUG sendMessage] 开始, state=${this.receiveState}, msgSource=${message.msgSource}, directory=${this.directory}, agent=${agentMode ?? "default"}, model=${model ? `${model.providerID}/${model.modelID}` : "default"}`)
+    this.messageHistory.push(message)
+    this.pendingMessageContent = message.content
+    this.lastSendBaseline = {
+      userMessageId: this.lastUserMessageId,
+      assistantMessageId: this.lastAssistantMessageId,
+    }
+
+    if (message.msgSource === MSG_SOURCE.system && this.receiveState === State.IDLE) {
+      this.receiveState = State.WAITING_PROMPT_RESPONSE
+      logFile.info(`[状态变更] WAITING_PROMPT_RESPONSE (等待prompt响应)`)
+    }
+
+    if (this.receiveState === State.EXPECTING_NEXT_MESSAGE) {
+      logFile.info(`[发送] state=EXPECTING_NEXT_MESSAGE，跳过发送，返回""`)
+      return ""
+    }
+
+    if (this.receiveState === State.RECEIVED_INTERRUPTION) {
+      logFile.info(`[发送] state=RECEIVED_INTERRUPTION，将抛出AbortError`)
+    }
+
+    const modelsToTry = model ? [model, undefined] : [undefined]
+    let lastError: Error | null = null
+
+    for (let attempt = 0; attempt < modelsToTry.length; attempt++) {
+      const currentModel = modelsToTry[attempt]
+      try {
+        const result = await this.doSend(message, agentMode, currentModel)
+        this.pendingMessageContent = ""
+        return result
+      } catch (err) {
+        lastError = err as Error
+        if (err instanceof AbortError || (err as Error).name === "AbortError") {
+          throw err
+        }
+
+        const isLastAttempt = attempt === modelsToTry.length - 1
+        if (this.isModelNotFoundError(err) && !isLastAttempt) {
+          consoleAndLogFile.warn(`[模型回退] 指定模型 ${currentModel!.providerID}/${currentModel!.modelID} 不可用，尝试默认模型: ${(err as Error).message}`)
+          this.receiveState = State.IDLE
+          continue
+        }
+
+        this.receiveState = State.IDLE
+
+        const isAbortRelated =
+          (err as Error)?.name === "AbortError" ||
+          (err as Error)?.name === "AbortController" ||
+          (err as Error)?.message?.includes("abort") ||
+          (err as Error)?.message?.includes("cancelled") ||
+          (err as Error)?.message?.includes("取消")
+
+        if (isAbortRelated) {
+          this.pendingInterruption = {
+            roleName: this.currentRoleName,
+            beforeMessage: this.pendingMessageContent,
+            receivedMessage: "用户按下了暂停键",
+            timestamp: new Date(),
+            reason: INTERRUPTION_REASON.aborted,
+          }
+          throw new AbortError()
+        }
+
+        logFile.error(`[发送消息] 其他错误: ${(err as Error).message}`)
+        throw err
+      }
+    }
+
+    this.pendingMessageContent = ""
+    throw lastError!
   }
 
   /**
@@ -771,7 +795,7 @@ export class OpenCodeSessionAdapter implements ISession {
    *
    * 【没有会怎样】无法实现需要用户输入的交互流程
    */
-  async waitForUserMessage(timeoutMs: number = 300000): Promise<string> {
+  async waitForUserMessage(timeoutMs: number = 1000* 60* 12): Promise<string> {
     // 防止重复等待
     if (this.waitForUserMessagePromise) {
       consoleAndLogFile.info(`[等待用户消息] 已在等待中，返回现有Promise`)
@@ -1091,7 +1115,7 @@ export class OpenCodeSessionAdapter implements ISession {
     // 如果已经在等待下一次用户消息，再次 aborted 只表示"继续暂停并等待新的引导"。
     // 这时不能把状态切成 RECEIVED_INTERRUPTION，否则后续 new_message / rollback 就不会被识别。
     if (reason === INTERRUPTION_REASON.aborted && this.receiveState === State.EXPECTING_NEXT_MESSAGE) {
-      consoleAndLogFile.info(`[中断] 等待阶段收到 aborted，继续等待下一次用户消息`)
+      logFile.info(`[中断] 等待阶段收到 aborted，继续等待下一次用户消息`)
       this.pendingInterruption = {
         roleName: this.currentRoleName,
         beforeMessage: this.pendingMessageContent,
@@ -1108,7 +1132,7 @@ export class OpenCodeSessionAdapter implements ISession {
     }
 
     this.receiveState = State.RECEIVED_INTERRUPTION
-    consoleAndLogFile.info(`[中断] reason=${reason}`)
+    consoleAndLogFile.infoC(LOG_COLOR.GREEN, `[中断] reason=${reason}`)
 
     this.pendingInterruption = {
       roleName: this.currentRoleName,

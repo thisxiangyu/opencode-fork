@@ -1,5 +1,54 @@
 import * as readline from "readline"
 
+export const TIME_PERIODS = [
+  "早晨",   // 5:00-7:59
+  "上午",   // 8:00-11:59
+  "中午",   // 12:00-12:59
+  "下午",   // 13:00-17:59
+  "傍晚",   // 18:00-18:59
+  "晚上",   // 19:00-23:59
+  "午夜",   // 0:00-4:59
+] as const
+
+export type TimePeriod = typeof TIME_PERIODS[number]
+
+export function getTimePeriod(date: Date = new Date()): TimePeriod {
+  const hour = date.getHours()
+  if (hour >= 5 && hour < 8) return "早晨"
+  if (hour >= 8 && hour < 12) return "上午"
+  if (hour >= 12 && hour < 13) return "中午"
+  if (hour >= 13 && hour < 18) return "下午"
+  if (hour >= 18 && hour < 19) return "傍晚"
+  if (hour >= 19 && hour < 24) return "晚上"
+  return "午夜"
+}
+
+export interface FormatDateTimeOptions {
+  year?: number
+  month?: number
+  day?: number
+  period?: TimePeriod | "auto"
+  showYear?: boolean
+  showPeriod?: boolean
+  showTime?: boolean
+}
+
+export function formatDateTime(options: FormatDateTimeOptions = {}): string {
+  const now = new Date()
+  const year = options.year ?? now.getFullYear()
+  const month = options.month ?? now.getMonth() + 1
+  const day = options.day ?? now.getDate()
+  const period = options.period === "auto" || options.period === undefined
+    ? getTimePeriod()
+    : options.period
+  const yearStr = options.showYear !== false ? `${year}年` : ""
+  const periodStr = options.showPeriod ? `/${period}` : ""
+  const timeStr = options.showTime
+    ? ` ${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`
+    : ""
+  return `${yearStr}${month}月${day}日${periodStr}${timeStr}`
+}
+
 export async function askUser(question: string): Promise<string> {
   const rl = readline.createInterface({
     input: process.stdin,

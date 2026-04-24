@@ -45,9 +45,10 @@ export interface ISession {
    *
    * @param message 要发送的消息
    * @param agent 指定使用的 agent（可选）
+   * @param model 指定使用的模型（可选，格式：{ providerID, modelID }）
    * @returns 模型的响应文本
    */
-  sendMsg(message: SessionMessage, agent?: string): Promise<string>
+  sendMsg(message: SessionMessage, agent?: string, model?: { providerID: string; modelID: string }): Promise<string>
 
   /**
    * 等待中断
@@ -61,6 +62,8 @@ export interface ISession {
   /**
    * 清空中断状态
    * 重置所有中断相关状态
+   *
+   * 【作用】外部在处理完中断后调用, 避免中断状态残留，影响后续消息处理
    */
   clearInterruption(): void
 
@@ -68,7 +71,7 @@ export interface ISession {
    * 等待用户消息
    * 阻塞等待直到收到用户新消息
    *
-   * @param timeoutMs 超时时间（毫秒），默认 300000（5分钟）
+   * @param timeoutMs 超时时间（毫秒）
    * @returns 用户消息内容
    */
   waitForUserMessage(timeoutMs?: number): Promise<string>
