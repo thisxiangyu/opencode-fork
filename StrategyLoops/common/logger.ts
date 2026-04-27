@@ -1,7 +1,7 @@
 import * as fs from "fs"
 import * as path from "path"
 
-export const LOG_DIR = "D:\\AI Model\\opencode-fork\\StrategyLoops\\log"
+export const LOG_DIR = "log"
 
 type LogLevel = "info" | "warn" | "error"
 
