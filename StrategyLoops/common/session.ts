@@ -12,6 +12,9 @@ export interface ISession {
   /** 会话唯一标识符 */
   id: string
 
+  /** 工作路径 */
+  directory: string
+
   /**
    * 设置中断回调
    * 当检测到会话中断时被调用

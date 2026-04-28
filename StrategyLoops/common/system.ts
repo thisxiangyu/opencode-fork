@@ -1,5 +1,8 @@
 import * as readline from "readline"
 
+export const CHANNEL = process.env.CHANNEL as "Release" | "Test" ?? "Release"
+export const IS_TEST = CHANNEL === "Test"
+
 export const TIME_PERIODS = [
   "早晨",   // 5:00-7:59
   "上午",   // 8:00-11:59
@@ -24,27 +27,26 @@ export function getTimePeriod(date: Date = new Date()): TimePeriod {
 }
 
 export interface FormatDateTimeOptions {
-  year?: number
-  month?: number
-  day?: number
   period?: TimePeriod | "auto"
   showYear?: boolean
   showPeriod?: boolean
   showTime?: boolean
+  showSeconds?: boolean
+  isoString: string
 }
 
-export function formatDateTime(options: FormatDateTimeOptions = {}): string {
-  const now = new Date()
-  const year = options.year ?? now.getFullYear()
-  const month = options.month ?? now.getMonth() + 1
-  const day = options.day ?? now.getDate()
+export function formatDateTime(options: FormatDateTimeOptions): string {
+  const date = new Date(options.isoString)
+  const year = date.getFullYear()
+  const month = date.getMonth() + 1
+  const day = date.getDate()
   const period = options.period === "auto" || options.period === undefined
-    ? getTimePeriod()
+    ? getTimePeriod(date)
     : options.period
   const yearStr = options.showYear !== false ? `${year}年` : ""
-  const periodStr = options.showPeriod ? `/${period}` : ""
+  const periodStr = options.showPeriod ? `${period}` : ""
   const timeStr = options.showTime
-    ? ` ${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`
+    ? ` ${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}${options.showSeconds ? `:${date.getSeconds().toString().padStart(2, "0")}` : ""}`
     : ""
   return `${yearStr}${month}月${day}日${periodStr}${timeStr}`
 }

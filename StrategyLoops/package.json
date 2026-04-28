@@ -1,0 +1,9 @@
+{
+  "name": "strategy-loops",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "^1.3.12"
+  }
+}
