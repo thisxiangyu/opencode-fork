@@ -35,12 +35,13 @@ export const 任务Tag={
   ADD: "add",
   FEAT: "feat",
   FIX: "fix",
-  REFACTOR: "refactor",
-  CHORE: "chore",
+  REFACTOR: "refactor", // 非破坏性重构
+  BREAKING_CHANGE: "BREAKING_CHANGE", // 重大重构，引入破坏性变更
+  CHORE: "chore", // 杂物类任务（比如配置变动）
   ADJUST: "adjust",
   REVERT: "revert",
   TEST: "test",
-  EXPLORE: "explore",
+  EXPLORE: "explore_in_progress", // 处于探索中的任务
   MERGE: "merge",
   MILESTONE: "milestone",
 } as const
