@@ -10,7 +10,7 @@ import { LoopConfig } from "../../common/loopConfig"
 import { AbortError, INTERRUPTION_REASON, type InterruptedMessage, MSG_SOURCE } from "../../common/types"
 import type { ISession } from "../../common/session"
 import { linkBackend,createSession, selectOrCreateSession } from "../../common/adapters/opencodeAdapter"
-import { formatDateTime, IS_TEST } from "../../common/system"
+import { formatDateTime } from "../../common/system"
 
 const config = new LoopConfig({ maxCycles: 3 })
 
@@ -32,18 +32,19 @@ class 任务依赖 {
 }
 
 export const 任务Tag={
-  ADD: "add",
-  FEAT: "feat",
-  FIX: "fix",
+  DETAIL: "detail", // 最为细致、具体的任务步骤
+  ADD: "add", // 任务从无到有/刚开始/刚起步
+  FEAT: "feat", // 特性开发
+  FIX: "fix", // 修复
   REFACTOR: "refactor", // 非破坏性重构
   BREAKING_CHANGE: "BREAKING_CHANGE", // 重大重构，引入破坏性变更
-  CHORE: "chore", // 杂物类任务（比如配置变动）
-  ADJUST: "adjust",
-  REVERT: "revert",
-  TEST: "test",
-  EXPLORE: "explore_in_progress", // 处于探索中的任务
-  MERGE: "merge",
-  MILESTONE: "milestone",
+  CHORE: "chore", // 杂项任务（比如配置变动）
+  ADJUST: "adjust", // 调整/优化（比如性能优化、用户体验优化等）
+  REVERT: "revert", // 回滚
+  TEST: "test", // 测试/验证
+  EXPLORE: "explore_in_progress", // 处于探索过程
+  MERGE: "merge", // 合并
+  MILESTONE: "milestone", // 里程碑，根任务下的关键次级任务，该标签会自动打上
 } as const
 
 export type 任务Tag = typeof 任务Tag[keyof typeof 任务Tag]
@@ -53,8 +54,6 @@ type 任务操作结果 = {
   消息: string
   res任务?: 任务
 }
-
-export const 任务树一次性聚焦数量上限 = 100
 
 export function 当前表中全部任务数(): number {
   const result = db.query("SELECT COUNT(*) as count FROM 任务表 WHERE 是否删除 = 0").get() as { count: number }
@@ -102,22 +101,31 @@ function 检测里程碑(父任务标题: string | null): 任务Tag | null {
   return null
 }
 
-const dbFileName = IS_TEST ? "tasksDrivenMPEE_Test.db" : "tasksDrivenMPEE.db"
-export const 任务表dbPath = join(import.meta.dirname!, "data", dbFileName)
-export const db = new Database(任务表dbPath)
-db.run(`
-  CREATE TABLE IF NOT EXISTS 任务表 (
-    标题 TEXT PRIMARY KEY,
-    父任务标题 TEXT,
-    Tag TEXT NOT NULL,
-    任务描述 TEXT NOT NULL,
-    是否完成 INTEGER DEFAULT 0,
-    创建时间UTC TEXT NOT NULL,
-    优先级序号 INTEGER DEFAULT 0,
-    依赖 TEXT,
-    是否删除 INTEGER DEFAULT 0
-  )
-`)
+let db: Database
+let 任务表dbPath: string
+
+export function initDb(channel: "Release" | "Test" = process.env.CHANNEL as "Release" | "Test" ?? "Release") {
+  const dbFileName = channel === "Test" ? "tasksDrivenMPEE_Test.db" : "tasksDrivenMPEE.db"
+  任务表dbPath = join(import.meta.dirname!, "data", dbFileName)
+  db = new Database(任务表dbPath)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS 任务表 (
+      标题 TEXT PRIMARY KEY,
+      父任务标题 TEXT,
+      Tag TEXT NOT NULL,
+      任务描述 TEXT NOT NULL,
+      是否完成 INTEGER DEFAULT 0,
+      创建时间UTC TEXT NOT NULL,
+      优先级序号 INTEGER DEFAULT 0,
+      依赖 TEXT,
+      是否删除 INTEGER DEFAULT 0
+    )
+  `)
+  return db
+}
+
+export function getDb() { return db }
+export { 任务表dbPath }
 
 const 任务表 = {
 
@@ -164,21 +172,41 @@ const 任务表 = {
     return { 成功: true, 消息: `已添加${任务类型}「${标题trim}」${父任务信息}（优先级：${优先级序号}）`, res任务: newOne }
   },
 }
+const 所有任务Tag = Object.values(任务Tag).join('、')
 
 // 跟知识域提示词一起在会话开始时发送
-const 团队Prompt = `我们项目的团队成员包括：manager、planner、executor、evaluator、QA。
-工作以’规划->执行->测评‘循环进行，总共干${config.maxCycles}轮。工作目标通过【任务表】的方式来具体化和跟踪。`
+const 团队Prompt = `项目的团队成员包括：manager、planner、executor、evaluator、QA。
+工作以’规划->执行->测评‘循环进行，总共${config.maxCycles}轮。工作目标通过【任务表】的方式来具体化和跟踪。
+`
 
-const 执行者调度器: {
-  可调度的执行者: 执行者[];
+const 任务表说明Prompt = `
+任务表概念：
+- 层级: 根任务 -> 子任务 -> ... -> 末端任务（以此类推,层级越往前越大,越往末端越具体）
+- 优先级: 优先级序号越小，优先级越高，视图上优先级高的任务会被排在前面
+- Tag: 任务的分类标签，限于${所有任务Tag}
+`
 
-} = {
-  可调度的执行者: [],
-};
+const 任务表操作Prompt = `
+任务表操作：
+- 添加任务：需提供标题、任务描述（5-15句话，涉及具体文件/代码段/变量则应具体，验收指标应具体）、
+添加到哪个父任务之下、优先级序号（整数，越小优先级越高，会导致同级任务排序变化）、至少一个Tag、
+依赖（当前任务依赖某个任务先完成才能后进行，有则必填不能漏，没有不要强填，格式为[{ "依赖任务": "xxx", "原因": "xxx" }]，依赖任务必须已经存在于表中）
+  输出格式:
+  {
+    操作: "添加任务",
+    标题: string,
+    任务描述: string,
+    添加到哪个父任务之下: string | null,
+    优先级序号: number = 0,
+    任务类型Tag: 任务Tag,
+    依赖: 任务依赖[] = [],
+    其它Tag: string[] = [],
+  }
+你准备好了吗？`
 
 interface I读取任务表
 {
-  任务表Prompt(): string;
+  查询任务表(一次性聚焦数量上限 : number, 从何时查询?: string): string;
 }
 
 
@@ -186,14 +214,14 @@ export class 规划者 implements IRole, I读取任务表 {
   memory?: string | undefined
   name = "planner"
   knowledgeDomainPrompt() { return "你是一个规划者，负责理解目标、分析当前局面、制定可执行的具体开发任务、挑选执行者、派发任务。" }
-  systemPrompt() { return `1.阅读评估者本轮的评估；2.理解当前任务表完成度；3.分析本轮执行的情况和进度；4.判断执行者是否正确理解了上一轮规划；5.决定将下一轮任务派发给哪个执行者。
-  通常而言，任务树的层次越厚实，末端任务越具体，证明对项目的理解越深入，规划质量越高。
-  完成任务表规划或调整后，请根据“把任务交给合适的人、新的任务交给新的人、重大重构交给新的人”的原则委派执行者，按下列格式输出：
+  systemPrompt() { return `1.阅读评估者上一轮的评估；2.理解当前任务表完成度；3.分析本轮执行的情况和进度；4.判断执行者是否正确理解了上一轮规划；5.将下一轮任务派发给新的执行者。
+  通常而言，任务树的层次越厚实，末端任务越具体，证明对项目的理解越深入，规划质量越高。现在，请视察情况，先完成本轮任务表规划或调整。
+   
+  完成任务表规划或调整后，委派一个新执行者（注:每次消费一个新人，所以需要确保关键上下文传递），按下列格式输出：
   {
-    当前情况: "",
+    前情回顾: "",
     本轮任务标题: "",
-    委派执行者: "(执行者name)",
-    给执行者留言: "你好执行者，...（给执行者的具体留言或规划）"
+    给执行者留言: "你好执行者，...（给执行者的具体留言、规划或指导，不要跟前情回顾重复）"
   }
   ` }
 
@@ -224,10 +252,20 @@ export class 规划者 implements IRole, I读取任务表 {
   // ———— (Tag1、Tag2...)任务描述
   // ———— 依赖
   // ———— 已完成/未完成
-  任务表Prompt():string {
+  查询任务表(一次性聚焦数量上限 : number, 从何时查询?: string):string {
+    if (一次性聚焦数量上限 <= 0) {
+      return `【任务表错误】一次性聚焦数量上限必须大于0，当前值: ${一次性聚焦数量上限}`
+    }
+    if (从何时查询 !== undefined) {
+      const date = new Date(从何时查询)
+      if (isNaN(date.getTime())) {
+        return `【任务表错误】从何时查询参数无效的ISO时间格式: ${从何时查询}`
+      }
+    }
+
     const 末端任务数 = 当前表中总任务数_仅末端()
     const 总任务数 = 当前表中全部任务数()
-    const n = 任务树一次性聚焦数量上限
+    const n = 一次性聚焦数量上限
 
     function 计算任务树层数(): number {
       function 获取子任务层级(父任务标题: string | null, currentDepth: number): number {
@@ -260,9 +298,14 @@ export class 规划者 implements IRole, I读取任务表 {
     const 根任务列表 = 加载根任务()
 
     // 查询最近创建的n个非根任务（按创建时间UTC倒序）
-    const recentTasks = db.query(
-      "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 IS NOT NULL ORDER BY 创建时间UTC DESC LIMIT ?"
-    ).all(n) as 任务[]
+    // 如果传入从何时查询，则限制为该时间之前的任务
+    const recentTasks = 从何时查询
+      ? db.query(
+          "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 IS NOT NULL AND 创建时间UTC <= ? ORDER BY 创建时间UTC DESC LIMIT ?"
+        ).all(从何时查询, n) as 任务[]
+      : db.query(
+          "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 IS NOT NULL ORDER BY 创建时间UTC DESC LIMIT ?"
+        ).all(n) as 任务[]
 
     // 补全任务链：根据父任务标题向上追溯
     function 追溯父任务链(任务标题: string | null, visited: Set<string>): 任务[] {
@@ -371,7 +414,8 @@ export class 规划者 implements IRole, I读取任务表 {
     lines.push(`- 总任务数（含所有父任务）: ${总任务数}`)
     lines.push(`- 任务树最深层数: ${任务树最深处层数}`)
     lines.push(``)
-    lines.push(`【任务表视图】（根据优先级序号从0到n排序，越靠前越优先；✅ 代表已完成，☕️ 代表未完成）`)
+    lines.push(`【任务表视图】（优先级序号从0到n排序，靠前=优先；✅ =已完成，☕️ =未完成）`)
+    lines.push(`- 当前展示数量: ${sortedTasks.length}`)
     lines.push(``)
 
     for (const task of sortedTasks) {
@@ -403,7 +447,7 @@ export class 执行者 implements IRole, I读取任务表 {
   name = "executor"
   knowledgeDomainPrompt() { return "你是一个执行者，负责执行任务。" }
   systemPrompt() { return "。" }
-  任务表Prompt():string {
+  查询任务表(一次性聚焦数量上限:number):string {
     return `《任务表》`
   }
   fix任务反驳():string{
@@ -434,7 +478,7 @@ export class 质保员 implements IRole {
 
 export class 冗余枝剪者 implements IRole {
   name = "ScissorHands"
-  knowledgeDomainPrompt() { return "你是一个冗余枝剪者，负责寻找开发过程中因前后逻辑覆盖、项目推进太快造成的不必要的冗余（代码、逻辑、文件、文件夹、资产等），并提请执行者检查。" }
+  knowledgeDomainPrompt() { return "你是一个冗余枝剪者，负责寻找当前这次未提交的变更中：因前后逻辑覆盖、项目推进太快造成的不必要的冗余（代码、逻辑、文件、文件夹、资产等），如果有，提请执行者检查。" }
   systemPrompt() { return "。" }
   accessMode: "readonly" | "writable" = "readonly"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
@@ -451,30 +495,6 @@ export class 边缘质保员 implements IRole {
 export const 策略描述 = "任务表驱动的MPEE（manage-plan-execute-eval）策略"
 export const backendURL = "http://127.0.0.1:4096"
 
-/**
- * 计算中断派发上下文
- * @param sourceRole 中断来源角色（interrupt.roleName 对应的 role）
- * @param allRoles 所有角色列表
- * @param interrupt 当前待处理的中断
- *
- * 【roleName 语义统一约定】
- * interrupt.roleName 表示"哪个 role 的 session 产生了这个中断"，而非"恢复结果应派发给谁"
- * 这使得每个 role 的 session 状态能独立管理，不会因角色切换而混乱
- */
-function getDispatchContext(sourceRole: IRole, allRoles: IRole[], interrupt: InterruptedMessage) {
-  if (interrupt.reason !== INTERRUPTION_REASON.rollback) {
-    return {
-      dispatchMsg: interrupt,
-      fallbackRole: Role跳转策略(sourceRole, allRoles),
-    }
-  }
-
-  const resumedRole = Role跳转策略(sourceRole, allRoles)
-  return {
-    dispatchMsg: interrupt,
-    fallbackRole: resumedRole,
-  }
-}
 
 function isDispatchableInterruption(reason: InterruptedMessage["reason"]): boolean {
   return (
@@ -495,20 +515,58 @@ function takeLatestDispatchableInterruption(queue: InterruptedMessage[]): Interr
   return null
 }
 
-const Role跳转策略: (current: IRole, allRoles: IRole[]) => IRole = (current, allRoles) => {
-  const currentIndex = allRoles.findIndex((role) => role.name === current.name)
-  if (currentIndex === -1) throw new Error(`未知角色: ${current.name}`)
-  return allRoles[(currentIndex + 1) % allRoles.length]!
-}
-
-function isCycleCompleted(nextRole: IRole, allRoles: IRole[]): boolean {
-  return nextRole.name === allRoles[0]?.name
+function isCycleCompleted(nextRole: IRole, theFirstRole: IRole): boolean {
+  return nextRole.name === theFirstRole.name
 }
 
 export async function main(): Promise<void> {
-  const allRoles = 检查names重复([new 规划者(), new 执行者(), new 评估者()]) as IRole[]
-  let theFirstRole = allRoles[0]!
-  let currentRole = theFirstRole
+
+  let 规划者instance = new 规划者() as IRole
+  let 执行者instance = new 执行者() as IRole
+  let 评估者instance = new 评估者() as IRole
+
+  const allRoles = 检查names重复([规划者instance, 执行者instance, 评估者instance]) as IRole[]
+  let currentRole = 规划者instance
+
+    /**
+   * 这里的跳转策略设置为固定的闭环：规划->执行->评估->规划
+   */
+  const Role跳转策略: (current: IRole) => IRole = (r) => {
+    if(r instanceof 规划者) {
+      return 执行者instance
+    }
+    if(r instanceof 执行者) {
+      return 评估者instance
+    }
+    if(r instanceof 评估者) {
+      return 规划者instance
+    }
+    throw new Error(`未知角色类型: ${r.name}`)
+  }
+
+    /**
+   * 计算中断派发上下文
+   * @param sourceRole 中断来源角色（interrupt.roleName 对应的 role）
+   * @param interrupt 当前待处理的中断
+   *
+   * 【roleName 语义统一约定】
+   * interrupt.roleName 表示"哪个 role 的 session 产生了这个中断"，而非"恢复结果应派发给谁"
+   * 这使得每个 role 的 session 状态能独立管理，不会因角色切换而混乱
+   */
+  function getDispatchContext(sourceRole: IRole, interrupt: InterruptedMessage) {
+    if (interrupt.reason !== INTERRUPTION_REASON.rollback) {
+      return {
+        dispatchMsg: interrupt,
+        fallbackRole: Role跳转策略(sourceRole),
+      }
+    }
+
+    const resumedRole = Role跳转策略(sourceRole)
+    return {
+      dispatchMsg: interrupt,
+      fallbackRole: resumedRole,
+    }
+  }
 
   const interruptionQueue: InterruptedMessage[] = []
 
@@ -546,7 +604,7 @@ export async function main(): Promise<void> {
     return session
   }
 
-  theFirstRole.currentSessionInstance = entrySession
+  规划者instance.currentSessionInstance = entrySession
 
   try {
     let cycle = 0
@@ -565,7 +623,7 @@ export async function main(): Promise<void> {
         if (!interruptedRole) throw new Error(`中断来源角色不存在: ${interrupt.roleName}`)
 
         logFile.info(`[中断处理] reason=${interrupt.reason}, 来源角色=${interruptedRole.name}`)
-        const dispatchContext = getDispatchContext(interruptedRole, allRoles, interrupt)
+        const dispatchContext = getDispatchContext(interruptedRole, interrupt)
         logFile.info(`[派发决策] interruptRole=${interrupt.roleName}, dispatchRole=${dispatchContext.dispatchMsg.roleName}, fallbackRole=${dispatchContext.fallbackRole.name}`)
 
         currentRole = await AskTo重新定位角色(allRoles, dispatchContext.fallbackRole, dispatchContext.dispatchMsg)
@@ -599,12 +657,12 @@ export async function main(): Promise<void> {
 
         consoleAndLogFile.infoC(LOG_COLOR.GREEN,`[<<收到] "${response.substring(0, 80)}..."`)
         logFile.infoC(LOG_COLOR.GREEN, `<<< ${currentRole.name} 完成`)
-        const nextRole = Role跳转策略(currentRole, allRoles)
+        const nextRole = Role跳转策略(currentRole)
 
-        // 硬规则: 提前闭环回到首角色，算一圈
+        // 硬规则: 提前闭环回到首角色(规划者)，算一圈
         // 没回到首角色，不算一圈
         // 也就是说, 当前策略是"闭环First"策略
-        if (isCycleCompleted(nextRole, allRoles)) {
+        if (isCycleCompleted(nextRole, 规划者instance)) {
           cycle++
           consoleAndLogFile.info(`[当前循环: 第${cycle + 1}圈]`)
         }
@@ -665,5 +723,6 @@ export async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
+  initDb()
   main().catch((error) => consoleAndLogFile.error("主函数错误:", error))
 }

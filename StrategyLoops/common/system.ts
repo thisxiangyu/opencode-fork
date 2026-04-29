@@ -1,8 +1,5 @@
 import * as readline from "readline"
 
-export const CHANNEL = process.env.CHANNEL as "Release" | "Test" ?? "Release"
-export const IS_TEST = CHANNEL === "Test"
-
 export const TIME_PERIODS = [
   "早晨",   // 5:00-7:59
   "上午",   // 8:00-11:59

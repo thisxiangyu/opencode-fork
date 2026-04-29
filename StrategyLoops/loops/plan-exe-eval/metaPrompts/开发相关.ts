@@ -2,6 +2,10 @@ export function 开发环境与工具链搭建(): string {
   return ""
 }
 
+export function 集思广益(): string {
+  return "针对当前任务建言献策（针对具体文件/代码段/变量的建议应具体）、经验分享（踩坑记录、认知对齐）"
+}
+
 export function 代码骨架与基础框架(): string {
   return ""
 }
