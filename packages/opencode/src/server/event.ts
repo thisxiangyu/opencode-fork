@@ -1,13 +1,13 @@
 import { BusEvent } from "@/bus/bus-event"
-import z from "zod"
+import { Schema } from "effect"
 
 export const Event = {
-  Connected: BusEvent.define("server.connected", z.object({})),
-  Disposed: BusEvent.define("global.disposed", z.object({})),
+  Connected: BusEvent.define("server.connected", Schema.Struct({})),
+  Disposed: BusEvent.define("global.disposed", Schema.Struct({})),
   ConfigUpdated: BusEvent.define(
     "global.config.updated",
-    z.object({
-      restart_required: z.array(z.string()).optional(),
+    Schema.Struct({
+      restart_required: Schema.optional(Schema.Array(Schema.String)),
     }),
   ),
 }
