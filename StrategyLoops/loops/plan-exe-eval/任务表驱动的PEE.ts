@@ -21,14 +21,15 @@ export class 规划者 implements IRole, I读取任务表 {
   memory?: string | undefined
   name = "planner"
   knowledgeDomainPrompt() { return "你是一个规划者，负责理解目标、分析当前局面、制定可执行的具体开发任务、挑选执行者、派发任务。" }
-  systemPrompt() { return `1.阅读评估者上一轮的评估；2.理解当前任务表完成度；3.分析本轮执行的情况和进度；4.判断执行者是否正确理解了上一轮规划；5.将下一轮任务派发给新的执行者。
+  systemPrompt() { return `1.阅读上一轮的评估；2.理解当前任务表完成度；3.分析本轮执行的情况和进度；4.判断执行者是否正确理解了上一轮规划；5.让执行者直接继续/压缩。
   通常而言，任务树的层次越厚实，末端任务越具体，证明对项目的理解越深入，规划质量越高。现在，请视察情况，先完成本轮任务表规划或调整。
    
-  完成任务表规划或调整后，委派一个新执行者（注:每次消费一个新人，所以需要确保关键上下文传递），按下列格式输出：
+  完成任务表规划或调整后，需要向执行者传递发出指令，按下列格式输出：
   {
-    前情回顾: "",
+    前情点评: "",
     本轮任务标题: "",
-    给执行者留言: "你好执行者，...（给执行者的具体留言、规划或指导，不要跟前情回顾重复）"
+    我的规划: "",
+    留言: "你好执行者，...（给执行者的具体留言、规划或指导，不要跟前情点评重复）"
   }
   ` }
 
@@ -92,15 +93,26 @@ export class 边缘质保员 implements IRole {
 export const 策略描述 = "任务表驱动的MPEE（manage-plan-execute-eval）策略"
 export const backendURL = "http://127.0.0.1:4096"
 
-
-function isDispatchableInterruption(reason: InterruptedMessage["reason"]): boolean {
-  return (
-    reason === INTERRUPTION_REASON.pause ||
-    reason === INTERRUPTION_REASON.new_message ||
-    reason === INTERRUPTION_REASON.rollback
-  )
-}
-
+/**
+ * 从中断队列中取出最新一条可派发的中断，并清空整条队列。
+ *
+ * ## 扫描方向：从尾到头
+ * 队列可能在异步操作期间堆积多条中断事件。从尾部（最新）开始扫描，
+ * 确保优先处理最近一次用户操作，而非早期已过时的中断。
+ *
+ * ## 可派发判定
+ * 只有 pause / new_message / rollback 视为"可派发"——这三种中断
+ * 需要重新定位角色并派发消息。而 aborted 类中断不在此处理：
+ * aborted 在 catch (AbortError) 路径中单独处理，随后通过手工补充的
+ * rollback 事件重新进入本函数进行派发。
+ *
+ * ## 清空队列的语义
+ * 一旦找到一条有效的中断，立即清空整条队列。设计假设是：最新的
+ * 可派发中断代表用户的最新意图，此前的旧中断事件已无意义。
+ * 不留残余也避免了下一轮循环重复处理过时事件。
+ *
+ * @returns 最新可派发的中断事件，队列为空或无匹配时返回 null
+ */
 function takeLatestDispatchableInterruption(queue: InterruptedMessage[]): InterruptedMessage | null {
   for (let index = queue.length - 1; index >= 0; index--) {
     const item = queue[index]
@@ -110,6 +122,14 @@ function takeLatestDispatchableInterruption(queue: InterruptedMessage[]): Interr
     return item
   }
   return null
+}
+
+function isDispatchableInterruption(reason: InterruptedMessage["reason"]): boolean {
+  return (
+    reason === INTERRUPTION_REASON.pause ||
+    reason === INTERRUPTION_REASON.new_message ||
+    reason === INTERRUPTION_REASON.rollback
+  )
 }
 
 function isCycleCompleted(nextRole: IRole, theFirstRole: IRole): boolean {
@@ -174,7 +194,7 @@ export async function main(): Promise<void> {
 
   const defaultDir = process.cwd()
   let projectDir = defaultDir
-  const entrySession: ISession = await selectOrCreateSession(defaultDir)
+  const entrySession: ISession = await selectOrCreateSession(defaultDir, 规划者instance)
   projectDir = entrySession.directory
 
 
@@ -192,7 +212,7 @@ export async function main(): Promise<void> {
     if (role.currentSessionInstance) {
       return role.currentSessionInstance
     }
-    const session = await createSession(`[${role.name}] (${formatDateTime({ isoString: new Date().toISOString(), showYear: false, showPeriod: true, showTime: true ,showSeconds: false})})`, projectDir)
+    const session = await createSession(role, `[${role.name}] (${formatDateTime({ isoString: new Date().toISOString(), showYear: false, showPeriod: true, showTime: true ,showSeconds: false})})`, projectDir)
     role.currentSessionInstance = session
     session.onInterruption((msg) => {
       interruptionQueue.push(msg)
@@ -225,7 +245,7 @@ export async function main(): Promise<void> {
 
         currentRole = await AskTo重新定位角色(allRoles, dispatchContext.fallbackRole, dispatchContext.dispatchMsg)
 
-        // 清理的是触发中断的那个 role 的 session，不是 currentRole 的
+        // 要清理的是触发中断的那个 role 的 session，不是 currentRole 的
         if (interruptedRole.currentSessionInstance) {
           interruptedRole.currentSessionInstance.clearInterruption()
         }
@@ -238,19 +258,14 @@ export async function main(): Promise<void> {
 
       consoleAndLogFile.infoC(LOG_COLOR.GREEN, `>>> ${currentRole.name}`)
       session.setCurrentContext(currentRole.name)
-      const agentType = currentRole.accessMode === "readonly" ? "plan" : "build"
 
       try {
         const msg = currentRole.knowledgeDomainPrompt();
         consoleAndLogFile.infoC(LOG_COLOR.GREEN,`[发送>>] "${msg.substring(0, 60)}..."`)
-        const response = await session.sendMsg(
-          {
-            msgSource: MSG_SOURCE.system,
-            content: msg,
-          },
-          agentType,
-          currentRole.model,
-        )
+        const response = await session.sendMsg({
+          msgSource: MSG_SOURCE.system,
+          content: msg,
+        })
 
         consoleAndLogFile.infoC(LOG_COLOR.GREEN,`[<<收到] "${response.substring(0, 80)}..."`)
         logFile.infoC(LOG_COLOR.GREEN, `<<< ${currentRole.name} 完成`)

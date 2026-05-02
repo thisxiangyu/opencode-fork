@@ -1,7 +1,25 @@
 /**
  * 会话接口定义
  * 抽象会话层行为，便于扩展不同的会话适配器
+ *
+ * ============================================================================
+ * 【设计阐明】Role 与 Session 的关系
+ * ============================================================================
+ *
+ * 一个 role 对应一个 currentSession 实例（IRole.currentSessionInstance），
+ * 该 session 的 `role` 字段固定绑定为创建它的角色，
+ * 为 sendMsg / compactHistory 等操作自动提供 agent/model 推导。
+ *
+ * 但一个 role 可能拥有多个历史 session，取决于策略设计。
+ * 例如：
+ *   - 规划者：整个循环复用同一个 session（长期记忆）
+ *   - 执行者：每圈创建新 session（每次任务独立上下文）
+ *   - 评估者：复用 session
+ *
+ * session.role 在创建时绑定，不允许运行时切换。
+ * 如需"跨角色接管"，应创建新 session。
  */
+import type { IRole } from "./role"
 import type {
   InterruptedMessage,
   MessageReceiveState,
@@ -11,6 +29,9 @@ import type {
 export interface ISession {
   /** 会话唯一标识符 */
   id: string
+
+  /** 创建时绑定的角色，用于 sendMsg 自动推导 agent/model。不允许运行时切换 */
+  role: IRole
 
   /** 工作路径 */
   directory: string
@@ -46,12 +67,13 @@ export interface ISession {
   /**
    * 向会话发送消息并等待响应
    *
+   * agent 和 model 自动从 session.role 推导，无需调用方传入。
+   *
    * @param message 要发送的消息
-   * @param agent 指定使用的 agent（可选）
-   * @param model 指定使用的模型（可选，格式：{ providerID, modelID }）
+   * @param compactHistory 是否在发送前先压缩会话历史（默认 false）
    * @returns 模型的响应文本
    */
-  sendMsg(message: SessionMessage, agent?: string, model?: { providerID: string; modelID: string }): Promise<string>
+  sendMsg(message: SessionMessage, compactHistory?: boolean): Promise<string>
 
   /**
    * 等待中断

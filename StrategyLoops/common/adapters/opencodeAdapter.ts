@@ -65,6 +65,7 @@ import type {
 import { MessageReceiveState as State, AbortError, INTERRUPTION_REASON, MSG_SOURCE } from "../types"
 import { logFile, consoleAndLogFile, LOG_COLOR } from "../logger"
 import type { ISession } from "../session"
+import type { IRole } from "../role"
 import { askUser } from "../system"
 
 type EventPropsWithSession = {
@@ -205,6 +206,7 @@ class OpenCodeEventManager {
 
 export async function selectOrCreateSession(
   defaultDirectory: string,
+  role: IRole,
 ): Promise<ISession> {
 
   if(client==null)
@@ -305,10 +307,10 @@ export async function selectOrCreateSession(
     logFile.info(`[配置] 目录: ${projectDir}`)
     logFile.info(`[配置] 标题: ${sessionTitle}`)
     
-    return await createSession(sessionTitle, projectDir)
+    return await createSession(role, sessionTitle, projectDir)
   } else if (selectedSession) {
     logFile.info(`[选择] 使用已有会话: ${selectedSession.id} - ${selectedSession.title ?? "(无标题)"}`)
-    return new OpenCodeSessionAdapter(client, selectedSession.id, selectedSession.directory)
+    return new OpenCodeSessionAdapter(client, selectedSession.id, role, selectedSession.directory)
   } else {
     const recentSessions = sessionList.slice(0, MAX_RECENT)
     const s = recentSessions[selected - 1]
@@ -316,11 +318,11 @@ export async function selectOrCreateSession(
       throw new Error("会话不存在")
     }
     logFile.info(`[选择] 使用已有会话: ${s.id} - ${s.title ?? "(无标题)"}`)
-    return new OpenCodeSessionAdapter(client, s.id, s.directory)
+    return new OpenCodeSessionAdapter(client, s.id, role, s.directory)
   }
 }
 
-export async function createSession(title: string, directory: string): Promise<ISession> {
+export async function createSession(role: IRole, title: string, directory: string): Promise<ISession> {
     if(client==null)
     {
       throw new Error("未连接到服务器,请先link")
@@ -333,7 +335,7 @@ export async function createSession(title: string, directory: string): Promise<I
       throw new Error("创建会话失败")
     }
     logFile.info(`[创建] 新会话: ${session.data.id}`)
-    return new OpenCodeSessionAdapter(client, session.data.id, directory)
+    return new OpenCodeSessionAdapter(client, session.data.id, role, directory)
 }
 
 /**
@@ -344,6 +346,9 @@ export class OpenCodeSessionAdapter implements ISession {
 
   /** 会话唯一标识符 */
   id: string
+
+  /** 所属角色（携带 model 和 accessMode） */
+  role: IRole
 
   /**
    * OpenCode 客户端实例
@@ -357,7 +362,7 @@ export class OpenCodeSessionAdapter implements ISession {
    *
    * 【作用】指定会话的工作目录路径，用于 prompt 参数
    */
-  private directory: string
+  directory: string
 
   /**
    * 消息历史记录
@@ -493,11 +498,13 @@ export class OpenCodeSessionAdapter implements ISession {
    *
    * @param client OpenCode 客户端实例
    * @param sessionId 会话ID
+   * @param role 所属角色（携带 model 和 accessMode）
    * @param directory 工作目录
    */
-  constructor(client: OpencodeClient, sessionId: string, directory: string) {
+  constructor(client: OpencodeClient, sessionId: string, role: IRole, directory: string) {
     this.client = client
     this.id = sessionId
+    this.role = role
     this.directory = directory
     globalEventManager?.subscribe(this)
   }
@@ -657,13 +664,32 @@ export class OpenCodeSessionAdapter implements ISession {
   /**
    * 向会话发送消息并等待响应
    *
+   * agent 和 model 自动从 session.role 推导，无需调用方传入。
+   *
    * @param message 要发送的消息
-   * @param agentMode 指定使用的 agent模式（可选）
-   * @param model 指定使用的模型（可选，格式：{ providerID, modelID }）
+   * @param compactHistory 是否在发送前先压缩会话历史（默认 false）
    * @returns 模型的响应文本
    */
-  async sendMsg(message: SessionMessage, agentMode?: string, model?: { providerID: string; modelID: string }): Promise<string> {
-    logFile.info(`[DEBUG sendMessage] 开始, state=${this.receiveState}, msgSource=${message.msgSource}, directory=${this.directory}, agent=${agentMode ?? "default"}, model=${model ? `${model.providerID}/${model.modelID}` : "default"}`)
+  async sendMsg(message: SessionMessage, compactHistory: boolean = false): Promise<string> {
+    const agentMode = this.role.accessMode === "readonly" ? "plan" : "build"
+    const model = this.role.model
+    logFile.info(`[DEBUG sendMessage] 开始, state=${this.receiveState}, msgSource=${message.msgSource}, directory=${this.directory}, agent=${agentMode}, model=${model ? `${model.providerID}/${model.modelID}` : "default"}, compactHistory=${compactHistory}`)
+
+    if (compactHistory) {
+      if (!model) {
+        throw new Error("compactHistory=true 但 role.model 为空，无法确定用于压缩的模型")
+      }
+      logFile.info(`[压缩] 触发压缩 provider=${model.providerID} model=${model.modelID}`)
+      await this.client.session.summarize({
+        sessionID: this.id,
+        directory: this.directory,
+        providerID: model.providerID,
+        modelID: model.modelID,
+        auto: false,
+      })
+      logFile.info(`[压缩] 压缩完成，继续发送消息`)
+    }
+
     this.messageHistory.push(message)
     this.pendingMessageContent = message.content
     this.lastSendBaseline = {
