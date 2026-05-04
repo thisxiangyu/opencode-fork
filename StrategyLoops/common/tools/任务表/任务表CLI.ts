@@ -2,11 +2,59 @@
  * 独立的任务表Tool模块
  * 提供任务表的数据库操作、CRUD功能、查询视图等
  * 可作为CLI工具独立使用，也可作为模块导入
+ * 整个文件应保持完全的内聚性，不依赖外部模块（除了sqlite和fs等基础库），以保证其独立和可移植性
  */
 import { Database } from "bun:sqlite"
 import { join } from "path"
 import { mkdirSync, existsSync } from "fs"
-import { formatDateTime } from "../../system"
+
+export const TIME_PERIODS = [
+  "早晨",   // 5:00-7:59
+  "上午",   // 8:00-11:59
+  "中午",   // 12:00-12:59
+  "下午",   // 13:00-17:59
+  "傍晚",   // 18:00-18:59
+  "晚上",   // 19:00-23:59
+  "午夜",   // 0:00-4:59
+] as const
+
+export type TimePeriod = typeof TIME_PERIODS[number]
+
+export function getTimePeriod(date: Date = new Date()): TimePeriod {
+  const hour = date.getHours()
+  if (hour >= 5 && hour < 8) return "早晨"
+  if (hour >= 8 && hour < 12) return "上午"
+  if (hour >= 12 && hour < 13) return "中午"
+  if (hour >= 13 && hour < 18) return "下午"
+  if (hour >= 18 && hour < 19) return "傍晚"
+  if (hour >= 19 && hour < 24) return "晚上"
+  return "午夜"
+}
+
+export interface FormatDateTimeOptions {
+  period?: TimePeriod | "auto"
+  showYear?: boolean
+  showPeriod?: boolean
+  showTime?: boolean
+  showSeconds?: boolean
+  isoString: string
+}
+
+export function formatDateTime(options: FormatDateTimeOptions): string {
+  const date = new Date(options.isoString)
+  const year = date.getFullYear()
+  const month = date.getMonth() + 1
+  const day = date.getDate()
+  const period = options.period === "auto" || options.period === undefined
+    ? getTimePeriod(date)
+    : options.period
+  const yearStr = options.showYear !== false ? `${year}年` : ""
+  const periodStr = options.showPeriod ? `${period}` : ""
+  const timeStr = options.showTime
+    ? ` ${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}${options.showSeconds ? `:${date.getSeconds().toString().padStart(2, "0")}` : ""}`
+    : ""
+  return `${yearStr}${month}月${day}日${periodStr}${timeStr}`
+}
 
 export const 任务Tag = {
   DETAIL: "detail",
@@ -14,7 +62,7 @@ export const 任务Tag = {
   FEAT: "feat",
   FIX: "fix",
   REFACTOR: "refactor",
-  BREAKING_CHANGE: "BREAKING_CHANGE",
+  BIG_BREAKING_CHANGE: "BIG_BREAKING_CHANGE",
   CHORE: "chore",
   ADJUST: "adjust",
   REVERT: "revert",
@@ -655,10 +703,6 @@ export const 任务表 = {
     const updated = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
     return { 成功: true, 消息: `已为任务「${标题trim}」添加动态`, res任务: updated ? 解析任务行(updated) : undefined }
   },
-}
-
-export interface I读取任务表 {
-  查询任务表(一次性聚焦数量上限: number, 从: string | undefined, 到: string | undefined, 描述字数展示阈值: number, 任务动态字数展示阈值: number): string
 }
 
 function 构建时间过滤条件(从: string | undefined, 到: string | undefined): { sql: string, params: string[], 校验失败消息: string | null } {

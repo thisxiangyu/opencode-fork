@@ -1,7 +1,7 @@
 import * as fs from "fs"
 import * as path from "path"
 
-export const LOG_DIR = "log"
+export const LOG_DIR = path.resolve(__dirname, "log")
 
 type LogLevel = "info" | "warn" | "error"
 
@@ -47,7 +47,7 @@ class Logger {
       fs.mkdirSync(LOG_DIR, { recursive: true })
     }
     const today = new Date().toISOString().split("T")[0]
-    this.logFilePath = path.join(LOG_DIR, `${today}.log`)
+    this.logFilePath = path.join(LOG_DIR, `${today}-pid${process.pid}.log`)
     this.logStream = fs.createWriteStream(this.logFilePath, { flags: "w" })
     this.setMode("fileOnly")
     const initLine = (msg: string) => this.logStream?.write(`[${new Date().toISOString()}] [INFO] ${msg}\n`)
@@ -177,5 +177,5 @@ const createConsoleProxy = (base: Logger): Logger =>
 
 export const logFile = loggerInstance
 export const consoleAndLogFile = createConsoleProxy(loggerInstance)
-export { LOG_COLOR }
+export { LOG_COLOR, RESET }
 export type { LogColor }

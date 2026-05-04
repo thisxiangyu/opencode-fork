@@ -53,10 +53,12 @@ import {
 } from "@opencode-ai/sdk/v2/client"
 
 import type { GlobalEvent } from "@opencode-ai/sdk/v2"
+import path from "path"
+import { existsSync } from "fs"
 
 import type {
   InterruptionReason,
-  InterruptedMessage,
+  InterruptedMsgContext,
   MessageReceiveState,
   SendBaseline,
   SessionMessage,
@@ -205,7 +207,6 @@ class OpenCodeEventManager {
 }
 
 export async function selectOrCreateSession(
-  defaultDirectory: string,
   role: IRole,
 ): Promise<ISession> {
 
@@ -219,7 +220,32 @@ export async function selectOrCreateSession(
   console.log("=".repeat(60))
   console.log()
 
-  const sessions: { data: Session[] | undefined } = await client.session.list()
+  // 让用户输入项目路径并检查存在性
+  let projectDir = ""
+  while (true) {
+    const dirAnswer = await askUser("请输入项目目录路径: ")
+    projectDir = path.resolve(dirAnswer.trim())
+    if (!projectDir) {
+      console.log("路径不能为空，请重新输入")
+      console.log()
+      continue
+    }
+
+    // 检查路径是否存在
+    if (!existsSync(projectDir)) {
+      console.log(`路径不存在: ${projectDir}，请重新输入`)
+      console.log()
+      continue
+    }
+
+    logFile.info(`[配置] 目录: ${projectDir}`)
+    break
+  }
+
+  console.log(`已选择项目目录: ${projectDir}`)
+  console.log()
+
+  const sessions: { data: Session[] | undefined } = await client.session.list({ directory: projectDir })
   const sessionList: Session[] = sessions.data ?? []
   const MAX_RECENT = 5
 
@@ -298,19 +324,16 @@ export async function selectOrCreateSession(
 
   if (selected === 0) {
     logFile.info("[创建] 打开新会话...")
-    const dirAnswer = await askUser(`项目目录 (直接回车使用: ${defaultDirectory}): `)
-    const projectDir = dirAnswer.trim() || defaultDirectory
 
     const titleAnswer = await askUser("会话标题 (直接回车使用默认): ")
     const sessionTitle = titleAnswer.trim() || "RalphLoopCore 集成测试"
 
-    logFile.info(`[配置] 目录: ${projectDir}`)
     logFile.info(`[配置] 标题: ${sessionTitle}`)
-    
+
     return await createSession(role, sessionTitle, projectDir)
   } else if (selectedSession) {
     logFile.info(`[选择] 使用已有会话: ${selectedSession.id} - ${selectedSession.title ?? "(无标题)"}`)
-    return new OpenCodeSessionAdapter(client, selectedSession.id, role, selectedSession.directory)
+    return new OpenCodeSessionAdapter(client, selectedSession.id, role, selectedSession.directory ?? projectDir)
   } else {
     const recentSessions = sessionList.slice(0, MAX_RECENT)
     const s = recentSessions[selected - 1]
@@ -318,7 +341,7 @@ export async function selectOrCreateSession(
       throw new Error("会话不存在")
     }
     logFile.info(`[选择] 使用已有会话: ${s.id} - ${s.title ?? "(无标题)"}`)
-    return new OpenCodeSessionAdapter(client, s.id, role, s.directory)
+    return new OpenCodeSessionAdapter(client, s.id, role, s.directory ?? projectDir)
   }
 }
 
@@ -382,7 +405,7 @@ export class OpenCodeSessionAdapter implements ISession {
    *
    * 【没有会怎样】无法通知上层，中断无法被处理
    */
-  private interruptionCallback: ((msg: InterruptedMessage) => void) | null = null
+  private interruptionCallback: ((msg: InterruptedMsgContext) => void) | null = null
 
   /**
    * 消息回调函数
@@ -460,7 +483,7 @@ export class OpenCodeSessionAdapter implements ISession {
    * 待处理的中断消息
    * 记录最近一次中断的完整信息
    */
-  private pendingInterruption: InterruptedMessage | null = null
+  private pendingInterruption: InterruptedMsgContext | null = null
 
   /**
    * 中断解决的 Promise resolve 函数
@@ -517,7 +540,7 @@ export class OpenCodeSessionAdapter implements ISession {
    *
    * 【作用】允许上层自定义中断处理逻辑
    */
-  onInterruption(callback: (msg: InterruptedMessage) => void): void {
+  onInterruption(callback: (msg: InterruptedMsgContext) => void): void {
     this.interruptionCallback = callback
   }
 

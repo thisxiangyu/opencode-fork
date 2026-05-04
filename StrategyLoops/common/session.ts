@@ -21,7 +21,7 @@
  */
 import type { IRole } from "./role"
 import type {
-  InterruptedMessage,
+  InterruptedMsgContext,
   MessageReceiveState,
   SessionMessage,
 } from "./types"
@@ -40,7 +40,7 @@ export interface ISession {
    * 设置中断回调
    * 当检测到会话中断时被调用
    */
-  onInterruption(callback: (msg: InterruptedMessage) => void): void
+  onInterruption(callback: (msg: InterruptedMsgContext) => void): void
 
   /**
    * 设置消息回调

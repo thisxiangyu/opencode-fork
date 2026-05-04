@@ -6,6 +6,10 @@ export function 测试用例编写与评审(): string {
   return ""
 }
 
+export function 注意常用和边界(): string {
+  return "尤其各种常用路径和边界路径/边缘条件，确保都有覆盖。"
+}
+
 export function 单元测试与组件测试(): string {
   return ""
 }

@@ -10,6 +10,26 @@ export function 代码骨架与基础框架(): string {
   return ""
 }
 
+export function 改动前先了解全貌_改之后纪律性检查(语言: string = "ts"): string {
+  const 检查命令: Record<string, string> = {
+    ts: "tsc --noEmit",
+    tsx: "tsc --noEmit",
+    js: "tsc --noEmit",
+    py: "ruff check . && mypy .",
+    python: "ruff check . && mypy .",
+    rs: "cargo check",
+    rust: "cargo check",
+    go: "go build ./...",
+    java: "javac *.java",
+    cpp: "g++ -fsyntax-only *.cpp",
+    c: "gcc -fsyntax-only *.c",
+    cs: "dotnet build",
+    csharp: "dotnet build",
+  }
+  const 检查 = 检查命令[语言.toLowerCase()] ?? `语言「${语言}」的类型检查命令未配置，请自行判断应使用什么命令`
+  return `改之前了解一下项目文件结构和依赖再动手，改之后要确保代码无报错、找到所有相关的测试代码确保能跑通。注意各种边界情况。建议运行：${检查}`
+}
+
 export function 功能模块开发(): string {
   return ""
 }

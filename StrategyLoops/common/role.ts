@@ -1,4 +1,4 @@
-import { INTERRUPTION_REASON, type InterruptedMessage } from "./types"
+import { INTERRUPTION_REASON, type InterruptedMsgContext } from "./types"
 import type { ISession } from "./session"
 import { logFile,consoleAndLogFile } from "./logger"
 import { askUserWithTimeout } from "./system"
@@ -9,8 +9,8 @@ import { askUserWithTimeout } from "./system"
  */
 export interface IRole {
   name: string
-  knowledgeDomainPrompt(): string // 知识域提示词, 区分Role的系统提示词。这里命名很长, 但是为了强调Role必须由"知识域"作为核心识别属性, 所以采用了更长的命名。之前在某篇文章中看到: Less is more，单Agent很多时候比多Agent互通信的工作成功率更高, 衡量要不要开新Agent的关键在于两项任务是否 "跨知识域"。所以拿这个来作为区分Role的提示词命名。
-  systemPrompt(): string
+  knowledgeDomainPrompt(): string // 知识域提示词, 区分Role的系统提示词。
+  systemPrompt(upstreamMsg: string): string // 接收上一个上游的响应，构造本轮发送内容。
   memory?: string
   accessMode: "readonly" | "writable"
   model?: {
@@ -18,6 +18,8 @@ export interface IRole {
     modelID: string
   }
   currentSessionInstance?: ISession
+  outputSchema: Record<string, any>    // JSON Schema 定义输出格式
+  validateOutput(raw: string): { valid: boolean; error?: string } // 校验输出是否符合格式；不通过则触发重试
 }
 
 export function 检查names重复(roles: { name: string }[]): { name: string }[] {
@@ -25,7 +27,9 @@ export function 检查names重复(roles: { name: string }[]): { name: string }[]
 
   for (const r of roles) {
     if (seen.has(r.name)) {
-      throw new Error(`重复的name: ${r.name}`)
+      const err = `重复的name: ${r.name}`
+      consoleAndLogFile.error(err);
+      throw new Error(err)
     }
     seen.add(r.name)
   }
@@ -35,7 +39,7 @@ export function 检查names重复(roles: { name: string }[]): { name: string }[]
 export async function AskTo重新定位角色(
   allRoles : IRole[],
   nextRole: IRole,
-  interruptedMsg: InterruptedMessage,
+  interruptedMsg: InterruptedMsgContext,
 ): Promise<IRole> {
   const reasonText =
     interruptedMsg.reason === INTERRUPTION_REASON.rollback
@@ -60,16 +64,16 @@ export async function AskTo重新定位角色(
   }
 
   const currentIdx = allRoles.findIndex((n) => n.name === interruptedMsg.roleName)
-
   const current = currentIdx + 1
-  const nextIdx = allRoles.findIndex((n) => n.name === nextRole.name)
 
+  const nextIdx = allRoles.findIndex((n) => n.name === nextRole.name)
   if (nextIdx === -1)
     throw new Error(`未找到下一个角色: ${nextRole.name}`);
+  const next = nextIdx + 1
 
-  const timeout_s = 6
+  const timeout_s = 15
   const timeout_ms = timeout_s * 1000
-  const promptMsg = `将消息派发给哪个角色? (1-${names.length}, 当前: ${current}.${interruptedMsg.roleName}, 下一个: ${nextIdx + 1}.${nextRole.name}) [${timeout_s}s后自动选择下一个角色, 回车可提前确认已有输入]: `
+  const promptMsg = `将消息派发给哪个角色? (1-${names.length}, 当前: ${current}.${interruptedMsg.roleName}, 下一个: ${next}.${nextRole.name}) [${timeout_s}s后自动选择下一个角色, 回车可提前确认已有输入]: `
   logFile.info(`[派发等待] ${promptMsg}`)
   const answer = await askUserWithTimeout(promptMsg, timeout_ms)
   const trimmed = answer?.trim() ?? ""

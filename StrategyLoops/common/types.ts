@@ -43,7 +43,7 @@ export interface SessionMessage {
 }
 
 /**
- * 中断消息结构
+ * 中断消息上下文
  * 当会话发生中断时，传递给回调函数的消息对象
  *
  * 【作用】提供了完整的中断上下文信息，包括：
@@ -55,7 +55,7 @@ export interface SessionMessage {
  * 【没有会怎样】无法追踪中断的来源和原因，
  * 上层逻辑无法区分不同类型的中断并做出相应处理
  */
-export interface InterruptedMessage {
+export interface InterruptedMsgContext {
 
   /** 当前正在执行的角色名称 */
   roleName: string
