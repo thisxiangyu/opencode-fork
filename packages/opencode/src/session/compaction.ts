@@ -37,42 +37,42 @@ const PRUNE_PROTECTED_TOOLS = ["skill"]
 const DEFAULT_TAIL_TURNS = 2
 const MIN_PRESERVE_RECENT_TOKENS = 2_000
 const MAX_PRESERVE_RECENT_TOKENS = 8_000
-const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
+const SUMMARY_TEMPLATE = `严格按<template>中的Markdown结构输出，保持各章节顺序不变。不要在回复中包含<template>标签。
 <template>
-## Goal
-- [single-sentence task summary]
+## 目标
+- [单句任务总结]
 
-## Constraints & Preferences
-- [user constraints, preferences, specs, or "(none)"]
+## 约束与偏好
+- [用户约束、偏好、规格说明，或"(无)"]
 
-## Progress
-### Done
-- [completed work or "(none)"]
+## 进度
+### 已完成
+- [已完成的工作或"(无)"]
 
-### In Progress
-- [current work or "(none)"]
+### 进行中
+- [当前工作或"(无)"]
 
-### Blocked
-- [blockers or "(none)"]
+### 阻塞中
+- [阻碍因素或"(无)"]
 
-## Key Decisions
-- [decision and why, or "(none)"]
+## 关键决策
+- [决策内容及原因，或"(无)"]
 
-## Next Steps
-- [ordered next actions or "(none)"]
+## 下一步
+- [有序的后续行动或"(未定)"]
 
-## Critical Context
-- [important technical facts, errors, open questions, or "(none)"]
+## 关键上下文
+- [重要的技术细节、错误、待解决问题，或"(无)"]
 
-## Relevant Files
-- [file or directory path: why it matters, or "(none)"]
+## 相关文件
+- [文件或目录路径：重要性说明，或"(无)"]
 </template>
 
-Rules:
-- Keep every section, even when empty.
-- Use terse bullets, not prose paragraphs.
-- Preserve exact file paths, commands, error strings, and identifiers when known.
-- Do not mention the summary process or that context was compacted.`
+规则：
+- 保留每个章节，即使为空。
+- 使用简洁的要点，而非段落叙述。
+- 当已知时，保留精确的文件路径、命令、错误字符串和标识符。
+- 不要提及”总结过程“或”上下文已被压缩“。`
 type Turn = {
   start: number
   end: number
@@ -121,13 +121,13 @@ function completedCompactions(messages: MessageV2.WithParts[]) {
 function buildPrompt(input: { previousSummary?: string; context: string[] }) {
   const anchor = input.previousSummary
     ? [
-        "Update the anchored summary below using the conversation history above.",
-        "Preserve still-true details, remove stale details, and merge in the new facts.",
+        "根据上面的对话历史更新以下锚定摘要。",
+        "必须保留[still-true details]，删除[stale details]，并合并新的事实。",
         "<previous-summary>",
         input.previousSummary,
         "</previous-summary>",
       ].join("\n")
-    : "Create a new anchored summary from the conversation history above."
+    : "根据上面的对话历史创建一个新的锚定摘要。"
   return [anchor, SUMMARY_TEMPLATE, ...input.context].join("\n\n")
 }
 
