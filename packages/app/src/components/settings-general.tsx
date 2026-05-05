@@ -407,6 +407,7 @@ export const SettingsGeneral: Component = () => {
             label={(o) => o.label}
             onSelect={(option) => {
               if (!option) return
+              if (option.value === currentShell()) return
               globalSync.updateConfig({ shell: option.value })
             }}
             variant="secondary"

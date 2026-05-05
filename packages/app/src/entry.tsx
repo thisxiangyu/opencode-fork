@@ -1,11 +1,13 @@
 // @refresh reload
 
+import * as Sentry from "@sentry/solid"
 import { render } from "solid-js/web"
 import { AppBaseProviders, AppInterface } from "@/app"
 import { type Platform, PlatformProvider } from "@/context/platform"
 import { dict as en } from "@/i18n/en"
 import { dict as zh } from "@/i18n/zh"
 import { handleNotificationClick } from "@/utils/notification-click"
+import { authFromToken } from "@/utils/server"
 import pkg from "../package.json"
 import { ServerConnection } from "./context/server"
 
@@ -110,6 +112,13 @@ const getDefaultUrl = () => {
   return getCurrentUrl()
 }
 
+const clearAuthToken = () => {
+  const params = new URLSearchParams(location.search)
+  if (!params.has("auth_token")) return
+  params.delete("auth_token")
+  history.replaceState(null, "", location.pathname + (params.size ? `?${params}` : "") + location.hash)
+}
+
 const platform: Platform = {
   platform: "web",
   version: pkg.version,
@@ -125,13 +134,38 @@ const platform: Platform = {
   setDefaultServer: writeDefaultServerUrl,
 }
 
+if (import.meta.env.VITE_SENTRY_DSN) {
+  Sentry.init({
+    dsn: import.meta.env.VITE_SENTRY_DSN,
+    environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? import.meta.env.MODE,
+    release: import.meta.env.VITE_SENTRY_RELEASE ?? `web@${pkg.version}`,
+    initialScope: {
+      tags: {
+        platform: "web",
+      },
+    },
+    integrations: (integrations) => {
+      return integrations.filter(
+        (i) =>
+          i.name !== "Breadcrumbs" && !(import.meta.env.OPENCODE_CHANNEL === "prod" && i.name === "GlobalHandlers"),
+      )
+    },
+  })
+}
+
 if (root instanceof HTMLElement) {
+  const auth = authFromToken(new URLSearchParams(location.search).get("auth_token"))
+  clearAuthToken()
   const server: ServerConnection.Http = {
     type: "http",
+    authToken: !!auth,
     http: {
       url: getCurrentUrl(),
-      username: import.meta.env.VITE_OPENCODE_SERVER_USERNAME,
-      password: import.meta.env.VITE_OPENCODE_SERVER_PASSWORD,
+      ...auth,
+      // Fallback to environment variables if no auth token
+      // 注意：合并时需使用可选链(?.)，因为authFromToken可能返回undefined
+      username: auth?.username ?? import.meta.env.VITE_OPENCODE_SERVER_USERNAME,
+      password: auth?.password ?? import.meta.env.VITE_OPENCODE_SERVER_PASSWORD, // 同上
     },
   }
   render(

@@ -1,6 +1,6 @@
 import { Context, Effect, Layer } from "effect"
 
-import { Instance } from "../project/instance"
+import { InstanceState } from "@/effect/instance-state"
 
 import PROMPT_ANTHROPIC from "./prompt/anthropic.txt"
 import PROMPT_DEFAULT from "./prompt/default.txt"
@@ -33,7 +33,7 @@ export function provider(model: Provider.Model) {
 }
 
 export interface Interface {
-  readonly environment: (model: Provider.Model) => string[]
+  readonly environment: (model: Provider.Model) => Effect.Effect<string[]>
   readonly skills: (agent: Agent.Info) => Effect.Effect<string | undefined>
 }
 
@@ -45,22 +45,22 @@ export const layer = Layer.effect(
     const skill = yield* Skill.Service
 
     return Service.of({
-      environment(model) {
-        const project = Instance.project
+      environment: Effect.fn("SystemPrompt.environment")(function* (model: Provider.Model) {
+        const ctx = yield* InstanceState.context
         return [
           [
             `你的模型是 ${model.api.id}。确切模型ID是 ${model.providerID}/${model.api.id}`,
             `以下是关于你运行环境的一些有用信息：`,
             `<env>`,
-            `  工作目录: ${Instance.directory}`,
-            `  工作区根文件夹: ${Instance.worktree}`,
-            `  是否为git仓库: ${project.vcs === "git" ? "是" : "否"}`,
+            `  工作目录: ${ctx.directory}`,
+            `  工作区根文件夹: ${ctx.worktree}`,
+            `  是否为git仓库: ${ctx.project.vcs === "git" ? "是" : "否"}`,
             `  平台: ${process.platform}`,
             `  今天日期: ${new Date().toDateString()}`,
             `</env>`,
           ].join("\n"),
         ]
-      },
+      }),
 
       skills: Effect.fn("SystemPrompt.skills")(function* (agent: Agent.Info) {
         if (Permission.disabled(["skill"], agent.permission).has("skill")) return
