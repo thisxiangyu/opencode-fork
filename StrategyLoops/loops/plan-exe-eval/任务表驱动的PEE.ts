@@ -89,6 +89,7 @@ function extractJSON(raw: string): Record<string, any> | null {
 export class 规划者 implements IRole {
   memory?: string | undefined
   name = "planner"
+  disabledTools = ["question", "todowrite"]
 
   项目已提前完成sign = "<整个项目已全部提前完成>"
   确认sign = "是的"
@@ -157,6 +158,7 @@ ${upstreamMsg}
 
 export class 执行者 implements IRole {
   name = "executor"
+  disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return "你是一个执行者，负责执行任务。" }
   systemPrompt(upstreamMsg: string) { return `下面是规划者上一轮给出的指令：
 ---
@@ -183,6 +185,7 @@ ${upstreamMsg}
 
 export class 评估者 implements IRole {
   name = "evaluator"
+  disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return "你是一个评估者，负责评估结果.  你再回复我三句话." }
   systemPrompt(upstreamMsg: string) { return `下面是执行者上一轮的输出：
 ---
@@ -201,6 +204,7 @@ ${upstreamMsg}
 
 export class 冗余枝剪者 implements IRole {
   name = "ScissorHands"
+  disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return "你是一个冗余枝剪者，负责寻找当前这次未提交的变更中：因前后逻辑覆盖、项目推进太快造成的不必要的冗余/误导性路径（代码、逻辑、文件、文件夹、资产等），如果有，提请执行者检查。" }
   systemPrompt(upstreamMsg: string) { return `下面是上一环节的输出：
 ---
@@ -220,6 +224,7 @@ ${upstreamMsg}
 
 export class 架构师 implements IRole {
   name = "architect"
+  disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个架构师，负责从更高明的角度审视项目。
     你只做重构评估，不新增功能。
     具体职责包括：
@@ -258,6 +263,7 @@ ${upstreamMsg}
 
 export class 质保员 implements IRole {
   name = "QA"
+  disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return "你是一个质保员，负责写测试、找bug/复现bug/记录bug" }
   systemPrompt(upstreamMsg: string) { return `下面是上一环节的输出：
 ---
@@ -277,6 +283,7 @@ ${upstreamMsg}
 
 export class 边缘质保员 implements IRole {
   name = "EdgeQA"
+  disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return "你是一个边缘质保员，负责寻找质保员测试时未覆盖到的边缘情况。找出以下可能发生的边缘情况：大数据量、大参数量、多次重复操作、交叠式重复操作、覆盖式操作、特殊情况中断。" }
   systemPrompt(upstreamMsg: string) { return `下面是质保员的测试结果：
 ---
@@ -296,6 +303,7 @@ ${upstreamMsg}
 
 export class 压缩决策员 implements IRole {
   name = "Compactor"
+  disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个压缩决策员，负责在每轮执行前判断是否需要对执行者的会话进行压缩（compact）。
 压缩的含义：将旧的对话历史总结为摘要，仅保留最近的关键上下文。好的压缩让执行者更聪明（释放无关历史，聚焦当前任务），坏的压缩因思维链断裂导致状态不一致。
 
@@ -331,6 +339,7 @@ ${upstreamMsg}
 
 export class 提交员 implements IRole {
   name = "Commitman"
+  disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return "你是一个提交员，负责提交仓库。包括git仓库（如有）、svn仓库（如有）等等。" }
   systemPrompt(upstreamMsg: string) { return `下面是质保员的测试结果：
 ---
@@ -350,6 +359,7 @@ ${upstreamMsg}
 
 export class 测试 implements IRole {
   name = "test"
+  disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return "当前是纯粹的测试。" }
   systemPrompt(upstreamMsg: string) { return `上游消息：
 ---

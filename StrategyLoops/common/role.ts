@@ -20,6 +20,8 @@ export interface IRole {
   currentSessionInstance?: ISession
   outputSchema: Record<string, any>    // JSON Schema 定义输出格式
   validateOutput(raw: string): { valid: boolean; error?: string } // 校验输出是否符合格式；不通过则触发重试
+  /** 需要禁用的内置工具 ID 列表，适配层会在 session 创建/连接时通过 permission 规则关闭 */
+  disabledTools?: string[]
 }
 
 export function 检查names重复(roles: { name: string }[]): { name: string }[] {

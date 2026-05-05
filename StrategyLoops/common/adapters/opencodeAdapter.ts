@@ -49,7 +49,8 @@ import {
  type Part,
  type SyncEventMessagePartUpdated, 
  type SyncEventMessageUpdated,
- type Session
+ type Session,
+ type PermissionRuleset,
 } from "@opencode-ai/sdk/v2/client"
 
 import type { GlobalEvent } from "@opencode-ai/sdk/v2"
@@ -140,6 +141,39 @@ export function linkBackend(serverURL:string) : string {
   client = createOpencodeClient({ baseUrl: serverURL })
   globalEventManager = new OpenCodeEventManager(client)
   return "opencode"
+}
+
+/**
+ * 根据角色的 disabledTools 构建权限规则集
+ *
+ * 角色通过 disabledTools 字段声明需要禁用的内置工具，
+ * 适配层将其转换为 PermissionRuleset（PATCH /session/{sessionID}）。
+ * 不关心角色名称，只读取角色自身的声明。
+ */
+function buildRolePermissions(role: IRole): PermissionRuleset {
+  if (!role.disabledTools?.length) return []
+  return role.disabledTools.map((tool) => ({
+    permission: tool,
+    pattern: "*",
+    action: "deny" as const,
+  }))
+}
+
+/**
+ * 为 session 应用角色权限
+ *
+ * 在 session 创建或连接后立即调用，确保"一创建/连接就关"。
+ * session.update 是 merge 语义，不会覆盖已有规则，仅追加/覆盖同 key 规则。
+ */
+async function applyRolePermissions(sessionId: string, role: IRole): Promise<void> {
+  if (!client) return
+  const permissions = buildRolePermissions(role)
+  try {
+    await client.session.update({ sessionID: sessionId, permission: permissions })
+    logFile.info(`[权限] 已应用角色权限: role=${role.name}, rules=${JSON.stringify(permissions)}`)
+  } catch (err) {
+    consoleAndLogFile.warn(`[权限] 应用角色权限失败: ${(err as Error).message}`)
+  }
 }
 
 class OpenCodeEventManager {
@@ -334,6 +368,7 @@ export async function selectOrCreateSession(
     return await createSession(role, sessionTitle, projectDir)
   } else if (selectedSession) {
     logFile.info(`[选择] 使用已有会话: ${selectedSession.id} - ${selectedSession.title ?? "(无标题)"}`)
+    await applyRolePermissions(selectedSession.id, role)
     return new OpenCodeSessionAdapter(client, selectedSession.id, role, selectedSession.directory ?? projectDir)
   } else {
     const recentSessions = sessionList.slice(0, MAX_RECENT)
@@ -342,6 +377,7 @@ export async function selectOrCreateSession(
       throw new Error("会话不存在")
     }
     logFile.info(`[选择] 使用已有会话: ${s.id} - ${s.title ?? "(无标题)"}`)
+    await applyRolePermissions(s.id, role)
     return new OpenCodeSessionAdapter(client, s.id, role, s.directory ?? projectDir)
   }
 }
@@ -359,6 +395,7 @@ export async function createSession(role: IRole, title: string, directory: strin
       throw new Error("创建会话失败")
     }
     logFile.info(`[创建] 新会话: ${session.data.id}`)
+    await applyRolePermissions(session.data.id, role)
     return new OpenCodeSessionAdapter(client, session.data.id, role, directory)
 }
 
