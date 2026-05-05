@@ -62,6 +62,7 @@ import type {
   MessageReceiveState,
   SendBaseline,
   SessionMessage,
+  TokenUsageInfo,
   WaitContext,
 } from "../types"
 import { MessageReceiveState as State, AbortError, INTERRUPTION_REASON, MSG_SOURCE } from "../types"
@@ -452,6 +453,12 @@ export class OpenCodeSessionAdapter implements ISession {
    * 【没有会怎样】中断回滚时无法知道被中断的是哪条消息
    */
   private pendingMessageContent: string = ""
+
+  /**
+   * 最近一次 LLM 调用的 token 用量
+   * 从 step-finish 事件中捕获，与 compaction 触发判断使用同一数据源
+   */
+  private latestTokenUsage: TokenUsageInfo | undefined
 
   /**
    * 最后一条用户消息的 ID
@@ -929,6 +936,17 @@ export class OpenCodeSessionAdapter implements ISession {
     return [...this.messageHistory]
   }
 
+  /**
+   * 获取最近一次 LLM 调用的 token 用量
+   *
+   * 数据来源：OpenCode step-finish 事件（message.part.updated 中的 step-finish part）
+   * 与 compaction 触发机制（overflow.ts:isOverflow）使用同一数据源。
+   * input 字段反映当前上下文窗口的 token 占用量。
+   */
+  getTokenUsage(): TokenUsageInfo | undefined {
+    return this.latestTokenUsage
+  }
+
   // ==================== 私有方法 ====================
 
   /**
@@ -1021,6 +1039,20 @@ export class OpenCodeSessionAdapter implements ISession {
     const part = props?.part
     if (!part) return
     if (part.sessionID !== this.id) return
+
+    // 捕获 step-finish 中的 token 用量（compaction 触发判断的同一数据源）
+    if (part.type === "step-finish") {
+      this.latestTokenUsage = {
+        total: part.tokens.total,
+        input: part.tokens.input,
+        output: part.tokens.output,
+        reasoning: part.tokens.reasoning,
+        cache: { read: part.tokens.cache.read, write: part.tokens.cache.write },
+        cost: part.cost,
+      }
+      return
+    }
+
     if (part.type !== "text") return
     if (part.ignored) return
 

@@ -100,6 +100,7 @@ export class 规划者 implements IRole {
     }
     return false
   }
+  压缩阈值 = 1000 * 330
 
   knowledgeDomainPrompt() { return `你是一个规划者，负责理解目标、分析当前局面、制定任务、派发任务。
     具体来说，每一轮都要做的事：
@@ -107,8 +108,7 @@ export class 规划者 implements IRole {
     2.理解当前任务表完成度；(这是统领全局的首要工具。通常而言，任务表的层次越厚实，末端任务越具体，证明对项目的理解越深入，规划质量越高。)
     3.分析上一轮执行的情况和进度，深度思考，不妥的任务需要重新规划，合格的任务要标记为完成;
     4.判断执行者是否正确理解了上一轮规划，如果偏离，需要多花一轮沟通/澄清；
-    5.维系项目状态一致性，什么意思？比如说功能/代码更新了，文档或注释还是旧的；或者模块A已经更新了，依赖A的模块B还是旧用法；项目已经更新了，测试用例没同步...让人去fix。
-    6.决定：执行者应当继续会话还是做一次会话压缩；
+    5.检查项目状态一致性，什么意思？比如说功能/代码更新了，文档或注释还是旧的；或者模块A已经更新了，依赖A的模块B还是旧用法；项目已经更新了，测试用例没同步...让人去fix。
 
     可能还有别的事，发挥想象力去做一些有助于项目推进的事，干活不用太着急。
     别对自己太自信，没有把握的业务多上网查资料，汲取一手经验。但网络信息良莠不齐，也不要被ai泔水浪费时间，结合项目实际情况判断。
@@ -116,12 +116,13 @@ export class 规划者 implements IRole {
     任务表工具已就绪：
     - ./任务表CLI.ts
     - ./任务表CLI使用说明书.md
+    - 项目名即根目录名。
 
     熟练使用任务表，从全局把控项目进度、节奏、质量、深度、创新、产品体验。
     对于高层次任务，你像一个CEO，理清依赖关系、不断问自己“先做这个、后做那个好不好”、把控创新探索和实际落地的比例（探索可能失败，但也有可能带来巨大收益；循规蹈矩虽然稳妥，但可能错失创新机会）、决策创新探索的结果（可用、暂时不用、弃用）；
     末端是高层次任务的自然分解，对于这类任务，你像一个小队长，描述要具体、清晰、原子级、手把手、结构化。
 
-    【项目结束】轮次有上限。超过上限未完成有一次延期机会。如果延期: 先汇报进度，接着分析还要几轮才能全部做完、有哪些会简化或绝对不可能完成、哪些建议只先完成demo，往后迭代新版本再做完整版不迟。
+    【项目交付】轮次有上限。超过上限未完成有一次延期机会。如果延期: 先汇报进度，接着分析还要几轮才能全部做完、有哪些会简化或绝对不可能完成、哪些建议只先完成demo，往后迭代新版本再做完整版不迟。
     【完美主义】如果达到上限前完成（即，还有富余的轮次），继续探索创新或者优化已有实现。直到实在没有任何可做的内容了，允许通过发送${this.项目已提前完成sign}宣告提前完成。
   ` }
   systemPrompt(upstreamMsg: string) { return `上游消息：
@@ -130,28 +131,26 @@ ${upstreamMsg}
 ---
 【慢思考】先尽到你本轮的职责。【任务派发】再发出执行指令。
 
-本轮任务（仅派发末端任务，不派发高层次任务）。是否压缩判断：任务翻新度10分制，7-10分（高翻新：不同功能模块、不同文件、同文件中度重构、思维链不需延续）→ 压缩；1-6分（低翻新度：必须复用上一个任务思维链）→ 不压缩。好的压缩让执行者更聪明，坏的压缩因思维断裂导致状态不一致。
+本轮任务（仅派发末端任务，不派发高层次任务）。
 ` }
   accessMode: "readonly" | "writable" = "readonly"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
   outputSchema = {
     type: "object",
-    required: ["前情点评", "本轮任务", "留言", "是否压缩"],
+    required: ["前情点评", "本轮任务", "留言"],
     properties: {
       前情点评: { type: "string" },
       本轮任务: { type: "string" },
       留言: { type: "string" },
-      是否压缩: { type: "boolean" },
     },
   }
   validateOutput(raw: string): { valid: boolean; error?: string } {
     const json = extractJSON(raw)
-    if (!json) return { valid: false, error: `未找到有效的 JSON 对象（请使用 {${this.outputSchema.required.join(", ")} } 格式）` }
+    if (!json) return { valid: false, error: `输出中未找到有效的 JSON 对象（请使用 {${this.outputSchema.required.join(", ")} } 格式）` }
     for (const field of this.outputSchema.required as string[]) {
       if (!(field in json)) return { valid: false, error: `JSON 缺少必填字段: ${field}` }
     }
-    if (typeof json.是否压缩 !== "boolean") return { valid: false, error: "是否压缩 应为 boolean 类型" }
     return { valid: true }
   }
 }
@@ -297,7 +296,42 @@ ${upstreamMsg}
 
 export class 压缩决策员 implements IRole {
   name = "Compactor"
-  knowledgeDomainPrompt() { return "你是一个压缩决策员，负责寻找质保员测试时未覆盖到的边缘情况。找出以下可能发生的边缘情况：大数据量、大参数量、多次重复操作、交叠式重复操作、覆盖式操作、特殊情况中断。" }
+  knowledgeDomainPrompt() { return `你是一个压缩决策员，负责在每轮执行前判断是否需要对执行者的会话进行压缩（compact）。
+压缩的含义：将旧的对话历史总结为摘要，仅保留最近的关键上下文。好的压缩让执行者更聪明（释放无关历史，聚焦当前任务），坏的压缩因思维链断裂导致状态不一致。
+
+你的判断依据：
+1. 任务翻新度：如果本轮任务跟上一轮比是"高翻新"（7-10分：切换功能模块、不同文件、同文件中度或大型重构、思维链不需延续）→ 建议压缩
+             如果本轮任务跟上一轮比是"低翻新"（1-6分：必须复用上一个任务思维链）→ 不建议压缩
+2. Context Rot 迹象：如果会话过长或模型频繁"忘记"前文 → 建议压缩
+3. 关键记忆点：如果有必须跨轮保留的关键信息（设计决策、重要思维链、未闭合的bug），请注明。只在需要压缩时注明，如果不需要压缩，则关键记忆点也应同样视作不需要。` }
+  systemPrompt(upstreamMsg: string) { return `规划者本轮的指令：
+---
+${upstreamMsg}
+---
+请判断本轮是否需要压缩执行者的会话。` }
+  accessMode: "readonly" | "writable" = "readonly"
+  model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
+
+  outputSchema = {
+    type: "object",
+    required: ["是否压缩", "关键记忆点"],
+    properties: {
+      是否压缩: { type: "boolean" },
+      关键记忆点: { type: "string" },
+    },
+  }
+  validateOutput(raw: string): { valid: boolean; error?: string } {
+    const json = extractJSON(raw)
+    if (!json) return { valid: false, error: "输出中未找到有效的 JSON 对象" }
+    if (typeof json.是否压缩 !== "boolean") return { valid: false, error: "是否压缩 应为 boolean" }
+    if (typeof json.关键记忆点 !== "string") return { valid: false, error: "关键记忆点 应为 string" }
+    return { valid: true }
+  }
+}
+
+export class 提交员 implements IRole {
+  name = "Commitman"
+  knowledgeDomainPrompt() { return "你是一个提交员，负责提交仓库。包括git仓库（如有）、svn仓库（如有）等等。" }
   systemPrompt(upstreamMsg: string) { return `下面是质保员的测试结果：
 ---
 ${upstreamMsg}
@@ -385,23 +419,30 @@ export async function main(): Promise<void> {
   // let 规划者instance = new 规划者() as IRole
   // let 执行者instance = new 执行者() as IRole
   // let 评估者instance = new 评估者() as IRole
+  // let 压缩决策员instance = new 压缩决策员() as IRole
 
   // Note：测试快速路径，非测试模式注释掉这段
   let 规划者instance = new 测试() as IRole
+  let 压缩决策员instance = new 测试() as IRole
   let 执行者instance = new 测试() as IRole
   let 评估者instance = new 测试() as IRole
   规划者instance.name ="测1"
-  执行者instance.name ="测2"
-  评估者instance.name ="测3"
+  压缩决策员instance.name ="测2"
+  执行者instance.name ="测3"
+  评估者instance.name ="测4"
 
-  const allRoles = 检查names重复([规划者instance, 执行者instance, 评估者instance]) as IRole[]
+  const allRoles = 检查names重复([规划者instance, 压缩决策员instance, 执行者instance, 评估者instance]) as IRole[]
   let currentRole = 规划者instance
 
     /**
-   * 这里的跳转策略设置为固定的闭环：规划->执行->评估->规划
+   * 这里的跳转策略设置为基本固定闭环：规划->执行->评估，
+   * 中间可穿插压缩决策员、架构师、冗余枝剪者等功能性角色，形成一个稳定结构。
    */
   const Role跳转策略: (current: IRole) => IRole = (r) => {
     if(r instanceof 规划者) {
+      return 压缩决策员instance
+    }
+    if(r instanceof 压缩决策员) {
       return 执行者instance
     }
     if(r instanceof 执行者) {
@@ -412,9 +453,10 @@ export async function main(): Promise<void> {
     }
     if(r instanceof 测试) {
       // 测试路径
-      if(r.name === "测1") return 执行者instance
-      if(r.name === "测2") return 评估者instance
-      if(r.name === "测3") return 规划者instance
+      if(r.name === "测1") return 压缩决策员instance
+      if(r.name === "测2") return 执行者instance
+      if(r.name === "测3") return 评估者instance
+      if(r.name === "测4") return 规划者instance
     }
     throw new Error(`未知角色类型: name="${r.name}", 无法跳转。constructor=${r.constructor?.name ?? "unknown"}`)
   }
@@ -496,10 +538,15 @@ export async function main(): Promise<void> {
 
     /**
      * 是否在发送消息前压缩会话历史。
-     * TODO 未来由策略决定何时 compact，例如上下文长度超过阈值 / 每 N 圈压缩一次。
-     * compact 会激活 knowledgeDomainPrompt 重新建立领域知识上下文。
+     *
+     * 决策来源：
+     * - 规划者：根据 session token 用量与压缩阈值的比较自动触发
+     * - 执行者：由压缩决策员（LLM）在每轮中动态决定
+     * - 其它角色（评估者等）：跟随执行者的压缩决策
      */
-    const compactBeforeSend = false
+    let compactBeforeSend = false
+    /** 记录执行节点本轮是否压缩，供跟随角色同步决策 */
+    let executorDidCompact = false
 
     while (cycle < config.maxCycles) {
       // 【中断消费语义】
@@ -540,6 +587,27 @@ export async function main(): Promise<void> {
 
       consoleAndLogFile.infoC(LOG_COLOR.GREEN, `>>> ${currentRole.name}`)
       session.setCurrentContext(currentRole.name)
+
+      // 【规划者压缩】基于 session token 用量与阈值比较，自动触发
+      if (currentRole instanceof 规划者) {
+        const usage = session.getTokenUsage()
+        const threshold = (currentRole as 规划者).压缩阈值
+        if (usage?.input !== undefined && usage.input >= threshold) {
+          compactBeforeSend = true
+          logFile.info(`[规划者] token用量=${usage.input} >= 阈值=${threshold}，触发压缩`)
+        }
+      }
+
+      // 【跟随压缩】非核心决策角色，跟随执行节点的压缩决策
+      if (
+        executorDidCompact &&
+        currentRole !== 规划者instance &&
+        currentRole !== 压缩决策员instance &&
+        currentRole !== 执行者instance
+      ) {
+        compactBeforeSend = true
+        logFile.info(`[${currentRole.name}] 跟随执行节点压缩`)
+      }
 
       try {
         // 【消息内容策略】
@@ -629,6 +697,20 @@ export async function main(): Promise<void> {
         logFile.info(`<<< ${currentRole.name} 完成`)
         lastResponse = response
 
+        // 压缩决策员输出后：解析其 { 是否压缩, 关键记忆点 } 以决定是否对下一角色（执行者）触发
+        if (currentRole === 压缩决策员instance) {
+          const compactorOutput = extractJSON(response)
+          compactBeforeSend = compactorOutput?.是否压缩 === true
+          if (compactBeforeSend) {
+            consoleAndLogFile.info(`[压缩决策] 请求压缩执行者会话。`)
+          }
+        }
+        // 执行者完成后：记录本次是否压缩，供跟随角色同步；复位标记避免影响压缩决策员自身
+        if (currentRole === 执行者instance) {
+          executorDidCompact = compactBeforeSend
+          compactBeforeSend = false
+        }
+
         const nextRole = Role跳转策略(currentRole)
 
         // 硬规则: 提前闭环回到首角色(规划者)，算一圈
@@ -637,6 +719,9 @@ export async function main(): Promise<void> {
         if (isCycleCompleted(nextRole, 规划者instance)) {
           cycle++
           consoleAndLogFile.info(`[当前循环: 第${cycle + 1}圈]`)
+          // 新一轮开始，重置跟随压缩标记
+          executorDidCompact = false
+          compactBeforeSend = false
         }
 
         currentRole = nextRole // 切换角色

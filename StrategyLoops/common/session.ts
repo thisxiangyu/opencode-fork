@@ -24,6 +24,7 @@ import type {
   InterruptedMsgContext,
   MessageReceiveState,
   SessionMessage,
+  TokenUsageInfo,
 } from "./types"
 
 export interface ISession {
@@ -106,4 +107,14 @@ export interface ISession {
    * 返回所有已发送和接收的消息
    */
   getMessages(): Promise<SessionMessage[]>
+
+  /**
+   * 获取最近一次 LLM 调用的 token 用量
+   *
+   * 各后端适配器自行从对应事件/API 中捕获。
+   * input 通常反映当前上下文窗口占用，与 compaction 触发阈值的判断依据一致。
+   *
+   * @returns 最近一次的 token 用量信息，尚未收到相关事件时返回 undefined
+   */
+  getTokenUsage(): TokenUsageInfo | undefined
 }

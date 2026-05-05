@@ -158,3 +158,28 @@ export class AbortError extends Error {
     this.name = "AbortError"
   }
 }
+
+/**
+ * 最近一次 LLM 调用的 token 用量信息
+ *
+ * 各字段按后端能力可能缺失（为空），消费方应做空值兜底。
+ * input 通常反映当前上下文窗口的 token 占用量，
+ * 可用于判断是否接近上下文上限、是否需要触发压缩。
+ */
+export interface TokenUsageInfo {
+  /** AI SDK 返回的 total_tokens */
+  total?: number
+  /** 输入 token（通常已剔除缓存） */
+  input?: number
+  /** 输出 token（通常已剔除推理 token） */
+  output?: number
+  /** 思维链/推理 token */
+  reasoning?: number
+  /** 缓存读写 token */
+  cache?: {
+    read?: number
+    write?: number
+  }
+  /** 本次调用成本（美元） */
+  cost?: number
+}
