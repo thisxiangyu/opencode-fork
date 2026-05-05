@@ -62,7 +62,7 @@ export const 任务Tag = {
   FEAT: "feat",
   FIX: "fix",
   REFACTOR: "refactor",
-  BIG_BREAKING_CHANGE: "BIG_BREAKING_CHANGE",
+  BIG_CHANGE: "BIG_CHANGE",
   CHORE: "chore",
   ADJUST: "adjust",
   REVERT: "revert",
@@ -73,6 +73,21 @@ export const 任务Tag = {
 } as const
 
 export type 任务Tag = typeof 任务Tag[keyof typeof 任务Tag]
+
+const 合法的Tag列表 = Object.values(任务Tag)
+
+function 校验Tag合法性(tag: string): boolean {
+  return 合法的Tag列表.includes(tag as 任务Tag)
+}
+
+function 校验所有Tag( tags: string[]): string | null {
+  for (const tag of tags) {
+    if (!校验Tag合法性(tag)) {
+      return `存在无效的Tag，必须且只能在以下Tag中选择：${合法的Tag列表.join("、")}`
+    }
+  }
+  return null
+}
 
 export class 任务 {
   标题?: string
@@ -341,6 +356,12 @@ export const 任务表 = {
     }
     const existing = 获取任务表Db().query("SELECT 标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim)
     if (existing) return { 成功: false, 消息: `标题「${标题trim}」在当前项目「${当前项目名}」已存在` }
+    const 任务类型Tag校验 = 校验所有Tag([任务类型Tag])
+    if (任务类型Tag校验) return { 成功: false, 消息: 任务类型Tag校验 }
+    if (其它Tag.length > 0) {
+      const 其它Tag校验 = 校验所有Tag(其它Tag)
+      if (其它Tag校验) return { 成功: false, 消息: 其它Tag校验 }
+    }
     const softDeleted = 获取任务表Db().query("SELECT 标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 1").get(标题trim)
     if (softDeleted) {
       获取任务表Db().query("DELETE FROM 任务表 WHERE 标题 = ? AND 是否删除 = 1").run(标题trim)
