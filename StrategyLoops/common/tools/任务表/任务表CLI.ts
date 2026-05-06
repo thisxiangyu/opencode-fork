@@ -400,9 +400,10 @@ export const 任务表 = {
     ).run(newOne.标题!, newOne.父任务标题 ?? null, JSON.stringify(newOne.Tag), newOne.任务描述!, newOne.创建时间UTC!, newOne.优先级序号!, newOne.依赖 ?? null, JSON.stringify(newOne.动态))
     const 任务类型 = isRoot ? "根任务" : "子任务"
     const 父任务信息 = isRoot ? "" : `（父任务：${添加到哪个父任务之下}）`
+    const 依赖提醒 = 依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，不要忽视隐性依赖）" : ""
     return {
       成功: true,
-      消息: `已添加${任务类型}「${标题trim}」${父任务信息}（优先级：${实际优先级序号}）`,
+      消息: `已添加${任务类型}「${标题trim}」${父任务信息}（优先级：${实际优先级序号}）${依赖提醒}`,
       res任务: {
         任务描述: newOne.任务描述!,
         是否完成: newOne.是否完成,
@@ -608,7 +609,8 @@ export const 任务表 = {
     if (依赖校验结果) return 依赖校验结果
     获取任务表Db().query("UPDATE 任务表 SET 依赖 = ? WHERE 标题 = ?").run(JSON.stringify(新依赖), 标题trim)
     const updated = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
-    return { 成功: true, 消息: `已更新任务「${标题trim}」的依赖`, res任务: updated ? 解析任务行(updated) : undefined }
+    const 依赖提醒 = 新依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，不要忽视隐性依赖）" : ""
+    return { 成功: true, 消息: `已更新任务「${标题trim}」的依赖${依赖提醒}`, res任务: updated ? 解析任务行(updated) : undefined }
   },
 
   改优先级(标题: string, 新优先级序号: number): 任务操作结果 {
