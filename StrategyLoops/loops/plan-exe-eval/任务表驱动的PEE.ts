@@ -11,16 +11,51 @@ import { linkBackend,createSession, selectOrCreateSession } from "../../common/a
 import { formatDateTime } from "../../common/system"
 import { initDb } from "../../common/tools/任务表/任务表CLI"
 import { join } from "path"
+import { 代码评审, 架构评审, Commit } from "./metaPrompts/评审相关"
+import { 基于ReactNative和Electron技术栈, 强引用的基于TS代码的文档和注释原则} from "./metaPrompts/立项相关"
 
-const config = new LoopConfig({ maxCycles: 3 , startPrompt: "请使用任务表"})
+const makeAI网站开发Start_REPO_WIKI =   `
+  ${强引用的基于TS代码的文档和注释原则}
 
-// Note：先放在这里不用，因为先试一下不告知团队情况，让agent自己感知团队结构，省token，后续再试一下告知的版本。猜测：应该差别不大。
-const 团队Prompt = `项目的团队成员包括：manager、planner、executor、evaluator、QA。
-工作以'规划->执行->测评'循环进行，总共${config.maxCycles}轮。工作目标通过【任务表】的方式来具体化和跟踪。
-`
+  // 完成后删除
+  const 起步引导 = \`
+  注意，本段是起步引导，较为口语，完成后请删除起步引导。
+    makeAI是我想要的一个只属于个人的学习AI的私教网站/App。技术栈:
+    ${基于ReactNative和Electron技术栈.基于ReactNative和Electron的全平台WebApp立项技术选型}
+
+    网站样式设计暂时还不太确定，试试搜索 https://github.com/thisxiangyu/awesome-design-md-fork.git 从中选最合适的md文档。
+    
+    makeAI 会有很多子学习模块:
+    一、课程模块（按照交互式课程方式设计的私课模块，
+          第一课 ReLU型一元分段函数复合的几何意义；
+          第二课 ReLU型一元分段函数加权相加的几何意义；
+          第三课 神经网络的基本连接形式：神经元的并联和串联；
+          第四课 从最简单的几种前馈网络感受神经网络的深度和宽度带来的价值；
+          第五课 多层感知机；
+          第六课 反向传播、梯度下降与损失函数；
+          第七...后面的还没想好，可以先搭框架，完成前几课，留拓展性口子）
+    二、数学函数交互式可视化模块（类Desmos）
+    三、my-benchmarks（个人项目过程中遇到的真实问题的基准测试）
+    四、... 其它模块暂时没有想好，可能跟预训练、后训练有关吧，maybe
+    重点: 模块之间可能会有要复用的组件（比如课程模块为了体现线性函数复合和加权求和的图像，需要复用数学函数可视化模块的窗口）
+
+    以下是建议先执行的任务，请规划者优先考虑：
+    一、${基于ReactNative和Electron技术栈.初始化开发目录结构_Git和SVN仓库创建}
+    二、${基于ReactNative和Electron技术栈.HelloWorld测试}
+    三、完成上述任务后，在本WIKI中删除上述起步引导，把REPO_WIKI.ts正式化、正规化。
+  \`
+  `
+
+const config = new LoopConfig({ maxCycles: 3 , startPrompt: makeAI网站开发Start_REPO_WIKI })
 
 /** 输出格式校验最大重试次数 */
 const OUTPUT_MAX_FORMAT_RETRIES = 3
+
+/** 单个角色打回上限（第5次打回会触发） */
+const MAX_REJECTIONS_PER_ROLE = 4
+
+/** 总打回循环上限 */
+const MAX_TOTAL_REJECTION_LOOPS = 15
 
 /**
  * 从原始文本中提取第一个平衡的 `{...}` JSON 字符串。
@@ -105,7 +140,7 @@ export class 规划者 implements IRole {
 
   knowledgeDomainPrompt() { return `你是一个规划者，负责理解目标、分析当前局面、制定任务、派发任务。
     具体来说，每一轮都要做的事：
-    1.阅读上游信息；
+    1.阅读一些信息；
     2.理解当前任务表完成度；(这是统领全局的首要工具。通常而言，任务表的层次越厚实，末端任务越具体，证明对项目的理解越深入，规划质量越高。)
     3.分析上一轮执行的情况和进度，深度思考，不妥的任务需要重新规划，合格的任务要标记为完成;
     4.判断执行者是否正确理解了上一轮规划，如果偏离，需要多花一轮沟通/澄清；
@@ -119,30 +154,33 @@ export class 规划者 implements IRole {
     - ./任务表CLI使用说明书.md
     - 项目名即根目录名。
 
-    熟练使用任务表，从全局把控项目进度、节奏、质量、深度、创新、产品体验。
+    熟练使用任务表，它体现了产品路线图。从全局把控项目进度、节奏、质量、深度、创新、产品体验。
     对于高层次任务，你像一个CEO，理清依赖关系、不断问自己“先做这个、后做那个好不好”、把控创新探索和实际落地的比例（探索可能失败，但也有可能带来巨大收益；循规蹈矩虽然稳妥，但可能错失创新机会）、决策创新探索的结果（可用、暂时不用、弃用）；
-    末端是高层次任务的自然分解，对于这类任务，你像一个小队长，描述要具体、清晰、原子级、手把手、结构化。
+    根据项目执行情况，动态调整任务表。
+    末端是高层次任务的自然分解，对于这类任务，你像一个小队长，描述要具体、清晰、原子级、手把手、步骤化。
+
+    末端任务应正好适合1次提交。
 
     【项目交付】轮次有上限。超过上限未完成有一次延期机会。如果延期: 先汇报进度，接着分析还要几轮才能全部做完、有哪些会简化或绝对不可能完成、哪些建议只先完成demo，往后迭代新版本再做完整版不迟。
-    【完美主义】如果达到上限前完成（即，还有富余的轮次），继续探索创新或者优化已有实现。直到实在没有任何可做的内容了，允许通过发送${this.项目已提前完成sign}宣告提前完成。
+    【完美主义】如果达到上限前完成（即，还有富余的轮次），继续探索创新或者优化已有实现。直到实在没有任何更优的做法了，允许通过发送${this.项目已提前完成sign}宣告提前完成。
   ` }
-  systemPrompt(upstreamMsg: string) { return `上游消息：
+  systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
 ${upstreamMsg}
 ---
-【慢思考】先尽到你本轮的职责。【任务派发】再发出执行指令。
-
-本轮任务（仅派发末端任务，不派发高层次任务）。
+【慢思考】先尽到你本轮的职责，再【任务派发】。
+本轮任务-仅派发末端任务，不派发高层次任务。
+留言-给团队成员的留言，可以是对本轮任务的补充说明，或者对目标的期望，切勿跟任务表中任务的描述重复，你应当始终以任务表传达信息优先。
 ` }
   accessMode: "readonly" | "writable" = "readonly"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
   outputSchema = {
     type: "object",
-    required: ["前情点评", "本轮任务", "留言"],
+    required: ["前情点评", "本轮任务标题", "留言"],
     properties: {
       前情点评: { type: "string" },
-      本轮任务: { type: "string" },
+      本轮任务标题: { type: "string" },
       留言: { type: "string" },
     },
   }
@@ -160,20 +198,21 @@ export class 执行者 implements IRole {
   name = "executor"
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return "你是一个执行者，负责执行任务。" }
-  systemPrompt(upstreamMsg: string) { return `下面是规划者上一轮给出的指令：
+  systemPrompt(upstreamMsg: string) { return `下面是一些信息：
 ---
 ${upstreamMsg}
 ---
 
-请根据以上指令完成本轮执行工作。` }
+请执行本轮。` }
 
+  // Note：这些只是放在这里，但是暂时用不上，后续等有需求了再接入这些prompt，看看效果怎么样。
   fix任务反驳():string{
     return `如果你认为规划者的任务分配不合理，你需要给出明确的理由和建议，反驳规划者的决策。`
   }
   add任务反驳():string{
     return `检查规划者的add任务是否合理（1.检查是否和已有功能冲突；2.检查是否并不优雅实现；3.其它各方面检查），你需要给出明确的理由和建议，反驳规划者的决策。`
   }
-  accessMode: "readonly" | "writable" = "readonly"
+  accessMode: "readonly" | "writable" = "writable"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
   outputSchema = { type: "text" }
@@ -186,18 +225,34 @@ ${upstreamMsg}
 export class 评估者 implements IRole {
   name = "evaluator"
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return "你是一个评估者，负责评估结果.  你再回复我三句话." }
-  systemPrompt(upstreamMsg: string) { return `下面是执行者上一轮的输出：
+  knowledgeDomainPrompt() { 
+    return `你是一个评估者，负责代码Review、内容审查、指导优化。你专业而挑剔，常常能深度思考，洞察细微差错。
+
+${代码评审()}` 
+  }
+  systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
 ${upstreamMsg}
 ---
-请评估以上结果，指出问题和改进建议。回复三句话。` }
+请查阅本轮的仓库变更，进行检查和评估。` }
   accessMode: "readonly" | "writable" = "readonly"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
-  outputSchema = { type: "text" }
+  outputSchema = {
+    type: "object",
+    required: ["检查结果", "问题列表", "打回留言"],
+    properties: {
+      检查结果: { type: "string", enum: ["通过", "打回"] },
+      问题列表: { type: "array", items: { type: "string" } },
+      打回留言: { type: "string" },
+    },
+  }
   validateOutput(raw: string): { valid: boolean; error?: string } {
-    if (!raw.trim()) return { valid: false, error: "输出为空" }
+    const json = extractJSON(raw)
+    if (!json) return { valid: false, error: "输出中未找到有效的 JSON 对象" }
+    if (!["通过", "打回"].includes(json.检查结果)) return { valid: false, error: "检查结果必须是'通过'或'打回'" }
+    if (!Array.isArray(json.问题列表)) return { valid: false, error: "问题列表必须是数组" }
+    if (typeof json.打回留言 !== "string") return { valid: false, error: "打回留言必须是字符串" }
     return { valid: true }
   }
 }
@@ -205,14 +260,16 @@ ${upstreamMsg}
 export class 冗余枝剪者 implements IRole {
   name = "ScissorHands"
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return "你是一个冗余枝剪者，负责寻找当前这次未提交的变更中：因前后逻辑覆盖、项目推进太快造成的不必要的冗余/误导性路径（代码、逻辑、文件、文件夹、资产等），如果有，提请执行者检查。" }
-  systemPrompt(upstreamMsg: string) { return `下面是上一环节的输出：
+  knowledgeDomainPrompt() { return `你是一个冗余枝剪者，负责寻找当前这次未提交的变更中：
+    因前后逻辑覆盖、项目推进太快造成的不必要的冗余/误导性路径（代码、逻辑、文件、文件夹、资产等）
+    先思考，再执行。` }
+  systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
 ${upstreamMsg}
 ---
 
-请检查是否有不必要的冗余。` }
-  accessMode: "readonly" | "writable" = "readonly"
+请查阅本轮的仓库变更，进行冗余枝剪。` }
+  accessMode: "readonly" | "writable" = "writable"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
   outputSchema = { type: "text" }
@@ -225,38 +282,50 @@ ${upstreamMsg}
 export class 架构师 implements IRole {
   name = "architect"
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return `你是一个架构师，负责从更高明的角度审视项目。
-    你只做重构评估，不新增功能。
-    具体职责包括：
-    1.评估代码结构是否合理，是否遵循设计原则和最佳实践，这需要你慢思考，调动细腻的感知力；
-    2.分析模块间的依赖关系，你需要确保低耦合，但也要识别内聚性，避免过度解耦；
-    3.识别关键路径和性能瓶颈；
-    4.确保架构与业务需求匹配，考虑扩展性，动态匹配合理的演进路径。
-    
-    【全局视角】任务表工具请查看说明书。你只允许查询，不允许增删改动。
+  knowledgeDomainPrompt() { 
+    return `你是一个架构师，负责从更高明的角度审视项目。你只做重构评估，不新增功能。
 
-    【局部整体性视角】多查看diff（关注暂存区、工作区以及整体变动），跳出来看跨文件关系，多问自己：
-      这次变动是否引入了冗余？
-      是否有更优雅的实现？
-      是否有更合理的分层？
-      是否有更清晰的模块划分？
-      是否有更高明的设计？
+${架构评审()}
 
-      逐行查找：过度设计（过度设计是原罪，简单清晰是最好的）
-      原则：任务表权威，你的重构不应该违背任务表的规划意图。这要求你必须小心谨慎，真实理解了任务表的实际意图。
-  ` }
-  systemPrompt(upstreamMsg: string) { return `下面是上游的输出：
+【全局视角】任务表工具请查看说明书。你只允许查询，不允许增删改动。
+
+【局部整体性视角】多查看diff（关注暂存区、工作区以及整体变动），跳出来看跨文件关系，多问自己：
+  这次变动是否引入了冗余？
+  是否有更优雅的实现？
+  是否有更合理的分层？
+  是否有更清晰的模块划分？
+  有哪些未来可拓展的产品点（当前实现是否满足该点的拓展要求）？
+  是否有更高明的设计？
+
+  逐行查找：过度设计（过度设计是原罪，简单清晰是最好的）
+  原则：任务表权威，你的重构不应该违背任务表的规划意图。这要求你必须小心谨慎，真实理解了任务表的路线图意图。` 
+  }
+  systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
 ${upstreamMsg}
 ---
 
-请从你的视角审视上述内容，提供反馈。` }
+请查阅本轮的仓库变更，执行架构评估。` }
   accessMode: "readonly" | "writable" = "readonly"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
-  outputSchema = { type: "text" }
+  outputSchema = {
+    type: "object",
+    required: ["检查结果", "架构问题", "重构建议", "打回留言"],
+    properties: {
+      检查结果: { type: "string", enum: ["通过", "打回"] },
+      架构问题: { type: "array", items: { type: "string" } },
+      重构建议: { type: "string" },
+      打回留言: { type: "string" },
+    },
+  }
   validateOutput(raw: string): { valid: boolean; error?: string } {
-    if (!raw.trim()) return { valid: false, error: "输出为空" }
+    const json = extractJSON(raw)
+    if (!json) return { valid: false, error: "输出中未找到有效的 JSON 对象" }
+    if (!["通过", "打回"].includes(json.检查结果)) return { valid: false, error: "检查结果必须是'通过'或'打回'" }
+    if (!Array.isArray(json.架构问题)) return { valid: false, error: "架构问题必须是数组" }
+    if (typeof json.重构建议 !== "string") return { valid: false, error: "重构建议必须是字符串" }
+    if (typeof json.打回留言 !== "string") return { valid: false, error: "打回留言必须是字符串" }
     return { valid: true }
   }
 }
@@ -264,14 +333,14 @@ ${upstreamMsg}
 export class 质保员 implements IRole {
   name = "QA"
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return "你是一个质保员，负责写测试、找bug/复现bug/记录bug" }
-  systemPrompt(upstreamMsg: string) { return `下面是上一环节的输出：
+  knowledgeDomainPrompt() { return "你是一个质保员，负责写测试、找bug/复现bug/记录bug。" }
+  systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
 ${upstreamMsg}
 ---
 
-请检查测试覆盖和bug情况。` }
-  accessMode: "readonly" | "writable" = "readonly"
+请查阅本轮仓库变更，检查测试覆盖率，排查bug。` }
+  accessMode: "readonly" | "writable" = "writable"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
   outputSchema = { type: "text" }
@@ -285,13 +354,13 @@ export class 边缘质保员 implements IRole {
   name = "EdgeQA"
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return "你是一个边缘质保员，负责寻找质保员测试时未覆盖到的边缘情况。找出以下可能发生的边缘情况：大数据量、大参数量、多次重复操作、交叠式重复操作、覆盖式操作、特殊情况中断。" }
-  systemPrompt(upstreamMsg: string) { return `下面是质保员的测试结果：
+  systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
 ${upstreamMsg}
 ---
 
-请找出未覆盖的边缘情况。` }
-  accessMode: "readonly" | "writable" = "readonly"
+请查阅仓库变更和测试文件，找出未覆盖的边缘情况。` }
+  accessMode: "readonly" | "writable" = "writable"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
   outputSchema = { type: "text" }
@@ -312,11 +381,11 @@ export class 压缩决策员 implements IRole {
              如果本轮任务跟上一轮比是"低翻新"（1-6分：必须复用上一个任务思维链）→ 不建议压缩
 2. Context Rot 迹象：如果会话过长或模型频繁"忘记"前文 → 建议压缩
 3. 关键记忆点：如果有必须跨轮保留的关键信息（设计决策、重要思维链、未闭合的bug），请注明。只在需要压缩时注明，如果不需要压缩，则关键记忆点也应同样视作不需要。` }
-  systemPrompt(upstreamMsg: string) { return `规划者本轮的指令：
+  systemPrompt(upstreamMsg: string) { return `本轮的任务：
 ---
 ${upstreamMsg}
 ---
-请判断本轮是否需要压缩执行者的会话。` }
+请判断本轮是否需要压缩执行者的会话。` } 
   accessMode: "readonly" | "writable" = "readonly"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
@@ -340,14 +409,13 @@ ${upstreamMsg}
 export class 提交员 implements IRole {
   name = "Commitman"
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return "你是一个提交员，负责提交仓库。包括git仓库（如有）、svn仓库（如有）等等。" }
-  systemPrompt(upstreamMsg: string) { return `下面是质保员的测试结果：
----
-${upstreamMsg}
----
+  knowledgeDomainPrompt() { 
+    return `你是一个提交员，负责提交仓库。包括git仓库（如有）、svn仓库（如有）等等。
 
-请找出未覆盖的边缘情况。` }
-  accessMode: "readonly" | "writable" = "readonly"
+${Commit()}` 
+  }
+  systemPrompt(upstreamMsg: string) { return `根据现在仓库的情况决定是否提交、如何提交。` }
+  accessMode: "readonly" | "writable" = "writable"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
   outputSchema = { type: "text" }
@@ -422,6 +490,105 @@ function isCycleCompleted(nextRole: IRole, theFirstRole: IRole): boolean {
   return nextRole.name === theFirstRole.name
 }
 
+/**
+ * 打回状态管理
+ */
+interface RejectionState {
+  /** 评估者打回次数 */
+  evaluatorRejections: number
+  /** 架构师打回次数 */
+  architectRejections: number
+  /** 执行者实践次数 */
+  executorPractices: number
+  /** 总打回循环次数 */
+  totalRejectionLoops: number
+  /** 是否处于打回循环中 */
+  inRejectionLoop: boolean
+  /** 打回循环的起点角色（evaluator 或 architect） */
+  rejectionSource?: "evaluator" | "architect"
+  /** 规划者的原始信息（打回循环期间保持不变） */
+  frozenPlannerInfo?: string
+}
+
+function createRejectionState(): RejectionState {
+  return {
+    evaluatorRejections: 0,
+    architectRejections: 0,
+    executorPractices: 0,
+    totalRejectionLoops: 0,
+    inRejectionLoop: false,
+  }
+}
+
+/**
+ * 生成打回循环的 upstream 信息
+ */
+function buildRejectionUpstream(state: RejectionState): string {
+  const parts: string[] = ["正在协作优化中"]
+  if (state.evaluatorRejections > 0) {
+    parts.push(`评估者第${state.evaluatorRejections}次打回`)
+  }
+  if (state.architectRejections > 0) {
+    parts.push(`架构师第${state.architectRejections}次打回`)
+  }
+  if (state.executorPractices > 0) {
+    parts.push(`执行者第${state.executorPractices}次实践`)
+  }
+  return parts.join("  ")
+}
+
+/**
+ * 记录打回动态到任务表
+ */
+async function recordRejectionActivity(
+  projectDir: string,
+  taskTitle: string,
+  roleName: string,
+  rejectionCount: number
+): Promise<void> {
+  const cliPath = join(projectDir, "任务表CLI.ts")
+  const message = `${roleName}打回${rejectionCount}次`
+  
+  const result = await Bun.spawn({
+    cmd: ["bun", "run", cliPath, "add-activity", "--任务标题", taskTitle, "--角色", roleName, "--消息", message],
+    cwd: projectDir,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  
+  const exitCode = await result.exited
+  if (exitCode !== 0) {
+    const stderr = await new Response(result.stderr).text()
+    logFile.warn(`[任务表] 记录打回动态失败: ${stderr.trim()}`)
+  } else {
+    logFile.info(`[任务表] 已记录打回动态: ${taskTitle} - ${message}`)
+  }
+}
+
+/**
+ * 验证任务标题是否存在于任务表中
+ */
+async function validateTaskTitle(projectDir: string, taskTitle: string): Promise<boolean> {
+  const cliPath = join(projectDir, "任务表CLI.ts")
+  
+  const result = await Bun.spawn({
+    cmd: ["bun", "run", cliPath, "query-by-title", "--标题", taskTitle],
+    cwd: projectDir,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  
+  const exitCode = await result.exited
+  const stdout = await new Response(result.stdout).text()
+  
+  if (exitCode !== 0) {
+    return false
+  }
+  
+  // 检查输出是否包含任务信息（非空结果）
+  return stdout.trim().length > 0 && !stdout.includes("未找到")
+}
+
 
 
 export async function main(): Promise<void> {
@@ -430,25 +597,135 @@ export async function main(): Promise<void> {
   // let 执行者instance = new 执行者() as IRole
   // let 评估者instance = new 评估者() as IRole
   // let 压缩决策员instance = new 压缩决策员() as IRole
+  // let 冗余枝剪者instance = new 冗余枝剪者() as IRole
+  // let 架构师instance = new 架构师() as IRole
+  // let 质保员instance = new 质保员() as IRole
+  // let 边缘质保员instance = new 边缘质保员() as IRole
+  // let 提交员instance = new 提交员() as IRole
 
-  // Note：测试快速路径，非测试模式注释掉这段
+  // Note：测试快速路径，非测试模式会注释掉这段，用上面那段
   let 规划者instance = new 测试() as IRole
   let 压缩决策员instance = new 测试() as IRole
   let 执行者instance = new 测试() as IRole
   let 评估者instance = new 测试() as IRole
+  let 冗余枝剪者instance = new 测试() as IRole
+  let 架构师instance = new 测试() as IRole
+  let 质保员instance = new 测试() as IRole
+  let 边缘质保员instance = new 测试() as IRole
+  let 提交员instance = new 测试() as IRole
   规划者instance.name ="测1"
   压缩决策员instance.name ="测2"
   执行者instance.name ="测3"
   评估者instance.name ="测4"
+  冗余枝剪者instance.name ="测5"
+  架构师instance.name ="测6"
+  质保员instance.name ="测7"
+  边缘质保员instance.name ="测8"
+  提交员instance.name ="测9"
 
-  const allRoles = 检查names重复([规划者instance, 压缩决策员instance, 执行者instance, 评估者instance]) as IRole[]
+  const allRoles = 检查names重复([
+    规划者instance, 
+    压缩决策员instance, 
+    执行者instance, 
+    评估者instance,
+    冗余枝剪者instance,
+    架构师instance,
+    质保员instance,
+    边缘质保员instance,
+    提交员instance
+  ]) as IRole[]
   let currentRole = 规划者instance
 
+  // 打回状态管理
+  const rejectionState = createRejectionState()
+  let currentTaskTitle = "" // 当前任务标题
+
     /**
-   * 这里的跳转策略设置为基本固定闭环：规划->执行->评估，
-   * 中间可穿插压缩决策员、架构师、冗余枝剪者等功能性角色，形成一个稳定结构。
+   * 完整大循环的跳转策略：
+   * 规划者 → 压缩决策员 → 执行者 → 评估者 → (打回执行者 OR 冗余枝剪者)
+   * → 冗余枝剪者 → 架构师 → (打回执行者 OR 质保员)
+   * → 质保员 → 边缘质保员 → 提交员 → 规划者
+   * 
+   * 打回逻辑：
+   * - 评估者打回：执行者 → 评估者 → (继续打回 OR 通过到冗余枝剪者)
+   * - 架构师打回：执行者 → 评估者 → 冗余枝剪者 → 架构师 → (继续打回 OR 通过到质保员)
    */
-  const Role跳转策略: (current: IRole) => IRole = (r) => {
+  const Role跳转策略: (current: IRole, lastResponse: string) => IRole = (r, response) => {
+    // 评估者的分支判断
+    if(r instanceof 评估者 || (r instanceof 测试 && r.name === "测4")) {
+      const evalOutput = extractJSON(response)
+      if (evalOutput?.检查结果 === "打回") {
+        // 评估者打回
+        rejectionState.evaluatorRejections++
+        rejectionState.executorPractices++
+        rejectionState.totalRejectionLoops++
+        rejectionState.inRejectionLoop = true
+        rejectionState.rejectionSource = "evaluator"
+        
+        logFile.info(`[评估者打回] 第${rejectionState.evaluatorRejections}次，总循环${rejectionState.totalRejectionLoops}次`)
+        
+        // 检查打回上限
+        if (rejectionState.evaluatorRejections > MAX_REJECTIONS_PER_ROLE) {
+          consoleAndLogFile.error(`[打回上限] 评估者打回超过${MAX_REJECTIONS_PER_ROLE}次，强制通过`)
+          rejectionState.inRejectionLoop = false
+          return 冗余枝剪者instance
+        }
+        if (rejectionState.totalRejectionLoops > MAX_TOTAL_REJECTION_LOOPS) {
+          consoleAndLogFile.error(`[打回上限] 总打回循环超过${MAX_TOTAL_REJECTION_LOOPS}次，程序退出`)
+          throw new Error("打回循环超过上限，程序终止")
+        }
+        
+        return 执行者instance
+      } else {
+        // 评估者通过
+        if (rejectionState.rejectionSource === "evaluator") {
+          // 结束评估者打回循环
+          rejectionState.inRejectionLoop = false
+          rejectionState.rejectionSource = undefined
+          logFile.info(`[评估者通过] 结束打回循环`)
+        }
+        return 冗余枝剪者instance
+      }
+    }
+    
+    // 架构师的分支判断
+    if(r instanceof 架构师 || (r instanceof 测试 && r.name === "测6")) {
+      const archOutput = extractJSON(response)
+      if (archOutput?.检查结果 === "打回") {
+        // 架构师打回
+        rejectionState.architectRejections++
+        rejectionState.executorPractices++
+        rejectionState.totalRejectionLoops++
+        rejectionState.inRejectionLoop = true
+        rejectionState.rejectionSource = "architect"
+        
+        logFile.info(`[架构师打回] 第${rejectionState.architectRejections}次，总循环${rejectionState.totalRejectionLoops}次`)
+        
+        // 检查打回上限
+        if (rejectionState.architectRejections > MAX_REJECTIONS_PER_ROLE) {
+          consoleAndLogFile.error(`[打回上限] 架构师打回超过${MAX_REJECTIONS_PER_ROLE}次，强制通过`)
+          rejectionState.inRejectionLoop = false
+          return 质保员instance
+        }
+        if (rejectionState.totalRejectionLoops > MAX_TOTAL_REJECTION_LOOPS) {
+          consoleAndLogFile.error(`[打回上限] 总打回循环超过${MAX_TOTAL_REJECTION_LOOPS}次，程序退出`)
+          throw new Error("打回循环超过上限，程序终止")
+        }
+        
+        return 执行者instance
+      } else {
+        // 架构师通过
+        if (rejectionState.rejectionSource === "architect") {
+          // 结束架构师打回循环
+          rejectionState.inRejectionLoop = false
+          rejectionState.rejectionSource = undefined
+          logFile.info(`[架构师通过] 结束打回循环`)
+        }
+        return 质保员instance
+      }
+    }
+    
+    // 正常流程跳转
     if(r instanceof 规划者) {
       return 压缩决策员instance
     }
@@ -456,17 +733,44 @@ export async function main(): Promise<void> {
       return 执行者instance
     }
     if(r instanceof 执行者) {
-      return 评估者instance
+      // 执行者完成后，根据打回状态决定下一步
+      if (rejectionState.rejectionSource === "architect") {
+        // 架构师打回循环：执行者 → 评估者 → 冗余枝剪者 → 架构师
+        return 评估者instance
+      } else {
+        // 正常流程或评估者打回循环：执行者 → 评估者
+        return 评估者instance
+      }
     }
-    if(r instanceof 评估者) {
+    if(r instanceof 冗余枝剪者) {
+      return 架构师instance
+    }
+    if(r instanceof 质保员) {
+      return 边缘质保员instance
+    }
+    if(r instanceof 边缘质保员) {
+      return 提交员instance
+    }
+    if(r instanceof 提交员) {
+      // 提交员完成，重置打回状态，回到规划者
+      rejectionState.evaluatorRejections = 0
+      rejectionState.architectRejections = 0
+      rejectionState.executorPractices = 0
+      rejectionState.inRejectionLoop = false
+      rejectionState.rejectionSource = undefined
+      rejectionState.frozenPlannerInfo = undefined
       return 规划者instance
     }
+    
+    // 测试路径
     if(r instanceof 测试) {
-      // 测试路径
       if(r.name === "测1") return 压缩决策员instance
       if(r.name === "测2") return 执行者instance
       if(r.name === "测3") return 评估者instance
-      if(r.name === "测4") return 规划者instance
+      if(r.name === "测5") return 架构师instance
+      if(r.name === "测7") return 边缘质保员instance
+      if(r.name === "测8") return 提交员instance
+      if(r.name === "测9") return 规划者instance
     }
     throw new Error(`未知角色类型: name="${r.name}", 无法跳转。constructor=${r.constructor?.name ?? "unknown"}`)
   }
@@ -509,8 +813,8 @@ export async function main(): Promise<void> {
     consoleAndLogFile.warn(`[任务表] 数据库初始化失败 (exit=${initExitCode}): ${initStderr.trim()}，可能已存在同名项目数据库`)
   }
 
-  // 【项目起始文档】将配置中的 startPrompt 写入项目根目录 AGENTS.md
-  const readmePath = join(projectDir, "AGENTS.md")
+  // 【项目起始文档】将配置中的 startPrompt 写入项目根目录 REPO_WIKI.ts
+  const readmePath = join(projectDir, "REPO_WIKI.ts")
   await Bun.write(readmePath, config.startPrompt)
   logFile.info(`[项目] 起始文档已创建 -> ${readmePath}`)
 
@@ -578,7 +882,7 @@ export async function main(): Promise<void> {
         }
 
         logFile.info(`[中断处理] reason=${interrupt.reason}, 来源角色=${interruptedRole.name}`)
-        const fallbackRole = Role跳转策略(interruptedRole)
+        const fallbackRole = Role跳转策略(interruptedRole, "")
         logFile.info(`[派发决策] interruptRole=${interrupt.roleName}, fallbackRole=${fallbackRole.name}`)
         currentRole = await AskTo重新定位角色(allRoles, fallbackRole, interrupt)
 
@@ -633,18 +937,46 @@ export async function main(): Promise<void> {
         const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`
         const roundInfo = `当前时间：${timeStr}，第${cycle + 1}轮/共${config.maxCycles}轮\n\n`
 
+        // 【构建 upstream 消息】根据打回状态和角色类型
+        let upstreamMsg = lastResponse
+        
+        if (rejectionState.inRejectionLoop) {
+          // 打回循环中
+          if (currentRole instanceof 执行者 || (currentRole instanceof 测试 && currentRole.name === "测3")) {
+            // 执行者：使用打回留言
+            upstreamMsg = lastResponse
+          } else if (
+            currentRole instanceof 评估者 || 
+            currentRole instanceof 架构师 ||
+            (currentRole instanceof 测试 && (currentRole.name === "测4" || currentRole.name === "测6"))
+          ) {
+            // 评估者/架构师：使用打回循环信息
+            upstreamMsg = buildRejectionUpstream(rejectionState)
+          } else {
+            // 其他角色（冗余枝剪者等）：使用打回循环信息
+            upstreamMsg = buildRejectionUpstream(rejectionState)
+          }
+        } else {
+          // 正常流程：使用规划者的原始信息或上一个角色的输出
+          if (rejectionState.frozenPlannerInfo && currentRole !== 规划者instance) {
+            upstreamMsg = rejectionState.frozenPlannerInfo
+          } else {
+            upstreamMsg = lastResponse
+          }
+        }
+
         if (shouldActivateKnowledge) {
-          if (!lastResponse?.trim()) // 空、null、undefined、纯空格
+          if (!upstreamMsg?.trim()) // 空、null、undefined、纯空格
           {
             lastResponseEmptyCount++
-            lastResponse = `暂无(第${lastResponseEmptyCount}次空缺上游消息)，请你自行决断本轮行为。`;            
+            upstreamMsg = `暂无(第${lastResponseEmptyCount}次空缺上游消息)，请你自行决断本轮行为。`;            
           }else{
             lastResponseEmptyCount = 0 // 重置计数
           }
-          msgToBeSent = currentRole.knowledgeDomainPrompt()+`\n${currentRole.systemPrompt(lastResponse)}`
+          msgToBeSent = currentRole.knowledgeDomainPrompt()+`\n${currentRole.systemPrompt(upstreamMsg)}`
           knowledgeSent.add(currentRole.name)
         } else {
-          msgToBeSent = roundInfo + currentRole.systemPrompt(lastResponse)
+          msgToBeSent = roundInfo + currentRole.systemPrompt(upstreamMsg)
         }
 
         // 对结构化输出角色，注入格式要求
@@ -705,7 +1037,72 @@ export async function main(): Promise<void> {
         }
 
         logFile.info(`<<< ${currentRole.name} 完成`)
-        lastResponse = response
+        
+        // 【规划者任务标题验证】
+        if (currentRole instanceof 规划者 || (currentRole instanceof 测试 && currentRole.name === "测1")) {
+          const plannerOutput = extractJSON(response)
+          if (plannerOutput?.本轮任务标题) {
+            const taskTitle = plannerOutput.本轮任务标题.trim()
+            const isValid = await validateTaskTitle(projectDir, taskTitle)
+            
+            if (!isValid) {
+              consoleAndLogFile.warn(`[任务验证] 任务标题"${taskTitle}"不存在于任务表中，要求重新派发`)
+              // 要求规划者重新派发
+              const retryMsg = `你派发的任务标题"${taskTitle}"在任务表中不存在。请检查任务表，派发一个真实存在的任务标题。`
+              response = await session.sendMsg({
+                msgSource: MSG_SOURCE.system,
+                content: retryMsg,
+              }, false)
+              
+              // 重新验证
+              const retryOutput = extractJSON(response)
+              if (retryOutput?.本轮任务标题) {
+                const retryTaskTitle = retryOutput.本轮任务标题.trim()
+                const retryValid = await validateTaskTitle(projectDir, retryTaskTitle)
+                if (retryValid) {
+                  currentTaskTitle = retryTaskTitle
+                  consoleAndLogFile.info(`[任务验证] 重新派发的任务"${retryTaskTitle}"验证通过`)
+                } else {
+                  consoleAndLogFile.error(`[任务验证] 重新派发的任务"${retryTaskTitle}"仍不存在，继续执行但可能有问题`)
+                  currentTaskTitle = retryTaskTitle
+                }
+              }
+            } else {
+              currentTaskTitle = taskTitle
+              consoleAndLogFile.info(`[任务验证] 任务"${taskTitle}"验证通过`)
+            }
+            
+            // 保存规划者信息用于打回循环
+            if (!rejectionState.inRejectionLoop) {
+              rejectionState.frozenPlannerInfo = response
+            }
+          }
+        }
+        
+        // 【评估者/架构师打回后记录动态】
+        if (currentRole instanceof 评估者 || (currentRole instanceof 测试 && currentRole.name === "测4")) {
+          const evalOutput = extractJSON(response)
+          if (evalOutput?.检查结果 === "打回" && currentTaskTitle) {
+            await recordRejectionActivity(projectDir, currentTaskTitle, "evaluator", rejectionState.evaluatorRejections)
+          }
+        }
+        if (currentRole instanceof 架构师 || (currentRole instanceof 测试 && currentRole.name === "测6")) {
+          const archOutput = extractJSON(response)
+          if (archOutput?.检查结果 === "打回" && currentTaskTitle) {
+            await recordRejectionActivity(projectDir, currentTaskTitle, "architect", rejectionState.architectRejections)
+          }
+        }
+        
+        // 【提交员完成后提取提交信息】
+        if (currentRole instanceof 提交员 || (currentRole instanceof 测试 && currentRole.name === "测9")) {
+          // 提取提交信息，作为下一轮规划者的 upstream
+          // 简化处理：直接使用提交员的输出作为提交信息
+          const commitInfo = `[上一轮提交信息]\n${response.substring(0, 500)}${response.length > 500 ? "..." : ""}`
+          lastResponse = commitInfo
+          logFile.info(`[提交员] 提交信息已提取，将返还给规划者`)
+        } else {
+          lastResponse = response
+        }
 
         // 压缩决策员输出后：解析其 { 是否压缩, 关键记忆点 } 以决定是否对下一角色（执行者）触发
         if (currentRole === 压缩决策员instance) {
@@ -721,7 +1118,7 @@ export async function main(): Promise<void> {
           compactBeforeSend = false
         }
 
-        const nextRole = Role跳转策略(currentRole)
+        const nextRole = Role跳转策略(currentRole, response)
 
         // 硬规则: 提前闭环回到首角色(规划者)，算一圈
         // 没回到首角色，不算一圈

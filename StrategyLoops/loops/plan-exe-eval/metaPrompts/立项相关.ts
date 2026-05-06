@@ -21,7 +21,7 @@ export const GIT_WITH_ITS_USAGE : string = `git（管理代码、文档、文本
 export const SVN_WITH_ITS_USAGE : string = `SVN（管理中大体积的Asset：高清图片、动画、二进制文件和视频等）`
 
 
-const 类Opencode技术栈 = {
+export const 类Opencode技术栈 = {
   /**
    * Note：参考Opencode的技术选型，适合Web和Desktop，但是干不了移动端App（Bun运行时限制）。
    */
@@ -44,7 +44,7 @@ const 类Opencode技术栈 = {
   }
 }
 
-const 基于ReactNative和Electron技术栈 = {
+export const 基于ReactNative和Electron技术栈 = {
   /**
    * 跨大部分平台，支持Web、Desktop（Win&MacOS）、IOS、安卓
    * 注意：鸿蒙/RN桌面暂不在本期范围内
@@ -86,10 +86,12 @@ const 基于ReactNative和Electron技术栈 = {
   },
 
   /**
-   * Note：如果缺少依赖，需要先安装相关依赖（如Git、SVN、Node.js、Bun、pnpm、Turbo等），确保环境准备就绪后再执行以下操作。
+   * Note：如果缺少依赖，需要先安装相关依赖（如Git、SVN、Node.js、pnpm、Turbo等），确保环境准备就绪后再执行以下操作。
    */
   初始化开发目录结构_Git和SVN仓库创建(项目根目录: string): string {
-    return `在${项目根目录}位置执行以下操作：
+    return `
+    如果缺少依赖，需要先安装相关依赖（如Git、SVN、Node.js、pnpm、Turbo等），确保环境准备就绪，
+    在${项目根目录}位置执行以下操作：
     1. 初始化标准 Monorepo 目录结构（pnpm + Turbo）：
       根目录/
       ├── apps/                    # 各平台应用入口
@@ -195,7 +197,7 @@ const 基于ReactNative和Electron技术栈 = {
 
     4. Web 端无需额外文件，Expo 的 web 模式直接工作
 
-    5. 运行，调用question工具请求用户人工协助验证：
+    5. 运行（这一步请用户人工协助验证，人工验证通过再往下一步执行）：
       a) 移动端（需有模拟器或 Expo Go）：
           - cd apps/mobile
           - npx expo start           # 启动开发服务器，按 i（iOS）或 a（Android）打开模拟器
@@ -447,6 +449,45 @@ export function 中文为主的代码风格规范(): string {
     - 允许："token列表" 和 "训练结果" 同时出现，因为一个是专有词，一个是普通业务词。
     - 不允许：同一个概念一会儿叫 "token列表"，一会儿又叫“标记列表”。
     `
+  }
+
+  export function 强引用的基于TS代码的文档和注释原则():string{
+  return `
+    export const WIKI和NOTE须知_NOTE = () => \`
+    有了\${CodeFileAsWiki_NOTE}就不需要传统文档了，有了\${RefAsAComment_NOTE}就不需要传统注释了。
+    好处在于强链接性、语法级报错。
+    务必注意：构建时剔除这些 XX_WIKI.ts 和 XX_NOTE，避免占据体积。
+    \`
+
+    export const RefAsAComment_NOTE = \`
+    善加利用 ts的字符串、对象字面量等语法，将 XX_NOTE 插入到业务逻辑的类、函数、方法、变量前或后（而不是中间），方便引用和检查报错，实现注释/文档的强维护性。
+    普通嵌套：可以通过 美元符+花括号 的方式实现 NOTE 嵌套 NOTE
+    高级层次嵌套：可以通过对象字面量嵌套形成更精妙的高级的层次结构
+    先使用后定义：ts的变量只能先定义后使用，但利用函数可以先使用后定义。
+    警告：除非特殊设计要求，始终确保 XX_NOTE 不混入正常代码逻辑中。绝对不要因 NOTE混入 而拖累业务逻辑。
+    \`
+
+    export const CodeFileAsWiki_NOTE = 
+    \`项目根目录的文档：REPO_WIKI.ts
+    项目的其它文件夹下方维护一个以 文件夹大写字母_WIKE 命名的ts脚本，如：
+        /packages 下方维护 PACKAGES_WIKE.ts
+        /apps/ 下方维护 APPS_WIKI.ts
+    每个文件夹都要，形成一棵 WIKI 树。
+    WIKI 内部结构：
+    基于 Note（参见\${RefAsAComment_NOTE}） 组成的类wiki百科的结构，由大量的文本引用/嵌套、对象字面量、段落划分、层级嵌套组成的结构化内容。
+    跨文件夹组织：
+    你可以通过 export 和 import 跨文件夹组织多个 XX_WIKI.ts
+    \`
+
+    export const REPO_WIKI = {
+      WIKI维护:"（这句话永远应保留在本文档中：本WIKI应每轮更进，动态完善，适时重写。请多查看。记住: 罗马不是一天建成的）",
+      文档与注释:\`切勿使用普通的文档与注释，因为它们缺乏引用性，非常容易遗忘。最佳实践：
+      [Code file as Wiki]原则。\${CodeFileAsWiki_NOTE}
+      [Ref as a Comment]原则。\${RefAsAComment_NOTE}
+      你所看到的这个REPO_WIKI对象所在的ts文件就是最好的[Code file as Wiki]和[Ref as a Comment]实践。
+      \${WIKI和NOTE须知_NOTE}\`,
+    }
+  `
   }
 
 export function 文件规范(): string {
