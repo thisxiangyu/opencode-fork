@@ -33,30 +33,49 @@ const LOG_COLOR = {
 
 const RESET = "\x1b[0m"
 
-const DEFAULT_COLORS: Record<LogLevel, LogColor> = {
-  info: "white",
-  warn: "yellow",
-  error: "red",
-}
+const ROTATION_INTERVAL = 15 * 60 * 1000
 
 class Logger {
-  private logStream: fs.WriteStream | null = null
+  private logStream!: fs.WriteStream
   private logFilePath: string = ""
-  private consoleInfo: boolean = false
-  private consoleWarn: boolean = false
-  private consoleError: boolean = false
+  private consoleInfo = false
+  private consoleWarn = false
+  private consoleError = false
+  private rotationTimer: NodeJS.Timeout | null = null
 
   constructor() {
     if (!fs.existsSync(LOG_DIR)) {
       fs.mkdirSync(LOG_DIR, { recursive: true })
     }
+
     const today = new Date().toISOString().split("T")[0]
-    this.logFilePath = path.join(LOG_DIR, `${today}-pid${process.pid}.log`)
+    const shortFile = path.join(LOG_DIR, `${today}-pid${process.pid}.log`)
+    const isLongRunning = fs.existsSync(shortFile)
+
+    if (isLongRunning) {
+      this.logFilePath = path.join(LOG_DIR, `${today}-${new Date().toISOString().replace(/[:.]/g, "-")}-pid${process.pid}.log`)
+      this.rotationTimer = setInterval(() => this.rotateLogFile(), ROTATION_INTERVAL)
+      this.rotationTimer.unref()
+    } else {
+      this.logFilePath = shortFile
+    }
+
     this.logStream = fs.createWriteStream(this.logFilePath, { flags: "w" })
     this.setMode("fileOnly")
-    const initLine = (msg: string) => this.logStream?.write(`[${new Date().toISOString()}] [INFO] ${msg}\n`)
+    const initLine = (msg: string) => this.logStream.write(`[${new Date().toISOString()}] [INFO] ${msg}\n`)
     initLine("=".repeat(60))
     initLine(`[启动] 日志文件: ${this.logFilePath}`)
+    if (isLongRunning) {
+      initLine(`[模式] 长时间运行模式，每 ${ROTATION_INTERVAL / 60000} 分钟轮换`)
+    }
+  }
+
+  private rotateLogFile() {
+    this.logStream.end()
+    this.logFilePath = path.join(LOG_DIR, `${new Date().toISOString().split("T")[0]}-${new Date().toISOString().replace(/[:.]/g, "-")}-pid${process.pid}.log`)
+    this.logStream = fs.createWriteStream(this.logFilePath, { flags: "w" })
+    this.logStream.write(`[${new Date().toISOString()}] [INFO] ${"=".repeat(60)}\n`)
+    this.logStream.write(`[${new Date().toISOString()}] [INFO] [轮换] 新日志文件: ${this.logFilePath}\n`)
   }
 
   setMode(mode: LoggerMode) {
@@ -70,9 +89,7 @@ class Logger {
   }
 
   write(level: LogLevel, line: string) {
-    if (this.logStream) {
-      this.logStream.write(line + "\n")
-    }
+    this.logStream.write(line + "\n")
   }
 
   info(...args: any[]) {
@@ -124,10 +141,8 @@ class Logger {
   }
 
   close() {
-    if (this.logStream) {
-      this.logStream.end()
-      this.logStream = null
-    }
+    clearInterval(this.rotationTimer!)
+    this.logStream.end()
   }
 }
 
@@ -144,9 +159,7 @@ const createConsoleProxy = (base: Logger): Logger =>
       }
       if (prop === "infoC") {
         return (color: LogColor, ...args: any[]) => {
-          const message = target.format(...args)
-          target.write("info", `[${new Date().toISOString()}] [INFO] ${message}`)
-          console.log(`${COLOR_CODES[color]}${message}${RESET}`)
+          target.infoC(color, ...args)
         }
       }
       if (prop === "warn") {
@@ -157,9 +170,7 @@ const createConsoleProxy = (base: Logger): Logger =>
       }
       if (prop === "warnC") {
         return (color: LogColor, ...args: any[]) => {
-          const message = target.format(...args)
-          target.write("warn", `[${new Date().toISOString()}] [WARN] ${message}`)
-          console.warn(`${COLOR_CODES[color]}${message}${RESET}`)
+          target.warnC(color, ...args)
         }
       }
       if (prop === "error") {
@@ -170,9 +181,7 @@ const createConsoleProxy = (base: Logger): Logger =>
       }
       if (prop === "errorC") {
         return (color: LogColor, ...args: any[]) => {
-          const message = target.format(...args)
-          target.write("error", `[${new Date().toISOString()}] [ERROR] ${message}`)
-          console.error(`${COLOR_CODES[color]}${message}${RESET}`)
+          target.errorC(color, ...args)
         }
       }
       return Reflect.get(target, prop, receiver)
