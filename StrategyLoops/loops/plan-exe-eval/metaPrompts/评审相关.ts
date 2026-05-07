@@ -57,12 +57,12 @@ export function 预备Commit(): string {
 export function Commit(): string {
   return ` 将git暂存区代码做一次深度理解。慢思考，如果工作区存在暂存区的依赖，将工作区中的文件添加到暂存，不依赖则不添加。
   进行一次commit，根据该项目的要求，编写详实、合规的提交信息。
-  提交以标签(模块或文件): 打头。中文内容。
+  提交以标签(模块或文件夹)(子模块或文件或特定行为): 打头。中文内容。
   如:
-  explore_in_progress(UI):探索新交互布局...(具体探索)
-  feat(input):输入新增特性...(具体特性)
-  detail(产品Icon):给产品Icon添加新样式...(具体细节)
-  add(埋点):新增埋点模块...(具体实现)
+  explore_in_progress(UI)(交互):探索新交互布局...(具体探索)
+  feat(input)(跨平台):输入新增跨平台特性...(具体特性)
+  detail(产品Icon)(样式):给产品Icon添加新样式...(具体细节)
+  add(埋点)(统计):新增埋点模块...(具体实现)
 
   要写具体一点！
 
