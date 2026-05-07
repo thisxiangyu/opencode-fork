@@ -182,9 +182,9 @@ function 获取任务表Db() {
   if (!db) throw new Error("任务表数据库未初始化，请先调用 initDb()");
   return db;
 }
-function initDb(项目名) {
+function initDb(项目名, 数据库目录) {
   当前项目名 = 项目名;
-  const 项目目录 = (0, import_path.join)(scriptDir, "data", `.taskTable.${项目名}`);
+  const 项目目录 = (0, import_path.join)(数据库目录 ?? scriptDir, "data", `.taskTable.${项目名}`);
   if (!(0, import_fs.existsSync)(项目目录)) {
     (0, import_fs.mkdirSync)(项目目录, { recursive: true });
   }
@@ -485,6 +485,57 @@ const 任务表 = {
       "SELECT * FROM 任务表 WHERE 标题 = ?"
     ).get(标题);
     return row ? [解析任务行(row)] : [];
+  },
+  /**
+   * 递归构建任务依赖链。
+   *
+   * @param 标题 要查询的任务标题
+   * @param 最大层数 递归最大深度，默认 3
+   * @returns 任务详情 + 分层的依赖链，每层包含【标题、依赖原因、动态】
+   */
+  查询依赖链(标题, 最大层数 = 3) {
+    const taskRow = 获取任务表Db().prepare(
+      "SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0"
+    ).get(标题);
+    if (!taskRow) return { 成功: false, 消息: `任务"${标题}"不存在` };
+    const task = 解析任务行(taskRow);
+    const visited = /* @__PURE__ */ new Set([task.标题]);
+    function 获取依赖任务(依赖JSON) {
+      if (!依赖JSON) return [];
+      try {
+        const deps = JSON.parse(依赖JSON);
+        return deps.map((d) => ({ 标题: d["依赖任务"], 原因: d["原因"] }));
+      } catch {
+        return [];
+      }
+    }
+    function 递归收集依赖(depTitles, depthRemaining) {
+      if (depthRemaining <= 0 || depTitles.length === 0) return [];
+      const currentLayer = [];
+      const nextDepTitles = [];
+      for (const dep of depTitles) {
+        if (visited.has(dep.标题)) continue;
+        visited.add(dep.标题);
+        const depRow = 获取任务表Db().prepare(
+          "SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0"
+        ).get(dep.标题);
+        if (!depRow) continue;
+        const depTask = 解析任务行(depRow);
+        currentLayer.push({ 标题: dep.标题, 原因: dep.原因, 动态: depTask.动态 });
+        const subDeps = 获取依赖任务(depTask.依赖);
+        nextDepTitles.push(...subDeps);
+      }
+      if (currentLayer.length === 0) return [];
+      const nextLayers = 递归收集依赖(nextDepTitles, depthRemaining - 1);
+      return [{ 层: 最大层数 - depthRemaining + 1, 依赖: currentLayer }, ...nextLayers];
+    }
+    const topDeps = 获取依赖任务(task.依赖);
+    const 依赖链 = 递归收集依赖(topDeps, 最大层数);
+    return {
+      成功: true,
+      任务: { 标题: task.标题, Tag: task.Tag, 任务描述: task.任务描述 },
+      依赖链
+    };
   },
   按Tag查询(Tag) {
     const rows = 获取任务表Db().prepare(
@@ -884,7 +935,8 @@ const CLI_COMMANDS = {
   "update-dependency": "改依赖 --标题 <标题> --新依赖 <JSON>",
   "update-priority": "改优先级 --标题 <标题> --新优先级 <序号>",
   "mark-complete": "标记为已完成 --标题 <标题>",
-  "add-activity": "添加动态 --标题 <标题> --角色 <角色> --消息 <消息>"
+  "add-activity": "添加动态 --标题 <标题> --角色 <角色> --消息 <消息>",
+  "query-dependency-chain": "查询依赖链 --标题 <标题> [--最大层数 <n>]"
 };
 function parseArgs(args) {
   const result = {};
@@ -1028,6 +1080,20 @@ async function runCli() {
     const result = 任务表.按Tag查询(flags.Tag);
     outputResult({ 成功: true, 数量: result.length, 任务: result });
     process.exit(0);
+  }
+  if (command === "query-dependency-chain") {
+    if (!flags.标题) {
+      outputResult({ 成功: false, 消息: "缺少必需参数: --标题" });
+      process.exit(1);
+    }
+    const 最大层数 = flags.最大层数 ? parseInt(flags.最大层数) : 3;
+    if (isNaN(最大层数) || 最大层数 < 1) {
+      outputResult({ 成功: false, 消息: "最大层数必须为正整数" });
+      process.exit(1);
+    }
+    const result = 任务表.查询依赖链(flags.标题, 最大层数);
+    outputResult(result);
+    process.exit(result.成功 ? 0 : 1);
   }
   if (command === "query-deleted") {
     if (!flags.数量 || !flags.描述字数阈值 || !flags.动态字数阈值) {

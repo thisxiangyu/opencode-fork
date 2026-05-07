@@ -731,6 +731,117 @@ async function validateTaskTitle(projectDir: string, taskTitle: string): Promise
   })
 }
 
+/**
+ * 为下游角色构建完整的 upstream 信息。
+ *
+ * 规划者的 JSON 输出只含 {前情点评, 本轮任务标题, 留言}，
+ * 但下游角色执行时还需要知道任务的描述、Tag 以及该任务依赖的前置任务链
+ * （已完成了哪些前置工作、它们的动态是什么），才能充分理解上下文。
+ *
+ * 此函数：
+ * 1. 调用任务表 CLI 的 query-dependency-chain 命令获取任务详情 + 依赖链
+ * 2. 将规划者的输出与任务表信息合并为一条完整的 upstream 文本
+ * 3. 依赖链默认查询 3 层，避免信息过载
+ *
+ * @returns 格式化后的 upstream 文本，查询失败则回退到规划者原始输出
+ */
+async function buildTaskUpstream(
+  projectDir: string,
+  plannerOutput: Record<string, any>,
+): Promise<string> {
+  const cliPath = join(projectDir, "任务表CLI.js")
+  const taskTitle = plannerOutput.本轮任务标题?.trim() || ""
+  const 前情点评 = plannerOutput.前情点评 || ""
+  const 留言 = plannerOutput.留言 || ""
+  const maxDepth = 3
+
+  // 基础信息（规划者输出）
+  let upstream = ""
+  if (前情点评) upstream += `前情点评: ${前情点评}\n\n`
+  upstream += `本轮任务标题: ${taskTitle}\n`
+
+  // 从任务表查询任务描述、Tag、依赖链
+  if (!taskTitle) {
+    if (留言) upstream += `留言: ${留言}\n`
+    return upstream
+  }
+
+  try {
+    const result = await new Promise<{ 成功: boolean; 任务?: any; 依赖链?: any[]; 消息?: string }>((resolve) => {
+      const child = spawn("node", [cliPath, "query-dependency-chain", "--标题", taskTitle, "--最大层数", String(maxDepth)], {
+        cwd: projectDir,
+        stdio: ['ignore', 'pipe', 'pipe']
+      })
+
+      let stdout = ''
+      let stderr = ''
+      child.stdout?.on('data', (data) => { stdout += data.toString() })
+      child.stderr?.on('data', (data) => { stderr += data.toString() })
+
+      child.on('close', (exitCode) => {
+        if (exitCode !== 0) {
+          logFile.warn(`[任务表] 查询依赖链失败: ${stderr.trim()}`)
+          resolve({ 成功: false, 消息: stderr.trim() })
+          return
+        }
+        try {
+          resolve(JSON.parse(stdout))
+        } catch (e) {
+          logFile.warn(`[任务表] 解析依赖链结果失败: ${e instanceof Error ? e.message : String(e)}`)
+          resolve({ 成功: false, 消息: `解析失败: ${stdout.substring(0, 200)}` })
+        }
+      })
+
+      child.on('error', (err) => {
+        logFile.warn(`[任务表] 查询依赖链失败: ${err.message}`)
+        resolve({ 成功: false, 消息: err.message })
+      })
+    })
+
+    if (result.成功 && result.任务) {
+      const task = result.任务
+      if (task.任务描述) upstream += `描述: ${task.任务描述}\n`
+      if (task.Tag && task.Tag.length > 0) upstream += `Tag: ${task.Tag.join(", ")}\n`
+
+      // 格式化依赖链
+      if (result.依赖链 && result.依赖链.length > 0) {
+        upstream += `\n依赖链（共${result.依赖链.length}层）：\n`
+        for (const layer of result.依赖链) {
+          upstream += `--- 第${layer.层}层 ---\n`
+          for (const dep of layer.依赖) {
+            upstream += `${dep.标题} | 依赖原因: ${dep.原因}\n`
+            if (dep.动态 && dep.动态.length > 0) {
+              // 每条动态格式化为 "角色:消息" 的紧凑形式
+              const 动态摘要 = dep.动态
+                .slice(-5) // 只展示最近5条动态，避免上下文过长
+                .map((d: { 角色: string; 消息: string }) => `[${d.角色}: ${d.消息}]`)
+                .join(" | ")
+              upstream += `  动态: ${动态摘要}\n`
+              if (dep.动态.length > 5) {
+                upstream += `  (..还有${dep.动态.length - 5}条更早的动态)\n`
+              }
+            } else {
+              upstream += `  动态: 暂无\n`
+            }
+          }
+        }
+      } else {
+        upstream += `\n依赖链: 无（无前置依赖任务）\n`
+      }
+    } else {
+      // 查询失败（非致命），但仍然附上基础信息
+      upstream += `\n(依赖链查询失败: ${result.消息 || "未知错误"}，已回退到基础信息)\n`
+    }
+  } catch (e) {
+    upstream += `\n(依赖链查询异常: ${e instanceof Error ? e.message : String(e)}，已回退到基础信息)\n`
+  }
+
+  if (留言) upstream += `\n留言: ${留言}\n`
+
+  logFile.info(`[buildTaskUpstream] 已构建 upstream (${upstream.length} 字符)`)
+  return upstream
+}
+
 
 
 export async function main(): Promise<void> {
@@ -1267,44 +1378,54 @@ export async function main(): Promise<void> {
 
         logFile.info(`<<< ${currentRole.name} 完成`)
         
-        // 【规划者任务标题验证】
+        // 【规划者任务标题验证 + 构建完整 upstream】
         if (currentRole instanceof 规划者 || (currentRole instanceof 测试 && currentRole.name === "测1")) {
           const plannerOutput = extractJSON(response)
           if (plannerOutput?.本轮任务标题) {
             const taskTitle = plannerOutput.本轮任务标题.trim()
-            const isValid = await validateTaskTitle(projectDir, taskTitle)
+            let isValid = await validateTaskTitle(projectDir, taskTitle)
             
             if (!isValid) {
               consoleAndLogFile.warn(`[任务验证] 任务标题"${taskTitle}"不存在于任务表中，要求重新派发`)
-              // 要求规划者重新派发
               const retryMsg = `你派发的任务标题"${taskTitle}"在任务表中不存在。请检查任务表，派发一个真实存在的任务标题。`
-              response = await session.sendMsg({
+              const retryResp = await session.sendMsg({
                 msgSource: MSG_SOURCE.system,
                 content: retryMsg,
               }, false)
               
-              // 重新验证
-              const retryOutput = extractJSON(response)
+              // 重新验证并更新 response
+              const retryOutput = extractJSON(retryResp)
               if (retryOutput?.本轮任务标题) {
                 const retryTaskTitle = retryOutput.本轮任务标题.trim()
                 const retryValid = await validateTaskTitle(projectDir, retryTaskTitle)
                 if (retryValid) {
                   currentTaskTitle = retryTaskTitle
+                  response = retryResp // 更新 response，后续 upstream 构建会使用这个
                   consoleAndLogFile.info(`[任务验证] 重新派发的任务"${retryTaskTitle}"验证通过`)
                 } else {
                   consoleAndLogFile.error(`[任务验证] 重新派发的任务"${retryTaskTitle}"仍不存在，继续执行但可能有问题`)
                   currentTaskTitle = retryTaskTitle
+                  response = retryResp
                 }
+              } else {
+                // retry 后仍无有效标题，保留原标题
+                currentTaskTitle = taskTitle
+                isValid = true // 标记为"已处理"，跳过 otherwise 分支
+                consoleAndLogFile.warn(`[任务验证] 重新派发后仍未解析到任务标题，使用原标题"${taskTitle}"`)
               }
             } else {
               currentTaskTitle = taskTitle
               consoleAndLogFile.info(`[任务验证] 任务"${taskTitle}"验证通过`)
             }
-            
-            // 保存规划者信息用于打回循环
-            if (!rejectionState.inRejectionLoop) {
-              rejectionState.frozenPlannerInfo = response
-            }
+          }
+          
+          // 构建完整 upstream（含任务描述、Tag、依赖链），保存用于下游角色和打回循环
+          // 只在非打回循环时更新——打回期间 upstream 冻结，避免重复查询污染上下文
+          if (!rejectionState.inRejectionLoop && currentTaskTitle) {
+            const latestOutput = extractJSON(response)
+            const fullUpstream = await buildTaskUpstream(projectDir, latestOutput || { 本轮任务标题: currentTaskTitle })
+            rejectionState.frozenPlannerInfo = fullUpstream
+            consoleAndLogFile.info(`[upstream] 已构建完整上游信息（含依赖链），${fullUpstream.length} 字符`)
           }
         }
         
