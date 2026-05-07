@@ -128,6 +128,30 @@ function extractJSON(raw: string): Record<string, any> | null {
 // ⭐️ 某种意义上来说，远程大模型相当于一支“雇佣军”，而本地大模型负责的是“秘书/管家”这样的端侧亲密的角色，
 //    届时，本地 systemPrompt 的生成应当遵循两个原则：了解模型（通过benchmark）、了解用户（通过用户数据）、了解项目（通过项目数据）。
 
+/**
+ * 【一句话动态】输出 schema。
+ * 供冗余枝剪者、质保员、边缘质保员三个"检查-修复-汇报"型角色复用。
+ * 主循环会据此自动注入格式要求，无需再在 knowledgeDomainPrompt 中硬编码。
+ */
+const 一句话动态Schema = {
+  type: "object",
+  required: ["一句话动态"],
+  properties: {
+    一句话动态: {
+      type: "string",
+      description: '必须严格为以下两种格式之一：\n1. 有问题且已修复："检测到问题: <问题的抽象阐述>，我已修复，以后请提起重视。"\n2. 无问题："检查无问题"',
+    },
+  },
+}
+
+function validate一句话动态(raw: string): { valid: boolean; error?: string } {
+  const json = extractJSON(raw)
+  if (!json) return { valid: false, error: "输出中未找到有效的 JSON 对象" }
+  if (typeof json.一句话动态 !== "string") return { valid: false, error: "一句话动态必须是字符串" }
+  if (!json.一句话动态.trim()) return { valid: false, error: "一句话动态不能为空" }
+  return { valid: true }
+}
+
 export class 规划者 implements IRole {
   memory?: string | undefined
   name = "planner"
@@ -269,7 +293,11 @@ export class 冗余枝剪者 implements IRole {
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个冗余枝剪者，负责寻找当前这次未提交的变更中：
     因前后逻辑覆盖、项目推进太快造成的不必要的冗余/误导性路径（代码、逻辑、文件、文件夹、资产等）
-    先思考，再执行。` }
+
+    工作流程：
+    1. 先检查问题：查阅仓库变更，识别冗余代码、无用文件、误导性路径
+    2. 解决问题：删除或重构冗余部分
+    3. 输出动态：用一句话总结本次检测和修复情况（格式见下方输出要求）` }
   systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
 ${upstreamMsg}
@@ -279,10 +307,9 @@ ${upstreamMsg}
   accessMode: "readonly" | "writable" = "writable"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
-  outputSchema = { type: "text" }
+  outputSchema = 一句话动态Schema
   validateOutput(raw: string): { valid: boolean; error?: string } {
-    if (!raw.trim()) return { valid: false, error: "输出为空" }
-    return { valid: true }
+    return validate一句话动态(raw)
   }
 }
 
@@ -340,7 +367,12 @@ ${upstreamMsg}
 export class 质保员 implements IRole {
   name = "QA"
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return "你是一个质保员，负责写测试、找bug/复现bug/记录bug。" }
+  knowledgeDomainPrompt() { return `你是一个质保员，负责写测试、找bug/复现bug/记录bug。
+
+    工作流程：
+    1. 先检查问题：查阅仓库变更，检查测试覆盖率，排查bug，识别缺失的测试用例
+    2. 解决问题：编写缺失的测试，修复发现的bug
+    3. 输出动态：用一句话总结本次检测和修复情况（格式见下方输出要求）` }
   systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
 ${upstreamMsg}
@@ -350,17 +382,23 @@ ${upstreamMsg}
   accessMode: "readonly" | "writable" = "writable"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
-  outputSchema = { type: "text" }
+  outputSchema = 一句话动态Schema
   validateOutput(raw: string): { valid: boolean; error?: string } {
-    if (!raw.trim()) return { valid: false, error: "输出为空" }
-    return { valid: true }
+    return validate一句话动态(raw)
   }
 }
 
 export class 边缘质保员 implements IRole {
   name = "EdgeQA"
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return "你是一个边缘质保员，负责寻找质保员测试时未覆盖到的边缘情况。找出以下可能发生的边缘情况：大数据量、大参数量、多次重复操作、交叠式重复操作、覆盖式操作、特殊情况中断。" }
+  knowledgeDomainPrompt() { return `你是一个边缘质保员，负责寻找质保员测试时未覆盖到的边缘情况。
+
+    关注的边缘情况包括：大数据量、大参数量、多次重复操作、交叠式重复操作、覆盖式操作、特殊情况中断。
+
+    工作流程：
+    1. 先检查问题：查阅仓库变更和测试文件，识别未覆盖的边缘情况
+    2. 解决问题：编写边缘情况的测试用例
+    3. 输出动态：用一句话总结本次检测和修复情况（格式见下方输出要求）` }
   systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
 ${upstreamMsg}
@@ -370,10 +408,9 @@ ${upstreamMsg}
   accessMode: "readonly" | "writable" = "writable"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
-  outputSchema = { type: "text" }
+  outputSchema = 一句话动态Schema
   validateOutput(raw: string): { valid: boolean; error?: string } {
-    if (!raw.trim()) return { valid: false, error: "输出为空" }
-    return { valid: true }
+    return validate一句话动态(raw)
   }
 }
 
@@ -545,7 +582,15 @@ function buildRejectionUpstream(state: RejectionState): string {
 }
 
 /**
- * 记录打回动态到任务表
+ * 将评估者/架构师的打回事件合成为一条动态写入任务表。
+ *
+ * 由主循环在 Role跳转策略 判定"打回"分支时自动调用，消息内容为系统生成的
+ * `${roleName}打回${rejectionCount}次`，让规划者下轮能从任务表感知任务难度。
+ *
+ * 与 recordRoleActivity 的区别：此处的 activity message 由系统合成，角色自身
+ * 的输出内容（问题列表、打回留言）不入库，仅通过 upstream 传给执行者。
+ *
+ * CLI 失败只写日志不抛错——动态记录属于辅助信息，不应阻断主循环。
  */
 async function recordRejectionActivity(
   projectDir: string,
@@ -576,6 +621,67 @@ async function recordRejectionActivity(
     
     child.on('error', (err) => {
       logFile.warn(`[任务表] 记录打回动态失败: ${err.message}`)
+      resolve()
+    })
+  })
+}
+
+/**
+ * 获取"检查-修复-汇报"型角色在任务表中的标准名称。
+ * 
+ * 三个角色的 name 属性与任务表约定的 roleName 不一致，需要映射：
+ * - 冗余枝剪者.name = "ScissorHands" → 任务表 roleName = "ScissorHands"
+ * - 质保员.name = "QA" → 任务表 roleName = "QA"
+ * - 边缘质保员.name = "EdgeQA" → 任务表 roleName = "EdgeQA"
+ * 
+ * 测试路径下角色名为 "测5"/"测7"/"测8"，直接使用 currentRole.name。
+ */
+function getActivityRoleName(currentRole: IRole): string {
+  if (currentRole instanceof 冗余枝剪者) return "ScissorHands"
+  if (currentRole instanceof 质保员) return "QA"
+  if (currentRole instanceof 边缘质保员) return "EdgeQA"
+  return currentRole.name
+}
+
+/**
+ * 将角色自述的"一句话动态"写入任务表。
+ *
+ * 适用于冗余枝剪者 / 质保员 / 边缘质保员——这三个"检查-修复-汇报"型角色的 outputSchema
+ * 统一约束为 `一句话动态Schema`，主循环解析出 `一句话动态` 字段后调用此函数搬运入库。
+ *
+ * 与 recordRejectionActivity 的区别：打回动态由系统根据评估者/架构师的判决自动合成；
+ * 此处的动态由角色自己生成，系统只负责透传。
+ *
+ * CLI 失败只写日志不抛错——动态记录属于辅助信息，不应阻断主循环。
+ */
+async function recordRoleActivity(
+  projectDir: string,
+  taskTitle: string,
+  roleName: string,
+  activityMessage: string
+): Promise<void> {
+  const cliPath = join(projectDir, "任务表CLI.js")
+
+  return new Promise((resolve, reject) => {
+    const child = spawn("node", [cliPath, "add-activity", "--任务标题", taskTitle, "--角色", roleName, "--消息", activityMessage], {
+      cwd: projectDir,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    
+    let stderr = ''
+    child.stderr?.on('data', (data) => { stderr += data.toString() })
+    
+    child.on('close', (exitCode) => {
+      if (exitCode !== 0) {
+        logFile.warn(`[任务表] 记录角色动态失败: ${stderr.trim()}`)
+      } else {
+        logFile.info(`[任务表] 已记录角色动态: ${taskTitle} - ${roleName} - ${activityMessage}`)
+      }
+      resolve()
+    })
+    
+    child.on('error', (err) => {
+      logFile.warn(`[任务表] 记录角色动态失败: ${err.message}`)
       resolve()
     })
   })
@@ -1213,6 +1319,39 @@ export async function main(): Promise<void> {
           const archOutput = extractJSON(response)
           if (archOutput?.检查结果 === "打回" && currentTaskTitle) {
             await recordRejectionActivity(projectDir, currentTaskTitle, "architect", rejectionState.architectRejections)
+          }
+        }
+        
+        // 【冗余枝剪者/质保员/边缘质保员动态记录】
+        // 
+        // 设计思路：
+        // 1. 这三个角色的 outputSchema 统一为 `一句话动态Schema`，要求输出 {"一句话动态": "..."}
+        // 2. 主循环的通用校验机制（L1200-L1230）已经对所有结构化输出角色进行了最多 3 次重试
+        // 3. 能走到这里的 response，要么已通过 validate一句话动态 校验，要么是 3 次重试后系统"接受原始输出"放行
+        // 4. 因此这里只需简单判断：解析成功就记录，解析失败就跳过（不再额外重试）
+        // 5. 动态记录属于辅助信息，不应为此再消耗 1 轮 tokens——信任通用机制已经尽力
+        //
+        // 与评估者/架构师打回动态的区别：
+        // - 打回动态：由系统根据分支路由自动合成消息（"evaluator打回N次"）
+        // - 此处动态：由角色自己生成内容，系统只负责解析和搬运
+        if (
+          currentRole instanceof 冗余枝剪者 || 
+          currentRole instanceof 质保员 || 
+          currentRole instanceof 边缘质保员 ||
+          (currentRole instanceof 测试 && (currentRole.name === "测5" || currentRole.name === "测7" || currentRole.name === "测8"))
+        ) {
+          const roleOutput = extractJSON(response)
+          if (roleOutput?.一句话动态 && currentTaskTitle) {
+            // 解析成功，记录动态
+            const activityMessage = roleOutput.一句话动态
+            const roleName = getActivityRoleName(currentRole)
+            
+            await recordRoleActivity(projectDir, currentTaskTitle, roleName, activityMessage)
+            consoleAndLogFile.info(`[${roleName}] 动态已记录: ${activityMessage}`)
+          } else {
+            // 解析失败（通用机制已重试 3 次），跳过记录
+            // 可能原因：模型持续输出错误格式，或 currentTaskTitle 为空（规划者未派发任务）
+            logFile.warn(`[${currentRole.name}] 输出未包含有效的"一句话动态"字段，跳过动态记录`)
           }
         }
         
