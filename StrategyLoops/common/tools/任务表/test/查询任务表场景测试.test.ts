@@ -3,7 +3,7 @@
  * 测试各种树结构下的查询任务表视图输出
  * 场景迁移自 StrategyLoops/loops/plan-exe-eval/test/任务表Prompt测试.ts
  */
-import { describe, test, expect, beforeAll, afterAll } from "bun:test"
+import { describe, test, expect, beforeAll, afterAll } from "vitest"
 import { rmSync, existsSync } from "fs"
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
@@ -37,7 +37,7 @@ afterAll(() => {
 })
 
 function clearAllTasks() {
-  getDb().run("DELETE FROM 任务表")
+  getDb().exec("DELETE FROM 任务表")
 }
 
 describe("场景1: 多根任务", () => {

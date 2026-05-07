@@ -8,20 +8,27 @@ import { LoopConfig } from "../../common/loopConfig"
 import { AbortError, INTERRUPTION_REASON, type InterruptedMsgContext, MSG_SOURCE } from "../../common/types"
 import type { ISession } from "../../common/session"
 import { linkBackend,createSession, selectOrCreateSession } from "../../common/adapters/opencodeAdapter"
-import { formatDateTime } from "../../common/system"
+import { formatDateTime, askUser } from "../../common/system"
 import { initDb } from "../../common/tools/任务表/任务表CLI"
-import { join } from "path"
+import { join, dirname } from "path"
+import { fileURLToPath } from "url"
+import { spawn } from "child_process"
+import { copyFile, writeFile, readFile } from "fs/promises"
+import { existsSync, mkdirSync } from "fs"
 import { 代码评审, 架构评审, Commit } from "./metaPrompts/评审相关"
 import { 基于ReactNative和Electron技术栈, 强引用的基于TS代码的文档和注释原则} from "./metaPrompts/立项相关"
 
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+
 const makeAI网站开发Start_REPO_WIKI =   `
-  ${强引用的基于TS代码的文档和注释原则}
+  ${强引用的基于TS代码的文档和注释原则()}
 
   // 完成后删除
   const 起步引导 = \`
   注意，本段是起步引导，较为口语，完成后请删除起步引导。
     makeAI是我想要的一个只属于个人的学习AI的私教网站/App。技术栈:
-    ${基于ReactNative和Electron技术栈.基于ReactNative和Electron的全平台WebApp立项技术选型}
+    ${基于ReactNative和Electron技术栈.基于ReactNative和Electron的全平台WebApp立项技术选型(true)}
 
     网站样式设计暂时还不太确定，试试搜索 https://github.com/thisxiangyu/awesome-design-md-fork.git 从中选最合适的md文档。
     
@@ -40,8 +47,8 @@ const makeAI网站开发Start_REPO_WIKI =   `
     重点: 模块之间可能会有要复用的组件（比如课程模块为了体现线性函数复合和加权求和的图像，需要复用数学函数可视化模块的窗口）
 
     以下是建议先执行的任务，请规划者优先考虑：
-    一、${基于ReactNative和Electron技术栈.初始化开发目录结构_Git和SVN仓库创建}
-    二、${基于ReactNative和Electron技术栈.HelloWorld测试}
+    一、${基于ReactNative和Electron技术栈.初始化开发目录结构_Git和SVN仓库创建("项目根")}
+    二、${基于ReactNative和Electron技术栈.HelloWorld测试()}
     三、完成上述任务后，在本WIKI中删除上述起步引导，把REPO_WIKI.ts正式化、正规化。
   \`
   `
@@ -144,18 +151,18 @@ export class 规划者 implements IRole {
     2.理解当前任务表完成度；(这是统领全局的首要工具。通常而言，任务表的层次越厚实，末端任务越具体，证明对项目的理解越深入，规划质量越高。)
     3.分析上一轮执行的情况和进度，深度思考，不妥的任务需要重新规划，合格的任务要标记为完成;
     4.判断执行者是否正确理解了上一轮规划，如果偏离，需要多花一轮沟通/澄清；
-    5.检查项目状态一致性，什么意思？比如说功能/代码更新了，文档或注释还是旧的；或者模块A已经更新了，依赖A的模块B还是旧用法；项目已经更新了，测试用例没同步...让人去fix。
+    5.检查项目状态一致性，什么意思？文档或注释旧了；文件或模块隐性冗余；测试用例没同步...都要让人去fix。
 
     可能还有别的事，发挥想象力去做一些有助于项目推进的事，干活不用太着急。
     别对自己太自信，没有把握的业务多上网查资料，汲取一手经验。但网络信息良莠不齐，也不要被ai泔水浪费时间，结合项目实际情况判断。
 
     任务表工具已就绪：
-    - ./任务表CLI.ts
+    - ./任务表CLI.js
     - ./任务表CLI使用说明书.md
     - 项目名即根目录名。
 
     熟练使用任务表，它体现了产品路线图。从全局把控项目进度、节奏、质量、深度、创新、产品体验。
-    对于高层次任务，你像一个CEO，理清依赖关系、不断问自己“先做这个、后做那个好不好”、把控创新探索和实际落地的比例（探索可能失败，但也有可能带来巨大收益；循规蹈矩虽然稳妥，但可能错失创新机会）、决策创新探索的结果（可用、暂时不用、弃用）；
+    对于高层次任务，你像一个CEO，理清依赖关系、不断问自己“先做这个、后做那个是否最优？能不能拆得更细？”、把控创新探索和实际落地的比例（探索可能失败，但也有可能带来巨大收益；循规蹈矩虽然稳妥，但可能错失创新机会）、决策创新探索的结果（可用、暂时不用、弃用）；
     根据项目执行情况，动态调整任务表。
     末端是高层次任务的自然分解，对于这类任务，你像一个小队长，描述要具体、清晰、原子级、手把手、步骤化。
 
@@ -546,47 +553,76 @@ async function recordRejectionActivity(
   roleName: string,
   rejectionCount: number
 ): Promise<void> {
-  const cliPath = join(projectDir, "任务表CLI.ts")
+  const cliPath = join(projectDir, "任务表CLI.js")
   const message = `${roleName}打回${rejectionCount}次`
-  
-  const result = await Bun.spawn({
-    cmd: ["bun", "run", cliPath, "add-activity", "--任务标题", taskTitle, "--角色", roleName, "--消息", message],
-    cwd: projectDir,
-    stdout: "pipe",
-    stderr: "pipe",
+
+  return new Promise((resolve, reject) => {
+    const child = spawn("node", [cliPath, "add-activity", "--任务标题", taskTitle, "--角色", roleName, "--消息", message], {
+      cwd: projectDir,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    
+    let stderr = ''
+    child.stderr?.on('data', (data) => { stderr += data.toString() })
+    
+    child.on('close', (exitCode) => {
+      if (exitCode !== 0) {
+        logFile.warn(`[任务表] 记录打回动态失败: ${stderr.trim()}`)
+      } else {
+        logFile.info(`[任务表] 已记录打回动态: ${taskTitle} - ${message}`)
+      }
+      resolve()
+    })
+    
+    child.on('error', (err) => {
+      logFile.warn(`[任务表] 记录打回动态失败: ${err.message}`)
+      resolve()
+    })
   })
-  
-  const exitCode = await result.exited
-  if (exitCode !== 0) {
-    const stderr = await new Response(result.stderr).text()
-    logFile.warn(`[任务表] 记录打回动态失败: ${stderr.trim()}`)
-  } else {
-    logFile.info(`[任务表] 已记录打回动态: ${taskTitle} - ${message}`)
-  }
 }
 
 /**
  * 验证任务标题是否存在于任务表中
  */
 async function validateTaskTitle(projectDir: string, taskTitle: string): Promise<boolean> {
-  const cliPath = join(projectDir, "任务表CLI.ts")
-  
-  const result = await Bun.spawn({
-    cmd: ["bun", "run", cliPath, "query-by-title", "--标题", taskTitle],
-    cwd: projectDir,
-    stdout: "pipe",
-    stderr: "pipe",
+  const cliPath = join(projectDir, "任务表CLI.js")
+
+  return new Promise((resolve) => {
+    const child = spawn("node", [cliPath, "query-by-title", "--标题", taskTitle], {
+      cwd: projectDir,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+    
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (data) => { stdout += data.toString() })
+    child.stderr?.on('data', (data) => { stderr += data.toString() })
+    
+    child.on('close', (exitCode) => {
+      if (exitCode !== 0) {
+        logFile.warn(`[任务表] 验证任务标题失败: ${stderr.trim()}`)
+        resolve(false)
+        return
+      }
+      
+      try {
+        const result = JSON.parse(stdout)
+        if (Array.isArray(result) && result.length > 0) {
+          resolve(true)
+        } else {
+          resolve(false)
+        }
+      } catch (e) {
+        logFile.warn(`[任务表] 解析验证结果失败: ${e instanceof Error ? e.message : String(e)}`)
+        resolve(false)
+      }
+    })
+    
+    child.on('error', (err) => {
+      logFile.warn(`[任务表] 验证任务标题失败: ${err.message}`)
+      resolve(false)
+    })
   })
-  
-  const exitCode = await result.exited
-  const stdout = await new Response(result.stdout).text()
-  
-  if (exitCode !== 0) {
-    return false
-  }
-  
-  // 检查输出是否包含任务信息（非空结果）
-  return stdout.trim().length > 0 && !stdout.includes("未找到")
 }
 
 
@@ -787,37 +823,124 @@ export async function main(): Promise<void> {
 
   // 【任务表部署】将任务表CLI工具和说明书拷贝到项目目录，并在项目目录下初始化任务表数据库
   const projectName = projectDir.split("/").pop() || "project"
-  const toolsDir = Bun.fileURLToPath(new URL("../../common/tools/任务表", import.meta.url).href)
+  const toolsDir = join(__dirname, "../../common/tools/任务表")
   const cliSource = join(toolsDir, "任务表CLI.ts")
+  const cliDestJs = join(projectDir, "任务表CLI.js")
   const readmeSource = join(toolsDir, "README.md")
-  const cliDest = join(projectDir, "任务表CLI.ts")
   const readmeDest = join(projectDir, "任务表CLI使用说明书.md")
+  const repoWikiPath = join(projectDir, "REPO_WIKI.ts")
+  const strategyNodeModules = join(__dirname, "../../node_modules")
+  const betterSqliteSrc = join(strategyNodeModules, "better-sqlite3")
+  const betterSqliteDest = join(projectDir, "node_modules", "better-sqlite3")
 
-  await Bun.write(cliDest, Bun.file(cliSource))
-  logFile.info(`[任务表] CLI已拷贝 -> ${cliDest}`)
-  await Bun.write(readmeDest, Bun.file(readmeSource))
-  logFile.info(`[任务表] 说明书已拷贝 -> ${readmeDest}`)
-
-  const initResult = await Bun.spawn({
-    cmd: ["bun", "run", cliDest, "init", "--项目", projectName],
-    cwd: projectDir,
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-  const initExitCode = await initResult.exited
-  const initStdout = await new Response(initResult.stdout).text()
-  const initStderr = await new Response(initResult.stderr).text()
-  if (initExitCode === 0) {
-    logFile.info(`[任务表] 数据库初始化成功: ${initStdout.trim()}`)
+  // REPO_WIKI.ts：已存在则跳过
+  if (existsSync(repoWikiPath)) {
+    consoleAndLogFile.info(`[初始环境] REPO_WIKI.ts 已存在，跳过`)
   } else {
-    consoleAndLogFile.warn(`[任务表] 数据库初始化失败 (exit=${initExitCode}): ${initStderr.trim()}，可能已存在同名项目数据库`)
+    await writeFile(repoWikiPath, "/// 请全文阅读本WIKI\n" + config.startPrompt, 'utf-8')
+    logFile.info(`[项目] 起始文档已创建 -> ${repoWikiPath}`)
   }
 
-  // 【项目起始文档】将配置中的 startPrompt 写入项目根目录 REPO_WIKI.ts
-  const readmePath = join(projectDir, "REPO_WIKI.ts")
-  await Bun.write(readmePath, config.startPrompt)
-  logFile.info(`[项目] 起始文档已创建 -> ${readmePath}`)
+  // 任务表CLI.js：已存在则询问用户
+  if (existsSync(cliDestJs)) {
+    const answer = await askUser(`[初始环境] 任务表CLI.js 已存在，是否覆盖？(y/n): `)
+    if (answer.toLowerCase() !== 'n') {
+      await new Promise<void>((resolve) => {
+        const child = spawn("npx", ["esbuild", cliSource, `--outfile=${cliDestJs}`, "--platform=node", "--format=cjs", "--target=node18", "--charset=utf8"], {
+          cwd: toolsDir,
+          stdio: ['ignore', 'pipe', 'pipe']
+        })
+        let stderr = ''
+        child.stderr?.on('data', (data) => { stderr += data.toString() })
+        child.on('close', (code) => {
+          if (code === 0) {
+            logFile.info(`[初始环境] CLI已覆盖 -> ${cliDestJs}`)
+          } else {
+            consoleAndLogFile.warn(`[初始环境] CLI编译失败 (exit=${code}): ${stderr.trim()}`)
+          }
+          resolve()
+        })
+        child.on('error', (err) => {
+          consoleAndLogFile.warn(`[初始环境] CLI编译失败: ${err.message}`)
+          resolve()
+        })
+      })
+    } else {
+      consoleAndLogFile.info(`[初始环境] 跳过任务表CLI.js`)
+    }
+  } else {
+    await new Promise<void>((resolve) => {
+      const child = spawn("npx", ["esbuild", cliSource, `--outfile=${cliDestJs}`, "--platform=node", "--format=cjs", "--target=node18", "--charset=utf8"], {
+        cwd: toolsDir,
+        stdio: ['ignore', 'pipe', 'pipe']
+      })
+      let stderr = ''
+      child.stderr?.on('data', (data) => { stderr += data.toString() })
+      child.on('close', (code) => {
+        if (code === 0) {
+          logFile.info(`[初始环境] CLI已编译 -> ${cliDestJs}`)
+        } else {
+          consoleAndLogFile.warn(`[初始环境] CLI编译失败 (exit=${code}): ${stderr.trim()}`)
+        }
+        resolve()
+      })
+      child.on('error', (err) => {
+        consoleAndLogFile.warn(`[初始环境] CLI编译失败: ${err.message}`)
+        resolve()
+      })
+    })
+  }
 
+  // 任务表CLI使用说明书.md：已存在则询问用户
+  if (existsSync(readmeDest)) {
+    const answer = await askUser(`[初始环境] 任务表CLI使用说明书.md 已存在，是否覆盖？(y/n): `)
+    if (answer.toLowerCase() !== 'n') {
+      await copyFile(readmeSource, readmeDest)
+      logFile.info(`[初始环境] 说明书已覆盖 -> ${readmeDest}`)
+    } else {
+      consoleAndLogFile.info(`[初始环境] 跳过任务表CLI使用说明书.md`)
+    }
+  } else {
+    await copyFile(readmeSource, readmeDest)
+    logFile.info(`[初始环境] 说明书已拷贝 -> ${readmeDest}`)
+  }
+
+  // node_modules/better-sqlite3：已存在则询问用户
+  if (existsSync(betterSqliteDest)) {
+    const answer = await askUser(`[初始环境] node_modules/better-sqlite3 已存在，是否覆盖？(y/n): `)
+    if (answer.toLowerCase() !== 'n') {
+      mkdirSync(join(betterSqliteDest, "lib"), { recursive: true })
+      mkdirSync(join(betterSqliteDest, "build", "Release"), { recursive: true })
+      await copyFile(join(betterSqliteSrc, "package.json"), join(betterSqliteDest, "package.json"))
+      await copyFile(join(betterSqliteSrc, "lib", "index.js"), join(betterSqliteDest, "lib", "index.js"))
+      await copyFile(join(betterSqliteSrc, "lib", "database.js"), join(betterSqliteDest, "lib", "database.js"))
+      await copyFile(join(betterSqliteSrc, "lib", "sqlite-error.js"), join(betterSqliteDest, "lib", "sqlite-error.js"))
+      await copyFile(join(betterSqliteSrc, "lib", "util.js"), join(betterSqliteDest, "lib", "util.js"))
+      await copyFile(join(betterSqliteSrc, "build", "Release", "better_sqlite3.node"), join(betterSqliteDest, "build", "Release", "better_sqlite3.node"))
+      logFile.info(`[初始环境] better-sqlite3 已覆盖 -> ${betterSqliteDest}`)
+    } else {
+      consoleAndLogFile.info(`[初始环境] 跳过 node_modules/better-sqlite3`)
+    }
+  } else {
+    mkdirSync(join(betterSqliteDest, "lib"), { recursive: true })
+    mkdirSync(join(betterSqliteDest, "build", "Release"), { recursive: true })
+    await copyFile(join(betterSqliteSrc, "package.json"), join(betterSqliteDest, "package.json"))
+    await copyFile(join(betterSqliteSrc, "lib", "index.js"), join(betterSqliteDest, "lib", "index.js"))
+    await copyFile(join(betterSqliteSrc, "lib", "database.js"), join(betterSqliteDest, "lib", "database.js"))
+    await copyFile(join(betterSqliteSrc, "lib", "sqlite-error.js"), join(betterSqliteDest, "lib", "sqlite-error.js"))
+    await copyFile(join(betterSqliteSrc, "lib", "util.js"), join(betterSqliteDest, "lib", "util.js"))
+    await copyFile(join(betterSqliteSrc, "build", "Release", "better_sqlite3.node"), join(betterSqliteDest, "build", "Release", "better_sqlite3.node"))
+    logFile.info(`[初始环境] better-sqlite3 已拷贝 -> ${betterSqliteDest}`)
+  }
+
+  try {
+    initDb(projectName, projectDir)
+    logFile.info(`[初始环境] 数据库初始化成功`)
+    consoleAndLogFile.info(`[初始环境] 数据库初始化成功`)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    consoleAndLogFile.error(`[初始环境] 数据库初始化失败: ${message}，可能已存在同名项目数据库`)
+  }
 
   entrySession.onInterruption((msg) => {
     interruptionQueue.push(msg)
@@ -1186,7 +1309,7 @@ export async function main(): Promise<void> {
   }
 }
 
-if (import.meta.main) {
+if (process.argv[1] === __filename) {
   initDb(process.env.任务表项目 ?? "default")
   main().catch((error) => {
     const err = error as any

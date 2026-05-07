@@ -2,10 +2,11 @@
  * 任务表CLI 全面测试
  * 使用独立test项目数据库，每项操作后验证状态
  */
-import { describe, test, expect, beforeAll, afterAll } from "bun:test"
+import { describe, test, expect, beforeAll, afterAll } from "vitest"
 import { rmSync, existsSync } from "fs"
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
+import { spawn } from "child_process"
 import {
   initDb,
   任务表,
@@ -44,12 +45,12 @@ afterAll(() => {
 
 function clearAllTasks() {
   const db = getDb()
-  db.run("DELETE FROM 任务表")
+  db.exec("DELETE FROM 任务表")
 }
 
 function 获取所有子任务(父任务标题: string): 任务[] {
   const db = getDb()
-  const rows = db.query("SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 = ? ORDER BY 优先级序号 ASC").all(父任务标题) as 任务Row[]
+  const rows = db.prepare("SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 = ? ORDER BY 优先级序号 ASC").all(父任务标题) as 任务Row[]
   return rows.map(解析任务行)
 }
 
@@ -992,287 +993,237 @@ describe("查询任务表视图 - 动态折叠", () => {
   })
 })
 
+// 辅助函数：运行 CLI 命令
+function runCli(args: string[], env: Record<string, string> = {}): Promise<{ stdout: string, stderr: string, exitCode: number }> {
+  return new Promise((resolve) => {
+    const cliPath = join(__dirname, "../任务表CLI.ts")
+    const proc = spawn("npx", ["tsx", cliPath, ...args], {
+      env: { ...process.env, ...env },
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+
+    let stdout = ''
+    let stderr = ''
+    proc.stdout?.on('data', (data) => { stdout += data.toString() })
+    proc.stderr?.on('data', (data) => { stderr += data.toString() })
+
+    proc.on('close', (exitCode) => {
+      resolve({ stdout, stderr, exitCode: exitCode ?? 0 })
+    })
+
+    proc.on('error', (err) => {
+      resolve({ stdout, stderr: err.message, exitCode: 1 })
+    })
+  })
+}
+
 describe("CLI命令集成测试", () => {
-  const cliPath = join(__dirname, "../任务表CLI.ts")
-  const cliEnv = { ...process.env, TASKTABLE_PROJECT_NAME: "test" }
+  const cliEnv = { TASKTABLE_PROJECT_NAME: "test" }
 
   test("CLI help命令", async () => {
-    const proc = Bun.spawn(["bun", cliPath, "help"], {
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-    const stdout = await new Response(proc.stdout).text()
+    const { stdout } = await runCli(["help"], cliEnv)
     expect(stdout).toContain("任务表CLI")
     expect(stdout).toContain("add")
     expect(stdout).toContain("delete")
     expect(stdout).toContain("query-by-title")
-    await proc.exited
   })
 
   test("CLI init命令", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "init", "--项目", "clitest",
-    ], { stdout: "pipe", stderr: "pipe" })
-    const stdout = await new Response(proc.stdout).text()
+    const uniqueProject = `clitest_${Date.now()}`
+    const { stdout } = await runCli(["init", "--项目", uniqueProject], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
-    expect(result.消息).toContain("clitest")
-    await proc.exited
+    expect(result.消息).toContain(uniqueProject)
   })
 
   test("CLI init命令缺少项目参数应失败", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "init",
-    ], { stdout: "pipe", stderr: "pipe" })
-    const stdout = await new Response(proc.stdout).text()
+    const { stdout } = await runCli(["init"], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("缺少必需参数")
-    await proc.exited
   })
 
   test("CLI add命令", async () => {
-    const delProc = Bun.spawn([
-      "bun", cliPath, "delete",
-      "--标题", "CLI测试任务",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    await delProc.exited
+    await runCli(["delete", "--标题", "CLI测试任务"], cliEnv)
 
-    const addProc = Bun.spawn([
-      "bun", cliPath, "add",
+    const { stdout } = await runCli([
+      "add",
       "--标题", "CLI测试任务",
       "--描述", "这是一个通过CLI添加的任务",
       "--优先级", "0",
       "--Tag", "feat",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(addProc.stdout).text()
+    ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
-    await addProc.exited
   })
 
   test("CLI query-by-title命令", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "query-by-title",
-      "--标题", "CLI测试任务",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    const { stdout } = await runCli(["query-by-title", "--标题", "CLI测试任务"], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
     expect(result.数量).toBeGreaterThanOrEqual(1)
-    await proc.exited
   })
 
   test("CLI mark-complete命令", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "mark-complete",
-      "--标题", "CLI测试任务",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    const { stdout } = await runCli(["mark-complete", "--标题", "CLI测试任务"], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
-    await proc.exited
   })
 
   test("CLI delete命令", async () => {
-    const reAddProc = Bun.spawn([
-      "bun", cliPath, "add",
+    await runCli([
+      "add",
       "--标题", "CLI删除测试任务",
       "--描述", "用于测试删除",
       "--优先级", "0",
       "--Tag", "feat",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    await reAddProc.exited
+    ], cliEnv)
 
-    const proc = Bun.spawn([
-      "bun", cliPath, "delete",
-      "--标题", "CLI删除测试任务",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    const { stdout } = await runCli(["delete", "--标题", "CLI删除测试任务"], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
-    await proc.exited
   })
 
   test("CLI query-deleted命令", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "query-deleted",
+    const { stdout } = await runCli([
+      "query-deleted",
       "--数量", "10",
       "--描述字数阈值", "50",
       "--动态字数阈值", "100",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    ], cliEnv)
     expect(stdout).toContain("已删除任务")
     expect(stdout).not.toContain("成功")
-    await proc.exited
   })
 
   test("CLI query-deleted缺少参数应失败", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "query-deleted",
-      "--数量", "10",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    const { stdout } = await runCli(["query-deleted", "--数量", "10"], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("缺少必需参数")
-    await proc.exited
   })
 
   test("CLI 缺少必需参数应失败", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "add",
-      "--标题", "缺少描述的任务",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    const { stdout } = await runCli(["add", "--标题", "缺少描述的任务"], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("缺少必需参数")
-    await proc.exited
   })
 
   test("CLI add缺少优先级应失败", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "add",
+    const { stdout } = await runCli([
+      "add",
       "--标题", "缺少优先级任务",
       "--描述", "测试描述",
       "--Tag", "feat",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("缺少必需参数")
-    await proc.exited
   })
 
   test("CLI 任务不存在错误应返回JSON", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "delete",
-      "--标题", "不存在的任务XYZ",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    const { stdout } = await runCli(["delete", "--标题", "不存在的任务XYZ"], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("不存在")
-    await proc.exited
   })
 
   test("CLI 无效JSON参数应返回错误", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "update-dependency",
+    const { stdout } = await runCli([
+      "update-dependency",
       "--标题", "某任务",
       "--新依赖", "not-valid-json",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("JSON参数解析失败")
-    await proc.exited
   })
 
   test("CLI 未知命令应返回错误", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "unknown-command",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    const { stdout } = await runCli(["unknown-command"], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("未知命令")
-    await proc.exited
   })
 
   test("CLI add-activity命令", async () => {
-    const reAddProc = Bun.spawn([
-      "bun", cliPath, "add",
+    await runCli([
+      "add",
       "--标题", "CLI测试任务",
       "--描述", "重新添加用于动态测试",
       "--优先级", "0",
       "--Tag", "feat",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    await reAddProc.exited
+    ], cliEnv)
 
-    const proc = Bun.spawn([
-      "bun", cliPath, "add-activity",
+    const { stdout } = await runCli([
+      "add-activity",
       "--标题", "CLI测试任务",
       "--角色", "planner",
       "--消息", "CLI动态测试消息",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
     expect(result.res任务.动态.length).toBeGreaterThanOrEqual(1)
-    await proc.exited
   })
 
   test("CLI add-activity缺少参数应失败", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "add-activity",
+    const { stdout } = await runCli([
+      "add-activity",
       "--标题", "CLI测试任务",
       "--角色", "planner",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("缺少必需参数")
-    await proc.exited
   })
 
   test("CLI update-priority命令", async () => {
-    const reAddProc = Bun.spawn([
-      "bun", cliPath, "add",
+    await runCli([
+      "add",
       "--标题", "优先级测试任务",
       "--描述", "用于测试优先级变更",
       "--优先级", "0",
       "--Tag", "feat",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    await reAddProc.exited
+    ], cliEnv)
 
-    const proc = Bun.spawn([
-      "bun", cliPath, "update-priority",
+    const { stdout } = await runCli([
+      "update-priority",
       "--标题", "优先级测试任务",
       "--新优先级", "5",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
     expect(result.消息).toContain("优先级")
-    await proc.exited
   })
 
   test("CLI update-priority缺少参数应失败", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "update-priority",
+    const { stdout } = await runCli([
+      "update-priority",
       "--标题", "优先级测试任务",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("缺少必需参数")
-    await proc.exited
   })
 
   test("CLI query命令缺少阈值参数应失败", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "query",
+    const { stdout } = await runCli([
+      "query",
       "--数量", "10",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("缺少必需参数")
-    await proc.exited
   })
 
   test("CLI query命令完整调用", async () => {
-    const proc = Bun.spawn([
-      "bun", cliPath, "query",
+    const { stdout } = await runCli([
+      "query",
       "--数量", "10",
       "--描述字数阈值", "50",
       "--动态字数阈值", "100",
-    ], { stdout: "pipe", stderr: "pipe", env: cliEnv })
-    const stdout = await new Response(proc.stdout).text()
+    ], cliEnv)
     expect(stdout).toContain("任务表视图")
     expect(stdout).not.toContain("成功")
-    await proc.exited
   })
 })

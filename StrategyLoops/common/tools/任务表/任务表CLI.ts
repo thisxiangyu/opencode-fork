@@ -4,9 +4,12 @@
  * 可作为CLI工具独立使用，也可作为模块导入
  * 整个文件应保持完全的内聚性，不依赖外部模块（除了sqlite和fs等基础库），以保证其独立和可移植性
  */
-import { Database } from "bun:sqlite"
-import { join } from "path"
+import Database from "better-sqlite3"
+import { join, dirname } from "path"
 import { mkdirSync, existsSync } from "fs"
+import { fileURLToPath } from "url"
+
+const scriptDir = import.meta.url ? dirname(fileURLToPath(import.meta.url)) : __dirname
 
 export const TIME_PERIODS = [
   "早晨",   // 5:00-7:59
@@ -123,7 +126,7 @@ function 校验同级依赖规则(
   依赖: 任务依赖[],
 ): 任务操作结果 | null {
   if (依赖.length === 0 || 父任务标题 === null) return null
-  const 同级任务 = 获取任务表Db().query(
+  const 同级任务 = 获取任务表Db().prepare(
     "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 = ?"
   ).all(父任务标题) as 任务Row[]
   for (const dep of 依赖) {
@@ -139,7 +142,7 @@ function 校验同级依赖规则(
 }
 
 function 统计子任务数(父任务标题: string): number {
-  const children = 获取任务表Db().query(
+  const children = 获取任务表Db().prepare(
     "SELECT 标题 FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 = ?"
   ).all(父任务标题) as { 标题: string }[]
   let count = children.length
@@ -150,13 +153,13 @@ function 统计子任务数(父任务标题: string): number {
 }
 
 function 级联更新字段(父任务标题: string, 字段: string, 值: number | string | null): void {
-  const children = 获取任务表Db().query(
+  const children = 获取任务表Db().prepare(
     "SELECT 标题 FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 = ?"
   ).all(父任务标题) as { 标题: string }[]
   for (const child of children) {
     级联更新字段(child.标题, 字段, 值)
   }
-  获取任务表Db().query(`UPDATE 任务表 SET ${字段} = ? WHERE 标题 = ?`).run(值, 父任务标题)
+  获取任务表Db().prepare(`UPDATE 任务表 SET ${字段} = ? WHERE 标题 = ?`).run(值, 父任务标题)
 }
 
 export type 任务Row = Omit<任务, "Tag" | "动态"> & { Tag?: string | string[], 动态?: string }
@@ -176,7 +179,7 @@ type 任务操作结果 = {
   子任务数?: number
 }
 
-let db: Database
+let db: Database.Database
 export let 任务表dbPath: string
 export let 当前项目名: string
 
@@ -185,15 +188,15 @@ function 获取任务表Db() {
   return db
 }
 
-export function initDb(项目名: string) {
+export function initDb(项目名: string, 数据库目录?: string) {
   当前项目名 = 项目名
-  const 项目目录 = join(import.meta.dirname!, "data", `.taskTable.${项目名}`)
+  const 项目目录 = join(数据库目录 ?? scriptDir, "data", `.taskTable.${项目名}`)
   if (!existsSync(项目目录)) {
     mkdirSync(项目目录, { recursive: true })
   }
   任务表dbPath = join(项目目录, `${项目名}TaskTable.db`)
   db = new Database(任务表dbPath)
-  db.run(`
+  db.exec(`
     CREATE TABLE IF NOT EXISTS 任务表 (
       标题 TEXT PRIMARY KEY,
       父任务标题 TEXT,
@@ -211,7 +214,7 @@ export function initDb(项目名: string) {
 }
 
 export function initDbStrict(项目名: string) {
-  const 项目目录 = join(import.meta.dirname!, "data", `.taskTable.${项目名}`)
+  const 项目目录 = join(scriptDir, "data", `.taskTable.${项目名}`)
   if (existsSync(项目目录)) {
     throw new Error(`项目目录已存在: ${项目目录}`)
   }
@@ -219,7 +222,7 @@ export function initDbStrict(项目名: string) {
 }
 
 export function 检查环境完整性(项目名: string): { 成功: boolean, 消息: string } {
-  const 项目目录 = join(import.meta.dirname!, "data", `.taskTable.${项目名}`)
+  const 项目目录 = join(scriptDir, "data", `.taskTable.${项目名}`)
   if (!existsSync(项目目录)) {
     return { 成功: false, 消息: `项目目录不存在: ${项目目录}` }
   }
@@ -233,17 +236,17 @@ export function 检查环境完整性(项目名: string): { 成功: boolean, 消
 export function getDb() { return 获取任务表Db() }
 
 export function 当前表中全部任务数(): number {
-  const result = 获取任务表Db().query("SELECT COUNT(*) as count FROM 任务表 WHERE 是否删除 = 0").get() as { count: number }
+  const result = 获取任务表Db().prepare("SELECT COUNT(*) as count FROM 任务表 WHERE 是否删除 = 0").get() as { count: number }
   return result?.count ?? 0
 }
 
 export function 当前表中总任务数_仅末端(): number {
-  const result = 获取任务表Db().query("SELECT COUNT(*) as count FROM 任务表 WHERE 是否删除 = 0 AND 标题 NOT IN (SELECT DISTINCT 父任务标题 FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 IS NOT NULL)").get() as { count: number }
+  const result = 获取任务表Db().prepare("SELECT COUNT(*) as count FROM 任务表 WHERE 是否删除 = 0 AND 标题 NOT IN (SELECT DISTINCT 父任务标题 FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 IS NOT NULL)").get() as { count: number }
   return result?.count ?? 0
 }
 
 export function 加载根任务(): 任务[] {
-  const rows = 获取任务表Db().query(
+  const rows = 获取任务表Db().prepare(
     "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 IS NULL ORDER BY 优先级序号 ASC"
   ).all() as 任务Row[]
   return rows.map(解析任务行)
@@ -253,11 +256,16 @@ function 计算移动目标优先级(
   父任务标题: string | null,
   新任务优先级序号: number,
 ): number {
-  const maxResult = 获取任务表Db().query(
-    父任务标题 === null
-      ? "SELECT COALESCE(MAX(优先级序号), 0) as maxPri FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 IS NULL"
-      : "SELECT COALESCE(MAX(优先级序号), 0) as maxPri FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 = ?"
-  ).get(父任务标题 ?? null) as { maxPri: number }
+  let maxResult: { maxPri: number }
+  if (父任务标题 === null) {
+    maxResult = 获取任务表Db().prepare(
+      "SELECT COALESCE(MAX(优先级序号), 0) as maxPri FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 IS NULL"
+    ).get() as { maxPri: number }
+  } else {
+    maxResult = 获取任务表Db().prepare(
+      "SELECT COALESCE(MAX(优先级序号), 0) as maxPri FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 = ?"
+    ).get(父任务标题) as { maxPri: number }
+  }
   if (新任务优先级序号 < 0) return 0
   return 新任务优先级序号 > maxResult.maxPri ? maxResult.maxPri : 新任务优先级序号
 }
@@ -266,11 +274,16 @@ function 计算实际优先级序号(
   父任务标题: string | null,
   新任务优先级序号: number,
 ): number {
-  const maxResult = 获取任务表Db().query(
-    父任务标题 === null
-      ? "SELECT COALESCE(MAX(优先级序号), -1) as maxPri FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 IS NULL"
-      : "SELECT COALESCE(MAX(优先级序号), -1) as maxPri FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 = ?"
-  ).get(父任务标题 ?? null) as { maxPri: number }
+  let maxResult: { maxPri: number }
+  if (父任务标题 === null) {
+    maxResult = 获取任务表Db().prepare(
+      "SELECT COALESCE(MAX(优先级序号), -1) as maxPri FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 IS NULL"
+    ).get() as { maxPri: number }
+  } else {
+    maxResult = 获取任务表Db().prepare(
+      "SELECT COALESCE(MAX(优先级序号), -1) as maxPri FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 = ?"
+    ).get(父任务标题) as { maxPri: number }
+  }
   const clamped = 新任务优先级序号 < 0 ? 0 : 新任务优先级序号
   return clamped > maxResult.maxPri + 1 ? maxResult.maxPri + 1 : clamped
 }
@@ -282,13 +295,13 @@ function 插入任务并更新同级优先级(
   const 实际优先级序号 = 计算实际优先级序号(父任务标题, 新任务优先级序号)
 
   if (父任务标题 === null) {
-    获取任务表Db().query(
+    获取任务表Db().prepare(
       "UPDATE 任务表 SET 优先级序号 = 优先级序号 + 1 WHERE 是否删除 = 0 AND 父任务标题 IS NULL AND 优先级序号 >= ?"
     ).run(实际优先级序号)
     return 实际优先级序号
   }
 
-  获取任务表Db().query(
+  获取任务表Db().prepare(
     "UPDATE 任务表 SET 优先级序号 = 优先级序号 + 1 WHERE 是否删除 = 0 AND 父任务标题 = ? AND 优先级序号 >= ?"
   ).run(父任务标题, 实际优先级序号)
   return 实际优先级序号
@@ -296,7 +309,7 @@ function 插入任务并更新同级优先级(
 
 function 检测里程碑(父任务标题: string | null): 任务Tag | null {
   if (父任务标题 === null) return null
-  const parent = 获取任务表Db().query("SELECT 父任务标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(父任务标题) as { 父任务标题: string | null } | undefined
+  const parent = 获取任务表Db().prepare("SELECT 父任务标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(父任务标题) as { 父任务标题: string | null } | undefined
   if (parent?.父任务标题 === null) {
     return 任务Tag.MILESTONE
   }
@@ -351,10 +364,10 @@ export const 任务表 = {
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" }
     if (!任务描述 || !任务描述.trim()) return { 成功: false, 消息: "任务描述不能为空" }
     if (添加到哪个父任务之下 !== null) {
-      const parent = 获取任务表Db().query("SELECT 标题 FROM 任务表 WHERE 标题 = ?").get(添加到哪个父任务之下)
+      const parent = 获取任务表Db().prepare("SELECT 标题 FROM 任务表 WHERE 标题 = ?").get(添加到哪个父任务之下)
       if (!parent) return { 成功: false, 消息: `父任务「${添加到哪个父任务之下}」不存在` }
     }
-    const existing = 获取任务表Db().query("SELECT 标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim)
+    const existing = 获取任务表Db().prepare("SELECT 标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim)
     if (existing) return { 成功: false, 消息: `标题「${标题trim}」在当前项目「${当前项目名}」已存在` }
     const 任务类型Tag校验 = 校验所有Tag([任务类型Tag])
     if (任务类型Tag校验) return { 成功: false, 消息: 任务类型Tag校验 }
@@ -362,15 +375,15 @@ export const 任务表 = {
       const 其它Tag校验 = 校验所有Tag(其它Tag)
       if (其它Tag校验) return { 成功: false, 消息: 其它Tag校验 }
     }
-    const softDeleted = 获取任务表Db().query("SELECT 标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 1").get(标题trim)
+    const softDeleted = 获取任务表Db().prepare("SELECT 标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 1").get(标题trim)
     if (softDeleted) {
-      获取任务表Db().query("DELETE FROM 任务表 WHERE 标题 = ? AND 是否删除 = 1").run(标题trim)
+      获取任务表Db().prepare("DELETE FROM 任务表 WHERE 标题 = ? AND 是否删除 = 1").run(标题trim)
     }
     for (const dep of 依赖) {
       if (typeof dep.依赖任务 !== "string") return { 成功: false, 消息: "依赖任务不能为空" }
       const depTitle = dep.依赖任务.trim()
       if (!depTitle) return { 成功: false, 消息: "依赖任务不能为空" }
-      const depExists = 获取任务表Db().query("SELECT 标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(depTitle)
+      const depExists = 获取任务表Db().prepare("SELECT 标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(depTitle)
       if (!depExists) return { 成功: false, 消息: `依赖任务「${depTitle}」不存在` }
       dep.依赖任务 = depTitle
     }
@@ -395,7 +408,7 @@ export const 任务表 = {
       动态: [],
     }
     const isRoot = 添加到哪个父任务之下 === null
-    获取任务表Db().query(
+    获取任务表Db().prepare(
       "INSERT INTO 任务表 (标题, 父任务标题, Tag, 任务描述, 是否完成, 创建时间UTC, 优先级序号, 依赖, 是否删除, 动态) VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, ?)"
     ).run(newOne.标题!, newOne.父任务标题 ?? null, JSON.stringify(newOne.Tag), newOne.任务描述!, newOne.创建时间UTC!, newOne.优先级序号!, newOne.依赖 ?? null, JSON.stringify(newOne.动态))
     const 任务类型 = isRoot ? "根任务" : "子任务"
@@ -416,7 +429,7 @@ export const 任务表 = {
   删除任务(标题: string): 任务操作结果 {
     const 标题trim = 标题.trim()
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" }
-    const existing = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
+    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` }
 
     const 子任务总数 = 统计子任务数(标题trim)
@@ -431,7 +444,7 @@ export const 任务表 = {
   确认删除(标题: string): 任务操作结果 {
     const 标题trim = 标题.trim()
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" }
-    const existing = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
+    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` }
 
     级联更新字段(标题trim, "是否删除", 1)
@@ -450,7 +463,7 @@ export const 任务表 = {
       return `【已删除任务错误】${校验失败消息}`
     }
 
-    const deletedTasks = taskDb.query(
+    const deletedTasks = taskDb.prepare(
       `SELECT * FROM 任务表 WHERE 是否删除 = 1${时间过滤} ORDER BY 创建时间UTC DESC LIMIT ?`
     ).all(...时间参数, 数量) as 任务Row[]
 
@@ -519,19 +532,19 @@ export const 任务表 = {
 
   按标题查(标题: string, 模糊: boolean = false): 任务[] {
     if (模糊) {
-      const rows = 获取任务表Db().query(
+      const rows = 获取任务表Db().prepare(
         "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 标题 LIKE ? ORDER BY 优先级序号 ASC"
       ).all(`%${标题}%`) as 任务Row[]
       return rows.map(解析任务行)
     }
-    const row = 获取任务表Db().query(
+    const row = 获取任务表Db().prepare(
       "SELECT * FROM 任务表 WHERE 标题 = ?"
     ).get(标题) as 任务Row | undefined
     return row ? [解析任务行(row)] : []
   },
 
   按Tag查询(Tag: string): 任务[] {
-    const rows = 获取任务表Db().query(
+    const rows = 获取任务表Db().prepare(
       "SELECT * FROM 任务表 WHERE 是否删除 = 0"
     ).all() as 任务Row[]
     return rows
@@ -543,10 +556,10 @@ export const 任务表 = {
     const 标题trim = 标题.trim()
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" }
     if (!新描述 || !新描述.trim()) return { 成功: false, 消息: "新描述不能为空" }
-    const existing = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
+    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` }
-    获取任务表Db().query("UPDATE 任务表 SET 任务描述 = ? WHERE 标题 = ?").run(新描述.trim(), 标题trim)
-    const updated = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
+    获取任务表Db().prepare("UPDATE 任务表 SET 任务描述 = ? WHERE 标题 = ?").run(新描述.trim(), 标题trim)
+    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
     return { 成功: true, 消息: `已更新任务「${标题trim}」的描述`, res任务: updated ? 解析任务行(updated) : undefined }
   },
 
@@ -555,16 +568,16 @@ export const 任务表 = {
     const 新标题trim = 新标题.trim()
     if (!旧标题trim) return { 成功: false, 消息: "旧标题不能为空" }
     if (!新标题trim) return { 成功: false, 消息: "新标题不能为空" }
-    const existing = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(旧标题trim) as 任务Row | undefined
+    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(旧标题trim) as 任务Row | undefined
     if (!existing) return { 成功: false, 消息: `任务「${旧标题trim}」不存在` }
-    const duplicate = 获取任务表Db().query("SELECT 标题 FROM 任务表 WHERE 标题 = ?").get(新标题trim)
+    const duplicate = 获取任务表Db().prepare("SELECT 标题 FROM 任务表 WHERE 标题 = ?").get(新标题trim)
     if (duplicate) return { 成功: false, 消息: `新标题「${新标题trim}」在当前项目「${当前项目名}」已存在` }
     const taskDb = 获取任务表Db()
-    taskDb.run("BEGIN TRANSACTION")
+    taskDb.exec("BEGIN TRANSACTION")
     try {
-      taskDb.query("UPDATE 任务表 SET 标题 = ? WHERE 标题 = ?").run(新标题trim, 旧标题trim)
-      taskDb.query("UPDATE 任务表 SET 父任务标题 = ? WHERE 父任务标题 = ?").run(新标题trim, 旧标题trim)
-      const depsToUpdate = taskDb.query(
+      taskDb.prepare("UPDATE 任务表 SET 标题 = ? WHERE 标题 = ?").run(新标题trim, 旧标题trim)
+      taskDb.prepare("UPDATE 任务表 SET 父任务标题 = ? WHERE 父任务标题 = ?").run(新标题trim, 旧标题trim)
+      const depsToUpdate = taskDb.prepare(
         "SELECT 标题, 依赖 FROM 任务表 WHERE 是否删除 = 0 AND 依赖 IS NOT NULL"
       ).all() as { 标题: string, 依赖: string }[]
       for (const row of depsToUpdate) {
@@ -578,37 +591,37 @@ export const 任务表 = {
             }
           }
           if (changed) {
-            taskDb.query("UPDATE 任务表 SET 依赖 = ? WHERE 标题 = ?").run(JSON.stringify(deps), row.标题)
+            taskDb.prepare("UPDATE 任务表 SET 依赖 = ? WHERE 标题 = ?").run(JSON.stringify(deps), row.标题)
           }
         } catch { /* skip invalid JSON */ }
       }
-      taskDb.run("COMMIT")
+      taskDb.exec("COMMIT")
     } catch (e) {
-      taskDb.run("ROLLBACK")
+      taskDb.exec("ROLLBACK")
       return { 成功: false, 消息: `更新标题失败: ${e instanceof Error ? e.message : String(e)}` }
     }
-    const updated = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ?").get(新标题trim) as 任务Row | undefined
+    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ?").get(新标题trim) as 任务Row | undefined
     return { 成功: true, 消息: `已将任务「${旧标题trim}」更名为「${新标题trim}」`, res任务: updated ? 解析任务行(updated) : undefined }
   },
 
   改依赖(标题: string, 新依赖: 任务依赖[]): 任务操作结果 {
     const 标题trim = 标题.trim()
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" }
-    const existing = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
+    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` }
     for (const dep of 新依赖) {
       if (typeof dep.依赖任务 !== "string") return { 成功: false, 消息: "依赖任务不能为空" }
       const depTitle = dep.依赖任务.trim()
       if (!depTitle) return { 成功: false, 消息: "依赖任务不能为空" }
-      const depExists = 获取任务表Db().query("SELECT 标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(depTitle)
+      const depExists = 获取任务表Db().prepare("SELECT 标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(depTitle)
       if (!depExists) return { 成功: false, 消息: `依赖任务「${depTitle}」不存在` }
       dep.依赖任务 = depTitle
     }
     const existingTask = 解析任务行(existing)
     const 依赖校验结果 = 校验同级依赖规则(标题trim, existingTask.父任务标题 ?? null, existingTask.优先级序号 ?? 0, 新依赖)
     if (依赖校验结果) return 依赖校验结果
-    获取任务表Db().query("UPDATE 任务表 SET 依赖 = ? WHERE 标题 = ?").run(JSON.stringify(新依赖), 标题trim)
-    const updated = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
+    获取任务表Db().prepare("UPDATE 任务表 SET 依赖 = ? WHERE 标题 = ?").run(JSON.stringify(新依赖), 标题trim)
+    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
     const 依赖提醒 = 新依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，不要忽视隐性依赖）" : ""
     return { 成功: true, 消息: `已更新任务「${标题trim}」的依赖${依赖提醒}`, res任务: updated ? 解析任务行(updated) : undefined }
   },
@@ -616,14 +629,14 @@ export const 任务表 = {
   改优先级(标题: string, 新优先级序号: number): 任务操作结果 {
     const 标题trim = 标题.trim()
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" }
-    const existing = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
+    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` }
     const existingTask = 解析任务行(existing)
     const 原优先级序号 = existingTask.优先级序号 ?? 0
     const 父任务标题 = existingTask.父任务标题 ?? null
     const 实际优先级序号 = 计算移动目标优先级(父任务标题, 新优先级序号)
 
-    const 同级任务 = 获取任务表Db().query(
+    const 同级任务 = 获取任务表Db().prepare(
       "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 IS ?"
     ).all(父任务标题) as 任务Row[]
 
@@ -654,24 +667,24 @@ export const 任务表 = {
     }
 
     const taskDb = 获取任务表Db()
-    taskDb.run("BEGIN TRANSACTION")
+    taskDb.exec("BEGIN TRANSACTION")
     try {
       if (原优先级序号 < 实际优先级序号) {
-        taskDb.query("UPDATE 任务表 SET 优先级序号 = 优先级序号 - 1 WHERE 是否删除 = 0 AND 父任务标题 IS ? AND 优先级序号 > ? AND 优先级序号 <= ? AND 标题 != ?")
+        taskDb.prepare("UPDATE 任务表 SET 优先级序号 = 优先级序号 - 1 WHERE 是否删除 = 0 AND 父任务标题 IS ? AND 优先级序号 > ? AND 优先级序号 <= ? AND 标题 != ?")
           .run(父任务标题, 原优先级序号, 实际优先级序号, 标题trim)
       } else if (原优先级序号 > 实际优先级序号) {
-        taskDb.query("UPDATE 任务表 SET 优先级序号 = 优先级序号 + 1 WHERE 是否删除 = 0 AND 父任务标题 IS ? AND 优先级序号 >= ? AND 优先级序号 < ? AND 标题 != ?")
+        taskDb.prepare("UPDATE 任务表 SET 优先级序号 = 优先级序号 + 1 WHERE 是否删除 = 0 AND 父任务标题 IS ? AND 优先级序号 >= ? AND 优先级序号 < ? AND 标题 != ?")
           .run(父任务标题, 实际优先级序号, 原优先级序号, 标题trim)
       }
-      taskDb.query("UPDATE 任务表 SET 优先级序号 = ? WHERE 标题 = ?")
+      taskDb.prepare("UPDATE 任务表 SET 优先级序号 = ? WHERE 标题 = ?")
         .run(实际优先级序号, 标题trim)
-      taskDb.run("COMMIT")
+      taskDb.exec("COMMIT")
     } catch (e) {
-      taskDb.run("ROLLBACK")
+      taskDb.exec("ROLLBACK")
       return { 成功: false, 消息: `更新优先级失败: ${e instanceof Error ? e.message : String(e)}` }
     }
 
-    const 更新后同级 = 获取任务表Db().query(
+    const 更新后同级 = 获取任务表Db().prepare(
       "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 IS ? ORDER BY 优先级序号 ASC"
     ).all(父任务标题) as 任务Row[]
     const 当前任务索引 = 更新后同级.findIndex(t => 解析任务行(t).标题 === 标题trim)
@@ -681,14 +694,14 @@ export const 任务表 = {
     const 前两个描述 = 前两个任务.length > 0 ? 前两个任务.map(t => `《${t.标题}》(优先级${t.优先级序号})`).join("、") : "无"
     const 后两个描述 = 后两个任务.length > 0 ? 后两个任务.map(t => `《${t.标题}》(优先级${t.优先级序号})`).join("、") : "无"
 
-    const updated = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
+    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
     return { 成功: true, 消息: `已将任务「${标题trim}」的优先级从 ${原优先级序号} 改为 ${实际优先级序号}。当前位置：前两个任务[${前两个描述}] <- 本任务 -> 后两个任务[${后两个描述}]`, res任务: updated ? 解析任务行(updated) : undefined }
   },
 
   标记为已完成(标题: string): 任务操作结果 {
     const 标题trim = 标题.trim()
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" }
-    const existing = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
+    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` }
 
     const 子任务总数 = 统计子任务数(标题trim)
@@ -697,18 +710,18 @@ export const 任务表 = {
     }
 
     级联更新字段(标题trim, "是否完成", 1)
-    const updated = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
+    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
     return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成`, res任务: updated ? 解析任务行(updated) : undefined }
   },
 
   确认完成(标题: string): 任务操作结果 {
     const 标题trim = 标题.trim()
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" }
-    const existing = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
+    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` }
 
     级联更新字段(标题trim, "是否完成", 1)
-    const updated = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
+    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
     return { 成功: true, 消息: `已将任务「${标题trim}」及其所有子任务标记为已完成`, res任务: updated ? 解析任务行(updated) : undefined }
   },
 
@@ -717,13 +730,13 @@ export const 任务表 = {
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" }
     if (!角色 || !角色.trim()) return { 成功: false, 消息: "角色不能为空" }
     if (!消息 || !消息.trim()) return { 成功: false, 消息: "消息不能为空" }
-    const existing = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
+    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` }
     const 现有动态: 动态记录[] = existing.动态 ? JSON.parse(existing.动态 as string) : []
     const 新动态: 动态记录 = { 时间UTC: new Date().toISOString(), 角色: 角色.trim(), 消息: 消息.trim() }
     现有动态.push(新动态)
-    获取任务表Db().query("UPDATE 任务表 SET 动态 = ? WHERE 标题 = ?").run(JSON.stringify(现有动态), 标题trim)
-    const updated = 获取任务表Db().query("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
+    获取任务表Db().prepare("UPDATE 任务表 SET 动态 = ? WHERE 标题 = ?").run(JSON.stringify(现有动态), 标题trim)
+    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
     return { 成功: true, 消息: `已为任务「${标题trim}」添加动态`, res任务: updated ? 解析任务行(updated) : undefined }
   },
 }
@@ -778,7 +791,7 @@ export function 查询任务表_返回视图(一次性聚焦数量上限: number
 
   function 计算任务树层数(): number {
     function 获取子任务层级(父任务标题: string | null, currentDepth: number): number {
-      const children = taskDb.query(
+      const children = taskDb.prepare(
         "SELECT 标题 FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 = ?"
       ).all(父任务标题) as { 标题: string }[]
 
@@ -805,12 +818,12 @@ export function 查询任务表_返回视图(一次性聚焦数量上限: number
 
   const 任务树最深处层数 = 计算任务树层数()
   const 根任务列表 = 时间过滤
-    ? taskDb.query(
+    ? taskDb.prepare(
         `SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 IS NULL${时间过滤} ORDER BY 优先级序号 ASC`
       ).all(...时间参数) as 任务Row[]
     : 加载根任务()
 
-  const recentTasks = taskDb.query(
+  const recentTasks = taskDb.prepare(
     `SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 IS NOT NULL${时间过滤} ORDER BY 创建时间UTC DESC LIMIT ?`
   ).all(...时间参数, n) as 任务Row[]
 
@@ -818,7 +831,7 @@ export function 查询任务表_返回视图(一次性聚焦数量上限: number
     if (任务标题 === null) return []
     if (visited.has(任务标题)) return []
 
-    const parent = taskDb.query(
+    const parent = taskDb.prepare(
       "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 标题 = ?"
     ).get(任务标题) as 任务Row | undefined
     if (!parent) return []
@@ -858,7 +871,7 @@ export function 查询任务表_返回视图(一次性聚焦数量上限: number
       chain.unshift(current.优先级序号 ?? 0)
       if (current.父任务标题 === null || current.父任务标题 === undefined) break
       current = allTasksMap.get(current.父任务标题) ?? (() => {
-        const parent = taskDb.query(
+        const parent = taskDb.prepare(
           "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 标题 = ?"
         ).get(current!.父任务标题) as 任务Row | undefined
         return parent ? 解析任务行(parent) : undefined
@@ -881,7 +894,7 @@ export function 查询任务表_返回视图(一次性聚焦数量上限: number
       depth++
       if (current.父任务标题 === null || current.父任务标题 === undefined) break
       current = allTasksMap.get(current.父任务标题) ?? (() => {
-        const parent = taskDb.query(
+        const parent = taskDb.prepare(
           "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 标题 = ?"
         ).get(current!.父任务标题) as 任务Row | undefined
         return parent ? 解析任务行(parent) : undefined
@@ -1016,7 +1029,7 @@ function outputResult(data: unknown) {
 }
 
 function printHelp() {
-  const lines = ["任务表CLI - 任务管理工具", "", "用法: bun run 任务表CLI.ts <命令> [选项]", ""]
+  const lines = ["任务表CLI - 任务管理工具", "", "用法: npx tsx 任务表CLI.ts <命令> [选项]", ""]
   for (const [cmd, desc] of Object.entries(CLI_COMMANDS)) {
     lines.push(`  ${cmd.padEnd(22)} ${desc}`)
   }
@@ -1281,7 +1294,7 @@ async function runCli() {
   process.exit(1)
 }
 
-if (import.meta.main) {
+if (process.argv[1] === __filename) {
   runCli().catch(err => {
     outputResult({ 成功: false, 消息: `执行错误: ${err instanceof Error ? err.message : String(err)}` })
     process.exit(1)

@@ -39,6 +39,10 @@ export const 类Opencode技术栈 = {
       样式: Tailwind CSS 4, OpenUI 组件库
       文档站解决方案: Astro 5 + Starlight
       前端开发时Server: Vite 7
+      测试:
+          - 单元/服务端测试: Bun test
+          - Solid 组件测试: Bun test + @solidjs/testing-library
+          - E2E: Playwright (覆盖 Web 和 Electron)
       仓库/版本管理工具：${GIT_WITH_ITS_USAGE}、${SVN_WITH_ITS_USAGE}(v 1.14+)
       `
   }
@@ -58,6 +62,7 @@ export const 基于ReactNative和Electron技术栈 = {
         - Web / Desktop: react-native-web  (先用 react-native-web 统一 UI，先用低成本验证产品逻辑，找到 PMF 后再决定是否投入资源做桌面端 UI 的原生化)
         Desktop: Electron 35 + electron-vite (封装Web为桌面App，支持Win&MacOS)
         移动端: Expo (iOS/Android原生打包)
+        运行环境: Node.js
         Monorepo管理: Turbo + npm/pnpm workspaces
         服务器: Hono 5 (远程API服务)
         验证: Zod + Hono Zod Validator
@@ -75,7 +80,11 @@ export const 基于ReactNative和Electron技术栈 = {
         错误监控: Sentry (支持RN + Web + Electron)
         日志: packages/logger (统一封装接口，Electron/Expo各平台实现分离)
         国际化: packages/i18n-core (统一封装，屏蔽RN静态资源加载与Web fetch差异)
-        测试: Jest + React Native Testing Library + Playwright (Web/桌面E2E) + Maestro (移动端E2E)
+        测试:
+            - 单元测试: Jest
+            - React Native 组件测试: Jest + React Native Testing Library
+            - Web/桌面 E2E: Playwright
+            - 移动端 E2E: Maestro
         文档站解决方案: Astro 5 + Starlight
         前端开发Server: Expo CLI (npx expo start --web，统一全平台开发环境)
         ${需要原生拓展 ? `原生模块:
@@ -168,7 +177,7 @@ export const 基于ReactNative和Electron技术栈 = {
 
     2. 创建移动端 Hello World（Expo Router）：
       - 在 apps/mobile/ 下创建 app/index.tsx，内容：
-        \`\`\`tsx
+
         import { View, Text } from 'react-native';
         export default function Home() {
           return (
@@ -177,12 +186,12 @@ export const 基于ReactNative和Electron技术栈 = {
             </View>
           );
         }
-        \`\`\`
+
       - 此文件同时被 Web 端复用（Expo Router 自动处理 web 模式）
 
     3. 创建桌面端 Electron 基础文件（apps/desktop/）：
       - 创建 electron/main.ts（主进程入口）：
-        \`\`\`ts
+        
         import { app, BrowserWindow } from 'electron';
         async function createWindow() {
           const win = new BrowserWindow({ width: 1200, height: 800 });
@@ -191,7 +200,7 @@ export const 基于ReactNative和Electron技术栈 = {
         }
         app.whenReady().then(createWindow);
         app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-        \`\`\`
+
       - 创建 electron/preload.ts（可留空或简单导出）
       - 确保 electron-vite 配置指向这些文件（后续配置，此刻先有入口）
 
@@ -252,6 +261,7 @@ export function 基于React和Electron的DesktopWebApp立项技术选型(需要�
     Desktop: Electron 35 + electron-vite (Win & macOS)
     Web: React 开启 SPA模式，一个 HTML 外壳 + 多个通过 JS 渲染的虚拟页面
     构建工具: Vite 6 (负责 Web 和 Electron 渲染进程的开发与打包)
+    运行环境: Node.js
     Monorepo管理: Turbo + pnpm workspaces
     服务器: Hono 5 (远程API服务)
     验证: Zod + Hono Zod Validator
@@ -271,7 +281,8 @@ export function 基于React和Electron的DesktopWebApp立项技术选型(需要�
     日志: packages/logger (统一封装，Electron 主/渲染进程 + Web 各自实现)
     国际化: packages/i18n-core (react-i18next，Web/Electron 通用)
     测试:
-        - 单元/组件测试: Vitest + React Testing Library
+        - 单元测试: Vitest
+        - React 组件测试: Vitest + React Testing Library + jsdom
         - E2E: Playwright (覆盖 Web 和 Electron)
     文档站解决方案: Astro 5 + Starlight
     桌面增强（Electron 内）:
