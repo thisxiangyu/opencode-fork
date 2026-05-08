@@ -33,49 +33,114 @@ const LOG_COLOR = {
 
 const RESET = "\x1b[0m"
 
-const ROTATION_INTERVAL = 15 * 60 * 1000
+const DEFAULT_ROTATION_MINUTES = 15
+
+/** 生成时间戳日志文件名，使用同一个 Date 对象避免日期和时间戳不一致 */
+function makeTimestampFileName(date: Date, pid: number): string {
+  const isoString = date.toISOString().replace(/[:.]/g, "-")
+  const datePart = isoString.split("T")[0]
+  return `${datePart}-${isoString}-pid${pid}.log`
+}
+
+function getRotationMinutes(): number {
+  const env = process.env.STRATEGY_LOOPS_LOG_ROTATION_MINUTES
+  if (env !== undefined) {
+    const parsed = Number(env)
+    if (!isNaN(parsed) && parsed > 0) {
+      return parsed
+    }
+  }
+  return DEFAULT_ROTATION_MINUTES
+}
 
 class Logger {
   private logStream!: fs.WriteStream
-  private logFilePath: string = ""
+  private shortFilePath: string = ""
+  private currentFilePath: string = ""
   private consoleInfo = false
   private consoleWarn = false
   private consoleError = false
+  private isLongRunning = false
+  private longRunningTimer: NodeJS.Timeout | null = null
   private rotationTimer: NodeJS.Timeout | null = null
+  private readonly rotationMinutes: number
+  private readonly rotationIntervalMs: number
+  private readonly startTime: Date
 
   constructor() {
+    this.startTime = new Date()
+    this.rotationMinutes = getRotationMinutes()
+    this.rotationIntervalMs = this.rotationMinutes * 60 * 1000
+
     if (!fs.existsSync(LOG_DIR)) {
       fs.mkdirSync(LOG_DIR, { recursive: true })
     }
 
     const today = new Date().toISOString().split("T")[0]
-    const shortFile = path.join(LOG_DIR, `${today}-pid${process.pid}.log`)
-    const isLongRunning = fs.existsSync(shortFile)
+    this.shortFilePath = path.join(LOG_DIR, `${today}-pid${process.pid}.log`)
+    this.currentFilePath = this.shortFilePath
 
-    if (isLongRunning) {
-      this.logFilePath = path.join(LOG_DIR, `${today}-${new Date().toISOString().replace(/[:.]/g, "-")}-pid${process.pid}.log`)
-      this.rotationTimer = setInterval(() => this.rotateLogFile(), ROTATION_INTERVAL)
-      this.rotationTimer.unref()
-    } else {
-      this.logFilePath = shortFile
-    }
-
-    this.logStream = fs.createWriteStream(this.logFilePath, { flags: "w" })
+    this.logStream = fs.createWriteStream(this.currentFilePath, { flags: "w" })
     this.setMode("fileOnly")
+
     const initLine = (msg: string) => this.logStream.write(`[${new Date().toISOString()}] [INFO] ${msg}\n`)
     initLine("=".repeat(60))
-    initLine(`[启动] 日志文件: ${this.logFilePath}`)
-    if (isLongRunning) {
-      initLine(`[模式] 长时间运行模式，每 ${ROTATION_INTERVAL / 60000} 分钟轮换`)
-    }
+    initLine(`[启动] 日志文件: ${this.currentFilePath}`)
+    initLine(`[模式] 短文件模式 (覆盖)，将在 ${this.rotationMinutes} 分钟后切换为长时间运行模式`)
+
+    // 设置定时器，在 rotationMinutes 分钟后判定为长时间运行
+    this.longRunningTimer = setTimeout(() => this.switchToLongRunning(), this.rotationIntervalMs)
+    this.longRunningTimer.unref()
   }
 
-  private rotateLogFile() {
+  private switchToLongRunning() {
+    if (this.isLongRunning) return
+    this.isLongRunning = true
+
+    const archivedFileName = makeTimestampFileName(this.startTime, process.pid)
+    const archivedFilePath = path.join(LOG_DIR, archivedFileName)
+    const now = new Date()
+    const newFileName = makeTimestampFileName(now, process.pid)
+    const newFilePath = path.join(LOG_DIR, newFileName)
+
+    // 等待流完全关闭后再重命名，避免竞态
     this.logStream.end()
-    this.logFilePath = path.join(LOG_DIR, `${new Date().toISOString().split("T")[0]}-${new Date().toISOString().replace(/[:.]/g, "-")}-pid${process.pid}.log`)
-    this.logStream = fs.createWriteStream(this.logFilePath, { flags: "w" })
-    this.logStream.write(`[${new Date().toISOString()}] [INFO] ${"=".repeat(60)}\n`)
-    this.logStream.write(`[${new Date().toISOString()}] [INFO] [轮换] 新日志文件: ${this.logFilePath}\n`)
+    this.logStream.on("finish", () => {
+      // rename 完成后才写"归档完成"日志
+      if (fs.existsSync(this.shortFilePath)) {
+        fs.renameSync(this.shortFilePath, archivedFilePath)
+      }
+      this.currentFilePath = newFilePath
+      this.logStream = fs.createWriteStream(this.currentFilePath, { flags: "w" })
+      this.logStream.write(`[${now.toISOString()}] [INFO] ${"=".repeat(60)}\n`)
+      this.logStream.write(`[${now.toISOString()}] [INFO] [模式切换] 短文件已归档: ${archivedFileName}\n`)
+      this.logStream.write(`[${now.toISOString()}] [INFO] [模式] 长时间运行模式，每 ${this.rotationMinutes} 分钟轮换\n`)
+      this.logStream.write(`[${now.toISOString()}] [INFO] [轮换] 新日志文件: ${newFileName}\n`)
+    })
+
+    // 设置周期性轮换定时器
+    this.rotationTimer = setInterval(() => this.rotateLogFile(), this.rotationIntervalMs)
+    this.rotationTimer.unref()
+  }
+
+  private isRotating = false
+
+  private rotateLogFile() {
+    if (!this.isLongRunning || this.isRotating) return
+    this.isRotating = true
+
+    const now = new Date()
+    const newFileName = makeTimestampFileName(now, process.pid)
+    const newFilePath = path.join(LOG_DIR, newFileName)
+
+    this.logStream.end()
+    this.logStream.on("finish", () => {
+      this.currentFilePath = newFilePath
+      this.logStream = fs.createWriteStream(this.currentFilePath, { flags: "w" })
+      this.logStream.write(`[${now.toISOString()}] [INFO] ${"=".repeat(60)}\n`)
+      this.logStream.write(`[${now.toISOString()}] [INFO] [轮换] 新日志文件: ${newFileName}\n`)
+      this.isRotating = false
+    })
   }
 
   setMode(mode: LoggerMode) {
@@ -141,8 +206,29 @@ class Logger {
   }
 
   close() {
-    clearInterval(this.rotationTimer!)
+    if (this.longRunningTimer) {
+      clearTimeout(this.longRunningTimer)
+    }
+    if (this.rotationTimer) {
+      clearInterval(this.rotationTimer)
+    }
     this.logStream.end()
+  }
+
+  /**
+   * 【测试专用】获取当前日志文件路径
+   * @deprecated 仅用于单元测试，生产代码不应依赖此方法
+   */
+  getCurrentFilePath(): string {
+    return this.currentFilePath
+  }
+
+  /**
+   * 【测试专用】检查是否为长时间运行模式
+   * @deprecated 仅用于单元测试，生产代码不应依赖此方法
+   */
+  isInLongRunningMode(): boolean {
+    return this.isLongRunning
   }
 }
 
@@ -192,3 +278,4 @@ export const logFile = loggerInstance
 export const consoleAndLogFile = createConsoleProxy(loggerInstance)
 export { LOG_COLOR, RESET }
 export type { LogColor }
+export { Logger }

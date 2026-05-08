@@ -10,5 +10,6 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true
   },
+  "include": ["common/tools/任务表/test/**/*.ts", "common/test/**/*.ts"],
   "exclude": ["node_modules"]
 }
