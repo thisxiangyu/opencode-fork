@@ -1246,7 +1246,7 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题" })
       process.exit(1)
     }
-    const 最大层数 = flags.最大层数 ? parseInt(flags.最大层数) : 3
+    const 最大层数 = flags.最大层数 ? parseInt(flags.最大层数) : 1
     if (isNaN(最大层数) || 最大层数 < 1) {
       outputResult({ 成功: false, 消息: "最大层数必须为正整数" })
       process.exit(1)

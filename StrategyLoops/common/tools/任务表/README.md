@@ -46,7 +46,7 @@ node 任务表CLI.js query-by-title --标题 <关键词> --模糊 true
 # 按Tag查询
 node 任务表CLI.js query-by-tag --Tag <Tag>
 
-# 查询依赖链（递归查询前置任务，默认3层）
+# 查询依赖链（递归查询前置任务，默认1层）
 node 任务表CLI.js query-dependency-chain --标题 <标题> [--最大层数 <n>]
 
 # 查询已删除任务（--从 --到 都不传表示查全部）
@@ -77,7 +77,7 @@ node 任务表CLI.js add --标题 <标题> --描述 <描述> --优先级 99999 -
 # 变更任务描述
 node 任务表CLI.js update-description --标题 <标题> --新描述 <新描述>
 
-# 变更标题（父子联系会因此级联更新）
+# 变更标题
 node 任务表CLI.js update-title --标题 <旧标题> --新标题 <新标题>
 
 # 变更依赖

@@ -535,6 +535,15 @@ interface RejectionState {
   frozenPlannerInfo?: string
 }
 
+function resetRejectionState(rejectionState: RejectionState ){
+    rejectionState.evaluatorRejections = 0
+    rejectionState.architectRejections = 0
+    rejectionState.executorPractices = 0
+    rejectionState.inRejectionLoop = false
+    rejectionState.rejectionSource = undefined
+    rejectionState.frozenPlannerInfo = undefined
+}
+
 function createRejectionState(): RejectionState {
   return {
     evaluatorRejections: 0,
@@ -965,12 +974,7 @@ export async function main(): Promise<void> {
     }
     if(r instanceof 提交员) {
       // 提交员完成，重置打回状态，回到规划者
-      rejectionState.evaluatorRejections = 0
-      rejectionState.architectRejections = 0
-      rejectionState.executorPractices = 0
-      rejectionState.inRejectionLoop = false
-      rejectionState.rejectionSource = undefined
-      rejectionState.frozenPlannerInfo = undefined
+      resetRejectionState(rejectionState)
       return 规划者instance
     }
     
@@ -1171,7 +1175,7 @@ export async function main(): Promise<void> {
         }
 
         logFile.info(`[中断处理] reason=${interrupt.reason}, 来源角色=${interruptedRole.name}`)
-        const fallbackRole = Role跳转策略(interruptedRole, "")
+        const fallbackRole = Role跳转策略(interruptedRole, lastResponse)
         logFile.info(`[派发决策] interruptRole=${interrupt.roleName}, fallbackRole=${fallbackRole.name}`)
         currentRole = await AskTo重新定位角色(allRoles, fallbackRole, interrupt)
 
