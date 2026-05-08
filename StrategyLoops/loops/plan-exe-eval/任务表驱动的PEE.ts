@@ -403,6 +403,8 @@ export class 质保员 implements IRole {
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个质保员，负责写测试、找bug/复现bug/记录bug。
 
+    确保覆盖率足够高。
+
     工作流程：
     1. 先检查问题：查阅仓库变更，检查测试覆盖率，排查bug，识别缺失的测试用例
     2. 解决问题：编写缺失的测试，修复发现的bug
@@ -425,9 +427,13 @@ ${upstreamMsg}
 export class 边缘质保员 implements IRole {
   name = "EdgeQA"
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return `你是一个边缘质保员，负责寻找质保员测试时未覆盖到的边缘情况。
+  knowledgeDomainPrompt() { return `你是一个边缘质保员，负责写测试、寻找质保员测试时未覆盖到的边缘情况。
 
-    关注的边缘情况包括：大数据量、大参数量、多次重复操作、交叠式重复操作、覆盖式操作、特殊情况中断。
+    关注的边缘情况包括7类：大数据量、大参数量、多次重复操作、交叠式重复操作、覆盖式操作、特殊情况中断、长时间运行。
+
+    不要死脑筋，有一些逻辑面对以上情况肯定不会有事。但有一些逻辑面对以上情况是高危的。针对后者设计充分必要的测试。
+
+    确保覆盖率足够高。
 
     工作流程：
     1. 先检查问题：查阅仓库变更和测试文件，识别未覆盖的边缘情况
