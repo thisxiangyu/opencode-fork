@@ -199,11 +199,11 @@ export class 规划者 implements IRole {
 ---
 ${upstreamMsg}
 ---
-【慢思考】先尽到你本轮的职责，再【任务派发】。
-本轮任务-仅派发末端任务，不派发高层次任务。
-留言-给团队成员的留言，可以是对本轮任务的补充说明，或者对目标的期望，切勿跟任务表中任务的描述重复，你应当始终以任务表传达信息优先。
+【一步步来，慢思考】先尽到你本轮的职责，再【任务派发】。
+-仅派发末端任务，不派发高层次任务。
+-给团队成员的留言，可以是对本轮任务的补充说明，或者对目标的期望，切勿跟任务表中任务的描述重复，你应当始终以任务表传达信息优先。
 ` }
-  accessMode: "readonly" | "writable" = "readonly"
+  accessMode: "readonly" | "writable" = "writable"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
   outputSchema = {
@@ -415,14 +415,14 @@ ${upstreamMsg}
 }
 
 export class 压缩决策员 implements IRole {
-  name = "Compactor"
+  name = "compactor"
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个压缩决策员，负责在每轮执行前判断是否需要对执行者的会话进行压缩（compact）。
 压缩的含义：将旧的对话历史总结为摘要，仅保留最近的关键上下文。好的压缩让执行者更聪明（释放无关历史，聚焦当前任务），坏的压缩因思维链断裂导致状态不一致。
 
 你的判断依据：
 1. 任务翻新度：如果本轮任务跟上一轮比是"高翻新"（7-10分：切换功能模块、不同文件、同文件中度或大型重构、思维链不需延续）→ 建议压缩
-             如果本轮任务跟上一轮比是"低翻新"（1-6分：必须复用上一个任务思维链）→ 不建议压缩
+             如果本轮任务跟上一轮比是"低翻新"（1-6分：必须复用上一个任务思维链）→ 不压缩
 2. Context Rot 迹象：如果会话过长或模型频繁"忘记"前文 → 建议压缩
 3. 关键记忆点：如果有必须跨轮保留的关键信息（设计决策、重要思维链、未闭合的bug），请注明。只在需要压缩时注明，如果不需要压缩，则关键记忆点也应同样视作不需要。` }
   systemPrompt(upstreamMsg: string) { return `本轮的任务：
@@ -460,25 +460,6 @@ ${Commit()}`
   }
   systemPrompt(upstreamMsg: string) { return `根据现在仓库的情况决定是否提交、如何提交。` }
   accessMode: "readonly" | "writable" = "writable"
-  model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
-
-  outputSchema = { type: "text" }
-  validateOutput(raw: string): { valid: boolean; error?: string } {
-    if (!raw.trim()) return { valid: false, error: "输出为空" }
-    return { valid: true }
-  }
-}
-
-export class 测试 implements IRole {
-  name = "test"
-  disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return "当前是纯粹的测试。" }
-  systemPrompt(upstreamMsg: string) { return `上游消息：
----
-${upstreamMsg}
----
-请回复我5句话即可。` }
-  accessMode: "readonly" | "writable" = "readonly"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
   outputSchema = { type: "text" }
@@ -633,8 +614,6 @@ async function recordRejectionActivity(
  * - 冗余枝剪者.name = "ScissorHands" → 任务表 roleName = "ScissorHands"
  * - 质保员.name = "QA" → 任务表 roleName = "QA"
  * - 边缘质保员.name = "EdgeQA" → 任务表 roleName = "EdgeQA"
- * 
- * 测试路径下角色名为 "测5"/"测7"/"测8"，直接使用 currentRole.name。
  */
 function getActivityRoleName(currentRole: IRole): string {
   if (currentRole instanceof 冗余枝剪者) return "ScissorHands"
@@ -846,35 +825,15 @@ async function buildTaskUpstream(
 
 export async function main(): Promise<void> {
 
-  // let 规划者instance = new 规划者() as IRole
-  // let 执行者instance = new 执行者() as IRole
-  // let 评估者instance = new 评估者() as IRole
-  // let 压缩决策员instance = new 压缩决策员() as IRole
-  // let 冗余枝剪者instance = new 冗余枝剪者() as IRole
-  // let 架构师instance = new 架构师() as IRole
-  // let 质保员instance = new 质保员() as IRole
-  // let 边缘质保员instance = new 边缘质保员() as IRole
-  // let 提交员instance = new 提交员() as IRole
-
-  // Note：测试快速路径，非测试模式会注释掉这段，用上面那段
-  let 规划者instance = new 测试() as IRole
-  let 压缩决策员instance = new 测试() as IRole
-  let 执行者instance = new 测试() as IRole
-  let 评估者instance = new 测试() as IRole
-  let 冗余枝剪者instance = new 测试() as IRole
-  let 架构师instance = new 测试() as IRole
-  let 质保员instance = new 测试() as IRole
-  let 边缘质保员instance = new 测试() as IRole
-  let 提交员instance = new 测试() as IRole
-  规划者instance.name ="测1"
-  压缩决策员instance.name ="测2"
-  执行者instance.name ="测3"
-  评估者instance.name ="测4"
-  冗余枝剪者instance.name ="测5"
-  架构师instance.name ="测6"
-  质保员instance.name ="测7"
-  边缘质保员instance.name ="测8"
-  提交员instance.name ="测9"
+  let 规划者instance = new 规划者() as IRole
+  let 执行者instance = new 执行者() as IRole
+  let 评估者instance = new 评估者() as IRole
+  let 压缩决策员instance = new 压缩决策员() as IRole
+  let 冗余枝剪者instance = new 冗余枝剪者() as IRole
+  let 架构师instance = new 架构师() as IRole
+  let 质保员instance = new 质保员() as IRole
+  let 边缘质保员instance = new 边缘质保员() as IRole
+  let 提交员instance = new 提交员() as IRole
 
   const allRoles = 检查names重复([
     规划者instance, 
@@ -905,7 +864,7 @@ export async function main(): Promise<void> {
    */
   const Role跳转策略: (current: IRole, lastResponse: string) => IRole = (r, response) => {
     // 评估者的分支判断
-    if(r instanceof 评估者 || (r instanceof 测试 && r.name === "测4")) {
+    if(r instanceof 评估者) {
       const evalOutput = extractJSON(response)
       if (evalOutput?.检查结果 === "打回") {
         // 评估者打回
@@ -942,7 +901,7 @@ export async function main(): Promise<void> {
     }
     
     // 架构师的分支判断
-    if(r instanceof 架构师 || (r instanceof 测试 && r.name === "测6")) {
+    if(r instanceof 架构师) {
       const archOutput = extractJSON(response)
       if (archOutput?.检查结果 === "打回") {
         // 架构师打回
@@ -1015,16 +974,6 @@ export async function main(): Promise<void> {
       return 规划者instance
     }
     
-    // 测试路径
-    if(r instanceof 测试) {
-      if(r.name === "测1") return 压缩决策员instance
-      if(r.name === "测2") return 执行者instance
-      if(r.name === "测3") return 评估者instance
-      if(r.name === "测5") return 架构师instance
-      if(r.name === "测7") return 边缘质保员instance
-      if(r.name === "测8") return 提交员instance
-      if(r.name === "测9") return 规划者instance
-    }
     throw new Error(`未知角色类型: name="${r.name}", 无法跳转。constructor=${r.constructor?.name ?? "unknown"}`)
   }
 
@@ -1282,13 +1231,12 @@ export async function main(): Promise<void> {
         
         if (rejectionState.inRejectionLoop) {
           // 打回循环中
-          if (currentRole instanceof 执行者 || (currentRole instanceof 测试 && currentRole.name === "测3")) {
+          if (currentRole instanceof 执行者) {
             // 执行者：使用打回留言
             upstreamMsg = lastResponse
           } else if (
             currentRole instanceof 评估者 || 
-            currentRole instanceof 架构师 ||
-            (currentRole instanceof 测试 && (currentRole.name === "测4" || currentRole.name === "测6"))
+            currentRole instanceof 架构师
           ) {
             // 评估者/架构师：使用打回循环信息
             upstreamMsg = buildRejectionUpstream(rejectionState)
@@ -1379,7 +1327,7 @@ export async function main(): Promise<void> {
         logFile.info(`<<< ${currentRole.name} 完成`)
         
         // 【规划者任务标题验证 + 构建完整 upstream】
-        if (currentRole instanceof 规划者 || (currentRole instanceof 测试 && currentRole.name === "测1")) {
+        if (currentRole instanceof 规划者) {
           const plannerOutput = extractJSON(response)
           if (plannerOutput?.本轮任务标题) {
             const taskTitle = plannerOutput.本轮任务标题.trim()
@@ -1430,13 +1378,13 @@ export async function main(): Promise<void> {
         }
         
         // 【评估者/架构师打回后记录动态】
-        if (currentRole instanceof 评估者 || (currentRole instanceof 测试 && currentRole.name === "测4")) {
+        if (currentRole instanceof 评估者) {
           const evalOutput = extractJSON(response)
           if (evalOutput?.检查结果 === "打回" && currentTaskTitle) {
             await recordRejectionActivity(projectDir, currentTaskTitle, "evaluator", rejectionState.evaluatorRejections)
           }
         }
-        if (currentRole instanceof 架构师 || (currentRole instanceof 测试 && currentRole.name === "测6")) {
+        if (currentRole instanceof 架构师) {
           const archOutput = extractJSON(response)
           if (archOutput?.检查结果 === "打回" && currentTaskTitle) {
             await recordRejectionActivity(projectDir, currentTaskTitle, "architect", rejectionState.architectRejections)
@@ -1458,8 +1406,7 @@ export async function main(): Promise<void> {
         if (
           currentRole instanceof 冗余枝剪者 || 
           currentRole instanceof 质保员 || 
-          currentRole instanceof 边缘质保员 ||
-          (currentRole instanceof 测试 && (currentRole.name === "测5" || currentRole.name === "测7" || currentRole.name === "测8"))
+          currentRole instanceof 边缘质保员
         ) {
           const roleOutput = extractJSON(response)
           if (roleOutput?.一句话动态 && currentTaskTitle) {
@@ -1477,7 +1424,7 @@ export async function main(): Promise<void> {
         }
         
         // 【提交员完成后提取提交信息】
-        if (currentRole instanceof 提交员 || (currentRole instanceof 测试 && currentRole.name === "测9")) {
+        if (currentRole instanceof 提交员) {
           // 提取提交信息，作为下一轮规划者的 upstream
           // 简化处理：直接使用提交员的输出作为提交信息
           const commitInfo = `[上一轮提交信息]\n${response.substring(0, 500)}${response.length > 500 ? "..." : ""}`
