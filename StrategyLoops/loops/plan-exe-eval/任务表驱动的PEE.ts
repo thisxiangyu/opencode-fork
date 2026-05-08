@@ -221,6 +221,9 @@ ${upstreamMsg}
     for (const field of this.outputSchema.required as string[]) {
       if (!(field in json)) return { valid: false, error: `JSON 缺少必填字段: ${field}` }
     }
+    if (typeof json.前情点评 !== "string") return { valid: false, error: "前情点评 必须为字符串" }
+    if (typeof json.本轮任务标题 !== "string") return { valid: false, error: "本轮任务标题 必须为字符串" }
+    if (typeof json.留言 !== "string") return { valid: false, error: "留言 必须为字符串" }
     return { valid: true }
   }
 }
@@ -589,11 +592,13 @@ async function recordRejectionActivity(
   rejectionCount: number
 ): Promise<void> {
   const cliPath = join(projectDir, "任务表CLI.js")
+  const projectName = projectDir.split("/").pop() || "project"
   const message = `${roleName}打回${rejectionCount}次`
 
   return new Promise((resolve, reject) => {
-    const child = spawn("node", [cliPath, "add-activity", "--任务标题", taskTitle, "--角色", roleName, "--消息", message], {
+    const child = spawn("node", [cliPath, "add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", message], {
       cwd: projectDir,
+      env: { ...process.env, TASKTABLE_PROJECT_NAME: projectName },
       stdio: ['ignore', 'pipe', 'pipe']
     })
     
@@ -649,10 +654,12 @@ async function recordRoleActivity(
   activityMessage: string
 ): Promise<void> {
   const cliPath = join(projectDir, "任务表CLI.js")
+  const projectName = projectDir.split("/").pop() || "project"
 
   return new Promise((resolve, reject) => {
-    const child = spawn("node", [cliPath, "add-activity", "--任务标题", taskTitle, "--角色", roleName, "--消息", activityMessage], {
+    const child = spawn("node", [cliPath, "add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", activityMessage], {
       cwd: projectDir,
+      env: { ...process.env, TASKTABLE_PROJECT_NAME: projectName },
       stdio: ['ignore', 'pipe', 'pipe']
     })
     
@@ -676,47 +683,186 @@ async function recordRoleActivity(
 }
 
 /**
- * 验证任务标题是否存在于任务表中
+ * 查询任务完整信息（含所有字段），返回解析后的任务对象。
+ * 
+ * CLI query-by-title 返回格式: { 成功: true, 数量: n, 任务: [...] }
  */
-async function validateTaskTitle(projectDir: string, taskTitle: string): Promise<boolean> {
+async function queryTaskByTitleFull(projectDir: string, taskTitle: string): Promise<Record<string, any> | null> {
   const cliPath = join(projectDir, "任务表CLI.js")
+  const projectName = projectDir.split("/").pop() || "project"
 
   return new Promise((resolve) => {
     const child = spawn("node", [cliPath, "query-by-title", "--标题", taskTitle], {
       cwd: projectDir,
-      stdio: ['ignore', 'pipe', 'pipe']
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, TASKTABLE_PROJECT_NAME: projectName },
     })
-    
+
     let stdout = ''
     let stderr = ''
     child.stdout?.on('data', (data) => { stdout += data.toString() })
     child.stderr?.on('data', (data) => { stderr += data.toString() })
-    
+
     child.on('close', (exitCode) => {
       if (exitCode !== 0) {
-        logFile.warn(`[任务表] 验证任务标题失败: ${stderr.trim()}`)
-        resolve(false)
+        logFile.warn(`[任务表] 查询任务失败: ${stderr.trim()}`)
+        resolve(null)
         return
       }
-      
       try {
         const result = JSON.parse(stdout)
-        if (Array.isArray(result) && result.length > 0) {
-          resolve(true)
-        } else {
-          resolve(false)
-        }
+        const tasks = result.成功 && Array.isArray(result.任务) ? result.任务 : []
+        resolve(tasks.length > 0 ? tasks[0] : null)
       } catch (e) {
-        logFile.warn(`[任务表] 解析验证结果失败: ${e instanceof Error ? e.message : String(e)}`)
-        resolve(false)
+        logFile.warn(`[任务表] 解析任务结果失败: ${e instanceof Error ? e.message : String(e)}`)
+        resolve(null)
       }
     })
-    
+
     child.on('error', (err) => {
-      logFile.warn(`[任务表] 验证任务标题失败: ${err.message}`)
-      resolve(false)
+      logFile.warn(`[任务表] 查询任务失败: ${err.message}`)
+      resolve(null)
     })
   })
+}
+
+/**
+ * 验证规划者派发的任务是否可执行。
+ * 
+ * 在 while 循环中反复要求规划者重新输出，直到同时满足：
+ * 1. 输出通过规划者的完整 outputSchema 校验（前情点评、本轮任务标题、留言）
+ * 2. 该任务存在于任务表中且未被删除
+ * 3. 该任务的所有直接依赖均已完成且未被删除（依赖 JSON 损坏或非数组结构视为不通过）
+ * 
+ * 重试上限：最多验证 10 次响应，超限时记录严重错误并抛出异常终止，
+ * 防止模型持续不合规导致无限阻塞。这不会错误放行——要么通过，要么终止。
+ */
+const MAX_DISPATCH_RETRIES = 10
+
+async function validatePlannerDispatch(
+  projectDir: string,
+  session: ISession,
+  validateOutput: (raw: string) => { valid: boolean; error?: string },
+  initialResponse: string,
+): Promise<{ title: string; response: string }> {
+  let response = initialResponse
+  let retries = 0
+
+  while (true) {
+    retries++
+    if (retries > MAX_DISPATCH_RETRIES) {
+      consoleAndLogFile.error(`[派发验证] 已达验证尝试上限${MAX_DISPATCH_RETRIES}次（含初响应），强制终止以避免无限阻塞`)
+      throw new Error(`派发验证尝试超过${MAX_DISPATCH_RETRIES}次，规划者持续输出不合规，请人工介入检查任务表数据完整性。`)
+    }
+
+    // 先校验完整 schema，不通过直接要求重输
+    const schemaCheck = validateOutput(response)
+    if (!schemaCheck.valid) {
+      consoleAndLogFile.warn(`[派发验证] 输出格式不符: ${schemaCheck.error}`)
+      response = await session.sendMsg({
+        msgSource: MSG_SOURCE.system,
+        content: `你的输出格式不符合要求：${schemaCheck.error}\n\n请严格按照 JSON Schema 输出完整的 {前情点评, 本轮任务标题, 留言} 对象。`,
+      }, false)
+      continue
+    }
+
+    const output = extractJSON(response)
+    const titleRaw = output?.本轮任务标题
+    const title = typeof titleRaw === "string" ? titleRaw.trim() : ""
+
+    if (!title) {
+      consoleAndLogFile.warn(`[派发验证] 未解析到有效的本轮任务标题（${typeof titleRaw === "undefined" ? "缺失" : `类型为${typeof titleRaw}`}），要求重新输出`)
+      response = await session.sendMsg({
+        msgSource: MSG_SOURCE.system,
+        content: `你的输出中未包含有效的"本轮任务标题"字段。请严格按照 JSON Schema 输出。`,
+      }, false)
+      continue
+    }
+
+    // 1. 检查任务是否存在且未被删除
+    const task = await queryTaskByTitleFull(projectDir, title)
+    if (!task) {
+      consoleAndLogFile.warn(`[派发验证] 任务"${title}"不存在于任务表中`)
+      response = await session.sendMsg({
+        msgSource: MSG_SOURCE.system,
+        content: `你派发的任务标题"${title}"在任务表中不存在。请检查任务表，重新输出完整的派发 JSON。`,
+      }, false)
+      continue
+    }
+    if (task.已删除) {
+      consoleAndLogFile.warn(`[派发验证] 任务"${title}"已被删除，阻止派发`)
+      response = await session.sendMsg({
+        msgSource: MSG_SOURCE.system,
+        content: `任务"${title}"已被删除，无法派发。请检查任务表，重新输出完整的派发 JSON，选择一个未被删除的任务。`,
+      }, false)
+      continue
+    }
+
+    // 2. 解析依赖（损坏或非数组结构均视为不通过）
+    let dependencies: { 依赖任务: string; 原因: string }[] = []
+    if (task.依赖) {
+      let parsed: unknown
+      try {
+        parsed = typeof task.依赖 === 'string' ? JSON.parse(task.依赖) : task.依赖
+      } catch {
+        consoleAndLogFile.warn(`[派发验证] 任务"${title}"的依赖JSON解析失败，阻止派发`)
+        response = await session.sendMsg({
+          msgSource: MSG_SOURCE.system,
+          content: `任务"${title}"的依赖数据格式异常（JSON 解析失败），可能是任务表数据损坏。请检查并修复该任务的依赖关系，或重新派发。`,
+        }, false)
+        continue
+      }
+      if (!Array.isArray(parsed)) {
+        consoleAndLogFile.warn(`[派发验证] 任务"${title}"的依赖数据非数组结构，阻止派发`)
+        response = await session.sendMsg({
+          msgSource: MSG_SOURCE.system,
+          content: `任务"${title}"的依赖数据格式异常（非数组结构），可能是任务表数据损坏。请检查并修复该任务的依赖关系，或重新派发。`,
+        }, false)
+        continue
+      }
+      dependencies = parsed as { 依赖任务: string; 原因: string }[]
+    }
+
+    // 3. 校验每个依赖项结构，缺失 依赖任务 字段的不合法
+    if (dependencies.length > 0) {
+      const malformed = dependencies.findIndex(dep => !dep || typeof dep.依赖任务 !== "string" || !dep.依赖任务.trim())
+      if (malformed !== -1) {
+        consoleAndLogFile.warn(`[派发验证] 任务"${title}"的第${malformed + 1}条依赖缺少"依赖任务"字段，阻止派发`)
+        response = await session.sendMsg({
+          msgSource: MSG_SOURCE.system,
+          content: `任务"${title}"的第${malformed + 1}条依赖数据不完整（缺少"依赖任务"字段），可能是任务表数据损坏。请检查并修复，或重新派发。`,
+        }, false)
+        continue
+      }
+    }
+
+    // 4. 检查依赖是否全部完成且未被删除（仅检查一层依赖即可，这是预期内的）
+    if (dependencies.length > 0) {
+      const checks = dependencies.map(dep => queryTaskByTitleFull(projectDir, dep.依赖任务))
+      const results = await Promise.all(checks)
+
+      const incompleteDeps: string[] = []
+      for (let i = 0; i < dependencies.length; i++) {
+        const depTask = results[i]
+        if (!depTask || depTask.已删除 || !depTask.是否完成) {
+          incompleteDeps.push(dependencies[i].依赖任务)
+        }
+      }
+
+      if (incompleteDeps.length > 0) {
+        const depList = incompleteDeps.map((d: string) => `《${d}》`).join("、")
+        consoleAndLogFile.warn(`[派发验证] 任务"${title}"存在${incompleteDeps.length}条未完成的依赖`)
+        response = await session.sendMsg({
+          msgSource: MSG_SOURCE.system,
+          content: `任务"${title}"存在${incompleteDeps.length}条未完成的依赖任务：${depList}。请先完成所有依赖任务，如果依赖任务过大可考虑将依赖分解。请重新派发。`,
+        }, false)
+        continue
+      }
+    }
+
+    consoleAndLogFile.info(`[派发验证] 任务"${title}"验证通过`)
+    return { title, response }
+  }
 }
 
 /**
@@ -738,9 +884,11 @@ async function buildTaskUpstream(
   plannerOutput: Record<string, any>,
 ): Promise<string> {
   const cliPath = join(projectDir, "任务表CLI.js")
-  const taskTitle = plannerOutput.本轮任务标题?.trim() || ""
-  const 前情点评 = plannerOutput.前情点评 || ""
-  const 留言 = plannerOutput.留言 || ""
+  const projectName = projectDir.split("/").pop() || "project"
+  const taskTitleRaw = plannerOutput.本轮任务标题
+  const taskTitle = typeof taskTitleRaw === "string" ? taskTitleRaw.trim() : ""
+  const 前情点评 = typeof plannerOutput.前情点评 === "string" ? plannerOutput.前情点评 : ""
+  const 留言 = typeof plannerOutput.留言 === "string" ? plannerOutput.留言 : ""
   const maxDepth = 3
 
   // 基础信息（规划者输出）
@@ -758,7 +906,8 @@ async function buildTaskUpstream(
     const result = await new Promise<{ 成功: boolean; 任务?: any; 依赖链?: any[]; 消息?: string }>((resolve) => {
       const child = spawn("node", [cliPath, "query-dependency-chain", "--标题", taskTitle, "--最大层数", String(maxDepth)], {
         cwd: projectDir,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: { ...process.env, TASKTABLE_PROJECT_NAME: projectName },
       })
 
       let stdout = ''
@@ -994,7 +1143,6 @@ export async function main(): Promise<void> {
   // 【任务表部署】将任务表CLI工具和说明书拷贝到项目目录，并在项目目录下初始化任务表数据库
   const projectName = projectDir.split("/").pop() || "project"
   const toolsDir = join(__dirname, "../../common/tools/任务表")
-  const cliSource = join(toolsDir, "任务表CLI.ts")
   const cliDestJs = join(projectDir, "任务表CLI.js")
   const readmeSource = join(toolsDir, "README.md")
   const readmeDest = join(projectDir, "任务表CLI使用说明书.md")
@@ -1015,8 +1163,8 @@ export async function main(): Promise<void> {
   if (existsSync(cliDestJs)) {
     const answer = await askUser(`[初始环境] 任务表CLI.js 已存在，是否覆盖？(y/n): `)
     if (answer.toLowerCase() !== 'n') {
-      await new Promise<void>((resolve) => {
-        const child = spawn("npx", ["esbuild", cliSource, `--outfile=${cliDestJs}`, "--platform=node", "--format=cjs", "--target=node18", "--charset=utf8"], {
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn("npx", ["tsx", join(toolsDir, "任务表Build.ts"), cliDestJs], {
           cwd: toolsDir,
           stdio: ['ignore', 'pipe', 'pipe']
         })
@@ -1025,23 +1173,25 @@ export async function main(): Promise<void> {
         child.on('close', (code) => {
           if (code === 0) {
             logFile.info(`[初始环境] CLI已覆盖 -> ${cliDestJs}`)
+            resolve()
           } else {
-            consoleAndLogFile.warn(`[初始环境] CLI编译失败 (exit=${code}): ${stderr.trim()}`)
+            const msg = `[初始环境] CLI编译失败 (exit=${code}): ${stderr.trim()}`
+            consoleAndLogFile.error(msg)
+            reject(new Error(msg))
           }
-          resolve()
         })
         child.on('error', (err) => {
-          consoleAndLogFile.warn(`[初始环境] CLI编译失败: ${err.message}`)
-          resolve()
+          const msg = `[初始环境] CLI编译失败: ${err.message}`
+          consoleAndLogFile.error(msg)
+          reject(new Error(msg))
         })
       })
     } else {
       consoleAndLogFile.info(`[初始环境] 跳过任务表CLI.js`)
     }
   } else {
-    await new Promise<void>((resolve) => {
-      const child = spawn("npx", ["esbuild", cliSource, `--outfile=${cliDestJs}`, "--platform=node", "--format=cjs", "--target=node18", "--charset=utf8"], {
-        cwd: toolsDir,
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn("npx", ["tsx", join(toolsDir, "任务表Build.ts"), cliDestJs], {
         stdio: ['ignore', 'pipe', 'pipe']
       })
       let stderr = ''
@@ -1049,14 +1199,17 @@ export async function main(): Promise<void> {
       child.on('close', (code) => {
         if (code === 0) {
           logFile.info(`[初始环境] CLI已编译 -> ${cliDestJs}`)
+          resolve()
         } else {
-          consoleAndLogFile.warn(`[初始环境] CLI编译失败 (exit=${code}): ${stderr.trim()}`)
+          const msg = `[初始环境] CLI编译失败 (exit=${code}): ${stderr.trim()}`
+          consoleAndLogFile.error(msg)
+          reject(new Error(msg))
         }
-        resolve()
       })
       child.on('error', (err) => {
-        consoleAndLogFile.warn(`[初始环境] CLI编译失败: ${err.message}`)
-        resolve()
+        const msg = `[初始环境] CLI编译失败: ${err.message}`
+        consoleAndLogFile.error(msg)
+        reject(new Error(msg))
       })
     })
   }
@@ -1281,6 +1434,7 @@ export async function main(): Promise<void> {
         let response = ""
         let validation: { valid: boolean; error?: string } = { valid: false, error: "未发送" }
         let 提前完成确认中 = false // 防止重复确认
+        let 提前完成已确认 = false // 确认后跳过派发验证
 
         for (let retry = 0; retry <= OUTPUT_MAX_FORMAT_RETRIES; retry++) {
           if (retry > 0) {
@@ -1307,6 +1461,7 @@ export async function main(): Promise<void> {
               if (规划者角色.确认提前完成(confirm)) {
                 consoleAndLogFile.info(`[提前完成] 确认项目已全部完成，跳出循环`)
                 validation.valid = true
+                提前完成已确认 = true
                 cycle = config.maxCycles // 触发外层while循环结束
                 break // 跳出验证重试循环
               }
@@ -1330,46 +1485,11 @@ export async function main(): Promise<void> {
 
         logFile.info(`<<< ${currentRole.name} 完成`)
         
-        // 【规划者任务标题验证 + 构建完整 upstream】
-        if (currentRole instanceof 规划者) {
-          const plannerOutput = extractJSON(response)
-          if (plannerOutput?.本轮任务标题) {
-            const taskTitle = plannerOutput.本轮任务标题.trim()
-            let isValid = await validateTaskTitle(projectDir, taskTitle)
-            
-            if (!isValid) {
-              consoleAndLogFile.warn(`[任务验证] 任务标题"${taskTitle}"不存在于任务表中，要求重新派发`)
-              const retryMsg = `你派发的任务标题"${taskTitle}"在任务表中不存在。请检查任务表，派发一个真实存在的任务标题。`
-              const retryResp = await session.sendMsg({
-                msgSource: MSG_SOURCE.system,
-                content: retryMsg,
-              }, false)
-              
-              // 重新验证并更新 response
-              const retryOutput = extractJSON(retryResp)
-              if (retryOutput?.本轮任务标题) {
-                const retryTaskTitle = retryOutput.本轮任务标题.trim()
-                const retryValid = await validateTaskTitle(projectDir, retryTaskTitle)
-                if (retryValid) {
-                  currentTaskTitle = retryTaskTitle
-                  response = retryResp // 更新 response，后续 upstream 构建会使用这个
-                  consoleAndLogFile.info(`[任务验证] 重新派发的任务"${retryTaskTitle}"验证通过`)
-                } else {
-                  consoleAndLogFile.error(`[任务验证] 重新派发的任务"${retryTaskTitle}"仍不存在，继续执行但可能有问题`)
-                  currentTaskTitle = retryTaskTitle
-                  response = retryResp
-                }
-              } else {
-                // retry 后仍无有效标题，保留原标题
-                currentTaskTitle = taskTitle
-                isValid = true // 标记为"已处理"，跳过 otherwise 分支
-                consoleAndLogFile.warn(`[任务验证] 重新派发后仍未解析到任务标题，使用原标题"${taskTitle}"`)
-              }
-            } else {
-              currentTaskTitle = taskTitle
-              consoleAndLogFile.info(`[任务验证] 任务"${taskTitle}"验证通过`)
-            }
-          }
+        // 【规划者派发验证 + 构建完整 upstream】（提前完成已确认则跳过）
+        if (currentRole instanceof 规划者 && !提前完成已确认) {
+          const dispatch = await validatePlannerDispatch(projectDir, session, 规划者instance.validateOutput.bind(规划者instance), response)
+          currentTaskTitle = dispatch.title
+          response = dispatch.response
           
           // 构建完整 upstream（含任务描述、Tag、依赖链），保存用于下游角色和打回循环
           // 只在非打回循环时更新——打回期间 upstream 冻结，避免重复查询污染上下文

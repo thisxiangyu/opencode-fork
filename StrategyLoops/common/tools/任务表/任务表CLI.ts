@@ -152,6 +152,54 @@ function 统计子任务数(父任务标题: string): number {
   return count
 }
 
+function 检查所有子任务是否已完成(父任务标题: string): boolean {
+  const children = 获取任务表Db().prepare(
+    "SELECT 标题, 是否完成 FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 = ?"
+  ).all(父任务标题) as { 标题: string, 是否完成: number }[]
+  for (const child of children) {
+    if (!child.是否完成) return false
+    if (!检查所有子任务是否已完成(child.标题)) return false
+  }
+  return true
+}
+
+/**
+ * 尝试向上自动完成父任务。
+ * 当子任务完成时调用，检查同级任务是否全部完成，
+ * 如果是则将父任务标记为完成，并继续向上递归检查祖父任务。
+ * 只更新父任务本身，不级联更新其子任务。
+ */
+function 尝试向上自动完成(刚完成的任务标题: string): void {
+  // 获取刚完成的任务信息
+  const 刚完成的任务 = 获取任务表Db().prepare(
+    "SELECT 父任务标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0"
+  ).get(刚完成的任务标题) as { 父任务标题: string | null } | undefined
+
+  if (!刚完成的任务 || !刚完成的任务.父任务标题) {
+    // 没有父任务，递归终止
+    return
+  }
+
+  const 父任务标题 = 刚完成的任务.父任务标题
+
+  // 检查同级任务（父任务的其他子任务）是否全部完成
+  const 同级任务 = 获取任务表Db().prepare(
+    "SELECT 是否完成 FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 = ?"
+  ).all(父任务标题) as { 是否完成: number }[]
+
+  const allSiblingsDone = 同级任务.every(s => s.是否完成)
+
+  if (allSiblingsDone) {
+    // 所有同级任务都完成了，标记父任务为完成
+    获取任务表Db().prepare(
+      "UPDATE 任务表 SET 是否完成 = 1 WHERE 标题 = ?"
+    ).run(父任务标题)
+
+    // 递归继续向上检查祖父任务
+    尝试向上自动完成(父任务标题)
+  }
+}
+
 function 级联更新字段(父任务标题: string, 字段: string, 值: number | string | null): void {
   const children = 获取任务表Db().prepare(
     "SELECT 标题 FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 = ?"
@@ -434,7 +482,7 @@ export const 任务表 = {
 
     const 子任务总数 = 统计子任务数(标题trim)
     if (子任务总数 > 0) {
-      return { 成功: false, 消息: `当前操作删除任务：《${标题trim}》，包含${子任务总数}个子任务或次级子任务均会删除！请确认。`, 需要确认: true, 子任务数: 子任务总数 }
+      return { 成功: false, 消息: `该操作将把全部子任务级联标记为删除，请确认：`, 需要确认: true, 子任务数: 子任务总数 }
     }
 
     级联更新字段(标题trim, "是否删除", 1)
@@ -772,30 +820,11 @@ export const 任务表 = {
   },
 
   标记为已完成(标题: string): 任务操作结果 {
-    const 标题trim = 标题.trim()
-    if (!标题trim) return { 成功: false, 消息: "标题不能为空" }
-    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
-    if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` }
-
-    const 子任务总数 = 统计子任务数(标题trim)
-    if (子任务总数 > 0) {
-      return { 成功: false, 消息: `当前操作标记任务《${标题trim}》为已完成，包含${子任务总数}个子任务或次级子任务均会级联标记为完成！请确认。`, 需要确认: true, 子任务数: 子任务总数 }
-    }
-
-    级联更新字段(标题trim, "是否完成", 1)
-    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
-    return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成`, res任务: updated ? 解析任务行(updated) : undefined }
+    return _完成任务(标题)
   },
 
   确认完成(标题: string): 任务操作结果 {
-    const 标题trim = 标题.trim()
-    if (!标题trim) return { 成功: false, 消息: "标题不能为空" }
-    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
-    if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` }
-
-    级联更新字段(标题trim, "是否完成", 1)
-    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
-    return { 成功: true, 消息: `已将任务「${标题trim}」及其所有子任务标记为已完成`, res任务: updated ? 解析任务行(updated) : undefined }
+    return _完成任务(标题)
   },
 
   添加动态(标题: string, 角色: string, 消息: string): 任务操作结果 {
@@ -812,6 +841,35 @@ export const 任务表 = {
     const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
     return { 成功: true, 消息: `已为任务「${标题trim}」添加动态`, res任务: updated ? 解析任务行(updated) : undefined }
   },
+}
+
+/**
+ * 内部函数：完成任务
+ */
+function _完成任务(标题: string): 任务操作结果 {
+  const 标题trim = 标题.trim()
+  if (!标题trim) return { 成功: false, 消息: "标题不能为空" }
+  const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
+  if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` }
+
+  const 子任务总数 = 统计子任务数(标题trim)
+  // 如果是父任务，检查所有子任务是否都已完成
+  if (子任务总数 > 0) {
+    if (!检查所有子任务是否已完成(标题trim)) {
+      return { 成功: false, 消息: `不允许直接将父任务标记为完成，请先确保所有子任务完成` }
+    }
+    // 所有子任务都已完成，只标记父任务自身为完成（子任务已完成，无需重复更新）
+    获取任务表Db().prepare("UPDATE 任务表 SET 是否完成 = 1 WHERE 标题 = ?").run(标题trim)
+    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
+    return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成`, res任务: updated ? 解析任务行(updated) : undefined }
+  }
+
+  // 末端任务：标记为完成后，尝试向上自动完成父任务
+  获取任务表Db().prepare("UPDATE 任务表 SET 是否完成 = 1 WHERE 标题 = ?").run(标题trim)
+  尝试向上自动完成(标题trim)
+
+  const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ?").get(标题trim) as 任务Row | undefined
+  return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成`, res任务: updated ? 解析任务行(updated) : undefined }
 }
 
 function 构建时间过滤条件(从: string | undefined, 到: string | undefined): { sql: string, params: string[], 校验失败消息: string | null } {

@@ -44,8 +44,13 @@ afterAll(() => {
 })
 
 function clearAllTasks() {
-  const db = getDb()
-  db.exec("DELETE FROM 任务表")
+  try {
+    getDb().exec("DELETE FROM 任务表")
+  } catch {
+    // 如果获取数据库失败，尝试重新初始化
+    cleanDb()
+    initDb("test")
+  }
 }
 
 function 获取所有子任务(父任务标题: string): 任务[] {
@@ -275,8 +280,7 @@ describe("2.1 级联删除", () => {
     expect(result.成功).toBe(false)
     expect(result.需要确认).toBe(true)
     expect(result.子任务数).toBe(3)
-    expect(result.消息).toContain("级联根任务")
-    expect(result.消息).toContain("3个子任务")
+    expect(result.消息).toContain("该操作将把所有子任务和孙任务全部标记为删除，请确认：")
   })
 
   test("确认删除应级联删除所有子任务", () => {
@@ -755,7 +759,7 @@ describe("10. 标记为已完成", () => {
 })
 
 describe("10.1 级联标记为已完成", () => {
-  beforeAll(() => {
+  beforeEach(() => {
     clearAllTasks()
     任务表.添加任务(null, "根描述", "完成根任务", 0, 任务Tag.MILESTONE)
     任务表.添加任务("完成根任务", "子A描述", "完成子A", 0, 任务Tag.FEAT)
@@ -763,24 +767,49 @@ describe("10.1 级联标记为已完成", () => {
     任务表.添加任务("完成根任务", "子B描述", "完成子B", 1, 任务Tag.FEAT)
   })
 
-  test("标记有子任务的任务应返回需要确认", () => {
+  test("标记有未完成子任务的父任务应报错且不改变任何完成状态", () => {
     const result = 任务表.标记为已完成("完成根任务")
     expect(result.成功).toBe(false)
-    expect(result.需要确认).toBe(true)
-    expect(result.子任务数).toBe(3)
-    expect(result.消息).toContain("完成根任务")
-    expect(result.消息).toContain("3个子任务")
+    expect(result.消息).toContain("不允许直接将父任务标记为完成")
+    expect(result.消息).toContain("请先确保所有子任务完成")
+    // 验证没有任何任务的完成状态被改变
+    expect(任务表.按标题查("完成根任务")[0].是否完成).toBe(false)
+    expect(任务表.按标题查("完成子A")[0].是否完成).toBe(false)
+    expect(任务表.按标题查("完成孙A")[0].是否完成).toBe(false)
+    expect(任务表.按标题查("完成子B")[0].是否完成).toBe(false)
   })
 
-  test("确认完成应级联标记所有子任务", () => {
+  test("确认完成有未完成子任务的父任务应报错且不改变任何完成状态", () => {
     const result = 任务表.确认完成("完成根任务")
+    expect(result.成功).toBe(false)
+    expect(result.消息).toContain("不允许直接将父任务标记为完成")
+    expect(result.消息).toContain("请先确保所有子任务完成")
+    // 验证没有任何任务的完成状态被改变
+    expect(任务表.按标题查("完成根任务")[0].是否完成).toBe(false)
+    expect(任务表.按标题查("完成子A")[0].是否完成).toBe(false)
+    expect(任务表.按标题查("完成孙A")[0].是否完成).toBe(false)
+    expect(任务表.按标题查("完成子B")[0].是否完成).toBe(false)
+  })
+
+  test("所有子任务完成后标记父任务应成功", () => {
+    // 先完成所有子任务
+    任务表.标记为已完成("完成孙A")
+    任务表.标记为已完成("完成子A")
+    任务表.标记为已完成("完成子B")
+    // 再标记父任务
+    const result = 任务表.标记为已完成("完成根任务")
     expect(result.成功).toBe(true)
-    expect(result.消息).toContain("完成根任务")
-    expect(result.消息).toContain("所有子任务")
     expect(result.res任务!.是否完成).toBe(true)
   })
 
   test("级联完成后所有子任务均标记为已完成", () => {
+    // 先完成所有子任务
+    任务表.标记为已完成("完成孙A")
+    任务表.标记为已完成("完成子A")
+    任务表.标记为已完成("完成子B")
+    // 标记父任务
+    任务表.标记为已完成("完成根任务")
+
     const 根 = 任务表.按标题查("完成根任务")
     expect(根[0].是否完成).toBe(true)
     const 子A = 任务表.按标题查("完成子A")
@@ -796,8 +825,133 @@ describe("10.1 级联标记为已完成", () => {
     任务表.添加任务(null, "描述", "孤立完成任务", 0, 任务Tag.FEAT)
     const result = 任务表.标记为已完成("孤立完成任务")
     expect(result.成功).toBe(true)
-    expect(result.需要确认).toBeUndefined()
     expect(result.消息).toContain("已完成")
+  })
+})
+
+describe("10.2 末端任务完成时检查同级任务触发父任务级联完成", () => {
+  beforeEach(() => {
+    clearAllTasks()
+    // 创建结构：父任务 -> 子任务A, 子任务B, 子任务C
+    任务表.添加任务(null, "父描述", "级联父任务", 0, 任务Tag.MILESTONE)
+    任务表.添加任务("级联父任务", "子A描述", "级联子A", 0, 任务Tag.FEAT)
+    任务表.添加任务("级联父任务", "子B描述", "级联子B", 1, 任务Tag.FEAT)
+    任务表.添加任务("级联父任务", "子C描述", "级联子C", 2, 任务Tag.FEAT)
+  })
+
+  test("完成第一个子任务后父任务不应自动完成", () => {
+    const result = 任务表.标记为已完成("级联子A")
+    expect(result.成功).toBe(true)
+    const 父 = 任务表.按标题查("级联父任务")
+    expect(父[0].是否完成).toBe(false)
+  })
+
+  test("完成第二个子任务后父任务仍不应自动完成", () => {
+    const result = 任务表.标记为已完成("级联子B")
+    expect(result.成功).toBe(true)
+    const 父 = 任务表.按标题查("级联父任务")
+    expect(父[0].是否完成).toBe(false)
+  })
+
+  test("完成最后一个同级子任务后父任务应自动标记为完成", () => {
+    // 先完成子A和子B，确保它们标记为完成
+    任务表.标记为已完成("级联子A")
+    任务表.标记为已完成("级联子B")
+
+    // 再完成子C，此时同级任务子A和子B都已完成，父任务应自动完成
+    const result = 任务表.标记为已完成("级联子C")
+    expect(result.成功).toBe(true)
+    const 父 = 任务表.按标题查("级联父任务")
+    expect(父[0].是否完成).toBe(true)
+  })
+})
+
+describe("10.3 多层级联完成", () => {
+  beforeEach(() => {
+    clearAllTasks()
+    // 创建三层结构：根 -> 父1/父2 -> 孙1/孙2/孙3/孙4
+    任务表.添加任务(null, "多级根描述", "多级根任务", 0, 任务Tag.MILESTONE)
+    任务表.添加任务("多级根任务", "父1描述", "多级父1", 0, 任务Tag.FEAT)
+    任务表.添加任务("多级根任务", "父2描述", "多级父2", 1, 任务Tag.FEAT)
+    任务表.添加任务("多级父1", "孙1描述", "多级孙1", 0, 任务Tag.FEAT)
+    任务表.添加任务("多级父1", "孙2描述", "多级孙2", 1, 任务Tag.FEAT)
+    任务表.添加任务("多级父2", "孙3描述", "多级孙3", 0, 任务Tag.FEAT)
+    任务表.添加任务("多级父2", "孙4描述", "多级孙4", 1, 任务Tag.FEAT)
+  })
+
+  test("完成所有孙任务后只触发直接父任务自动完成", () => {
+    // 完成孙1 - 父1不会自动完成因为孙2还没完成
+    任务表.标记为已完成("多级孙1")
+    expect(任务表.按标题查("多级父1")[0].是否完成).toBe(false)
+
+    // 完成孙2 - 父1所有子任务完成，父1应自动完成
+    任务表.标记为已完成("多级孙2")
+    expect(任务表.按标题查("多级父1")[0].是否完成).toBe(true)
+    // 父2不会受影响
+    expect(任务表.按标题查("多级父2")[0].是否完成).toBe(false)
+    // 根任务不会完成因为父2还有孙任务未完成
+    expect(任务表.按标题查("多级根任务")[0].是否完成).toBe(false)
+  })
+
+  test("完成孙3不会触发父2自动完成因为孙4还未完成", () => {
+    // 孙3的同级任务孙4还未完成，所以父2不会自动完成
+    const result = 任务表.标记为已完成("多级孙3")
+    expect(result.成功).toBe(true)
+    expect(任务表.按标题查("多级父2")[0].是否完成).toBe(false)
+  })
+
+  test("孙任务完成后检查孙4状态确保多层级数据正确", () => {
+    // 完成孙1、孙2、孙3、孙4
+    任务表.标记为已完成("多级孙1")
+    任务表.标记为已完成("多级孙2")
+    任务表.标记为已完成("多级孙3")
+    任务表.标记为已完成("多级孙4")
+
+    // 验证所有孙任务都完成
+    expect(任务表.按标题查("多级孙1")[0].是否完成).toBe(true)
+    expect(任务表.按标题查("多级孙2")[0].是否完成).toBe(true)
+    expect(任务表.按标题查("多级孙3")[0].是否完成).toBe(true)
+    expect(任务表.按标题查("多级孙4")[0].是否完成).toBe(true)
+
+    // 验证父1和父2都自动完成
+    expect(任务表.按标题查("多级父1")[0].是否完成).toBe(true)
+    expect(任务表.按标题查("多级父2")[0].是否完成).toBe(true)
+
+    // 根任务应自动完成因为所有子任务（父1和父2）都完成了
+    // 这是级联完成的正确行为：孙->父->根递归向上
+    expect(任务表.按标题查("多级根任务")[0].是否完成).toBe(true)
+  })
+})
+
+describe("10.4 根任务完成行为", () => {
+  beforeEach(() => {
+    clearAllTasks()
+    任务表.添加任务(null, "根描述", "根完成测试", 0, 任务Tag.MILESTONE)
+    任务表.添加任务("根完成测试", "子描述", "根子任务1", 0, 任务Tag.FEAT)
+    任务表.添加任务("根完成测试", "子描述", "根子任务2", 1, 任务Tag.FEAT)
+  })
+
+  test("完成根任务的第一个子任务后根任务不应自动完成", () => {
+    任务表.标记为已完成("根子任务1")
+    const 根 = 任务表.按标题查("根完成测试")
+    expect(根[0].是否完成).toBe(false)
+  })
+
+  test("完成根任务的所有子任务后根任务应自动完成", () => {
+    任务表.标记为已完成("根子任务1")
+    任务表.标记为已完成("根子任务2")
+    const 根 = 任务表.按标题查("根完成测试")
+    expect(根[0].是否完成).toBe(true)
+  })
+
+  test("只有单一子任务的根任务在子任务完成后根任务应自动完成", () => {
+    clearAllTasks()
+    任务表.添加任务(null, "根描述", "单子根", 0, 任务Tag.MILESTONE)
+    任务表.添加任务("单子根", "子描述", "单子任务", 0, 任务Tag.FEAT)
+
+    任务表.标记为已完成("单子任务")
+    const 根 = 任务表.按标题查("单子根")
+    expect(根[0].是否完成).toBe(true)
   })
 })
 
@@ -1017,6 +1171,46 @@ function runCli(args: string[], env: Record<string, string> = {}): Promise<{ std
   })
 }
 
+// 辅助函数：运行需要交互输入的 CLI 命令
+// 注意：CLI 在需要确认时会先输出提示文本到 stdout，再输出 JSON
+// 因此 stdout 可能是混合文本，需要提取其中的 JSON
+function runCliWithInput(args: string[], input: string, env: Record<string, string> = {}): Promise<{ stdout: string, stderr: string, exitCode: number, jsonOutput?: object }> {
+  return new Promise((resolve) => {
+    const cliPath = join(__dirname, "../任务表CLI.ts")
+    const proc = spawn("npx", ["tsx", cliPath, ...args], {
+      env: { ...process.env, ...env },
+      stdio: ['pipe', 'pipe', 'pipe']
+    })
+
+    let stdout = ''
+    let stderr = ''
+    proc.stdout?.on('data', (data) => { stdout += data.toString() })
+    proc.stderr?.on('data', (data) => { stderr += data.toString() })
+
+    proc.on('close', (exitCode) => {
+      // 尝试从 stdout 中提取 JSON（可能有提示文本在前）
+      let jsonOutput: object | undefined
+      const jsonStart = stdout.indexOf('{')
+      if (jsonStart !== -1) {
+        try {
+          jsonOutput = JSON.parse(stdout.slice(jsonStart))
+        } catch {
+          // JSON 解析失败，忽略
+        }
+      }
+      resolve({ stdout, stderr, exitCode: exitCode ?? 0, jsonOutput })
+    })
+
+    proc.on('error', (err) => {
+      resolve({ stdout, stderr: err.message, exitCode: 1 })
+    })
+
+    // 发送输入
+    proc.stdin?.write(input)
+    proc.stdin?.end()
+  })
+}
+
 describe("CLI命令集成测试", () => {
   const cliEnv = { TASKTABLE_PROJECT_NAME: "test" }
 
@@ -1082,6 +1276,84 @@ describe("CLI命令集成测试", () => {
     const { stdout } = await runCli(["delete", "--标题", "CLI删除测试任务"], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
+  })
+
+  test("CLI 删除有子任务的任务，输入 y 确认删除", async () => {
+    // 先添加父任务和子任务
+    await runCli([
+      "add",
+      "--标题", "CLI待删除父任务",
+      "--描述", "用于测试交互删除",
+      "--优先级", "0",
+      "--Tag", "milestone",
+    ], cliEnv)
+    await runCli([
+      "add",
+      "--标题", "CLI待删除子任务",
+      "--描述", "子任务描述",
+      "--优先级", "0",
+      "--Tag", "feat",
+      "--父任务", "CLI待删除父任务",
+    ], cliEnv)
+
+    // 确认任务存在
+    let { stdout: queryStdout } = await runCli(["query-by-title", "--标题", "CLI待删除父任务"], cliEnv)
+    let queryResult = JSON.parse(queryStdout)
+    expect(queryResult.成功).toBe(true)
+    expect(queryResult.任务[0].已删除).toBe(false)
+
+    // 输入 y 确认删除
+    const { jsonOutput } = await runCliWithInput(["delete", "--标题", "CLI待删除父任务"], "y\n", cliEnv)
+    expect(jsonOutput).toBeDefined()
+    expect((jsonOutput as any).成功).toBe(true)
+    expect((jsonOutput as any).消息).toContain("已删除任务")
+    expect((jsonOutput as any).消息).toContain("所有子任务")
+
+    // 验证任务已被删除
+    queryStdout = await runCli(["query-by-title", "--标题", "CLI待删除父任务"], cliEnv).then(r => r.stdout)
+    queryResult = JSON.parse(queryStdout)
+    expect(queryResult.任务[0].已删除).toBe(true)
+  })
+
+  test("CLI 删除有子任务的任务，输入 n 取消删除", async () => {
+    // 先添加父任务和子任务
+    await runCli([
+      "add",
+      "--标题", "CLI取消删除父任务",
+      "--描述", "用于测试取消删除",
+      "--优先级", "0",
+      "--Tag", "milestone",
+    ], cliEnv)
+    await runCli([
+      "add",
+      "--标题", "CLI取消删除子任务",
+      "--描述", "子任务描述",
+      "--优先级", "0",
+      "--Tag", "feat",
+      "--父任务", "CLI取消删除父任务",
+    ], cliEnv)
+
+    // 确认任务存在
+    let { stdout: queryStdout } = await runCli(["query-by-title", "--标题", "CLI取消删除父任务"], cliEnv)
+    let queryResult = JSON.parse(queryStdout)
+    expect(queryResult.成功).toBe(true)
+    expect(queryResult.任务[0].已删除).toBe(false)
+
+    // 输入 n 取消删除
+    const { jsonOutput } = await runCliWithInput(["delete", "--标题", "CLI取消删除父任务"], "n\n", cliEnv)
+    expect(jsonOutput).toBeDefined()
+    expect((jsonOutput as any).成功).toBe(false)
+    expect((jsonOutput as any).消息).toBe("已取消删除")
+
+    // 验证任务未被删除
+    queryStdout = await runCli(["query-by-title", "--标题", "CLI取消删除父任务"], cliEnv).then(r => r.stdout)
+    queryResult = JSON.parse(queryStdout)
+    expect(queryResult.任务[0].已删除).toBe(false)
+
+    // 子任务也未被删除
+    queryStdout = await runCli(["query-by-title", "--标题", "CLI取消删除子任务"], cliEnv).then(r => r.stdout)
+    queryResult = JSON.parse(queryStdout)
+    expect(queryResult.任务[0].已删除).toBe(false)
   })
 
   test("CLI query-deleted命令", async () => {
