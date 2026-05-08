@@ -291,7 +291,7 @@ describe("场景6: 超过聚焦数量上限（复杂树结构）", () => {
     // 展示数量应在统计行中
     const match = view.match(/当前展示数量: (\d+)/)
     expect(match).not.toBeNull()
-    const shown = parseInt(match![1])
+    const shown = parseInt(match![1] as string)
     // 根任务 4 + 最多30个近期非根任务 + 它们的祖先（不会重复计算根）
     // 实际展示数量取决于去重后的数量
     expect(shown).toBeGreaterThanOrEqual(4)
@@ -310,8 +310,8 @@ describe("场景6: 超过聚焦数量上限（复杂树结构）", () => {
     const match30 = view30.match(/当前展示数量: (\d+)/)
     expect(match10).not.toBeNull()
     expect(match30).not.toBeNull()
-    const shown10 = parseInt(match10![1])
-    const shown30 = parseInt(match30![1])
+    const shown10 = parseInt(match10![1] as string)
+    const shown30 = parseInt(match30![1] as string)
     expect(shown10).toBeLessThan(shown30)
   })
 })

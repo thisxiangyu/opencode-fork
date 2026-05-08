@@ -55,7 +55,10 @@ function clearAllTasks() {
 
 function 获取所有子任务(父任务标题: string): 任务[] {
   const db = getDb()
-  const rows = db.prepare("SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务标题 = ? ORDER BY 优先级序号 ASC").all(父任务标题) as 任务Row[]
+  // 先通过标题查找父任务的ID
+  const parent = db.prepare("SELECT id FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(父任务标题) as { id: number } | undefined
+  if (!parent) return []
+  const rows = db.prepare("SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID = ? ORDER BY 优先级序号 ASC").all(parent.id) as 任务Row[]
   return rows.map(解析任务行)
 }
 
@@ -280,7 +283,7 @@ describe("2.1 级联删除", () => {
     expect(result.成功).toBe(false)
     expect(result.需要确认).toBe(true)
     expect(result.子任务数).toBe(3)
-    expect(result.消息).toContain("该操作将把所有子任务和孙任务全部标记为删除，请确认：")
+    expect(result.消息).toContain("该操作将把全部子任务级联标记为删除，请确认：")
   })
 
   test("确认删除应级联删除所有子任务", () => {
@@ -484,17 +487,29 @@ describe("8. 改标题", () => {
     expect((result.res任务 as 任务).标题).toBe("新标题任务")
   })
 
-  test("子任务的父任务标题已级联更新", () => {
+  test("子任务的父任务ID保持不变（基于ID的索引不受标题更名影响）", () => {
     const child = 任务表.按标题查("旧标题的子任务")
     expect(child).toHaveLength(1)
-    expect(child[0].父任务标题).toBe("新标题任务")
+    // 父子关系基于ID存储，父任务ID保持不变
+    expect(child[0].父任务ID).toBeDefined()
+    // 通过父任务ID查询能正确找到更名后的父任务
+    const parent = 任务表.按标题查("新标题任务")
+    expect(parent).toHaveLength(1)
+    expect(parent[0].id).toBe(child[0].父任务ID)
   })
 
-  test("依赖中的任务标题已级联更新", () => {
+  test("依赖中的任务ID保持不变（基于ID的索引不受标题更名影响）", () => {
     const refTask = 任务表.按标题查("引用旧标题的任务")
     expect(refTask).toHaveLength(1)
     const deps = JSON.parse(refTask[0].依赖!) as 任务依赖[]
-    expect(deps[0].依赖任务).toBe("新标题任务")
+    // 依赖基于ID存储，依赖任务ID保持不变
+    expect(deps[0].依赖任务ID).toBeDefined()
+    // 依赖任务标题不变（仅存储时记录，不随目标任务更名而更新）
+    expect(deps[0].依赖任务).toBe("旧标题任务")
+    // 但通过ID能正确找到更名后的任务
+    const actualTask = 任务表.按标题查("新标题任务")
+    expect(actualTask).toHaveLength(1)
+    expect(actualTask[0].id).toBe(deps[0].依赖任务ID)
   })
 
   test("新标题已存在应失败", () => {
