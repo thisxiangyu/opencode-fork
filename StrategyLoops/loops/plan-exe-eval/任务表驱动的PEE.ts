@@ -112,7 +112,7 @@ function extractJSON(raw: string): Record<string, any> | null {
   try { const v = JSON.parse(raw.trim()); if (typeof v === "object" && v !== null) return v } catch {}
   // 尝试匹配 ```json ... ``` 或 ``` ... ``` 代码块
   const codeBlock = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
-  if (codeBlock) {
+  if (codeBlock && codeBlock[1]) {
     try { const v = JSON.parse(codeBlock[1].trim()); if (typeof v === "object" && v !== null) return v } catch {}
   }
   // 尝试匹配第一个平衡的 { ... } 对象（支持 JSON 前后有琐碎上下文）
@@ -129,11 +129,11 @@ function extractJSON(raw: string): Record<string, any> | null {
 //    届时，本地 systemPrompt 的生成应当遵循两个原则：了解模型（通过benchmark）、了解用户（通过用户数据）、了解项目（通过项目数据）。
 
 /**
- * 【一句话动态】输出 schema。
+ * 【修复性动态】输出 schema。
  * 供冗余枝剪者、质保员、边缘质保员三个"检查-修复-汇报"型角色复用。
  * 主循环会据此自动注入格式要求，无需再在 knowledgeDomainPrompt 中硬编码。
  */
-const 一句话动态Schema = {
+const 修复性动态Schema = {
   type: "object",
   required: ["一句话动态"],
   properties: {
@@ -144,11 +144,41 @@ const 一句话动态Schema = {
   },
 }
 
-function validate一句话动态(raw: string): { valid: boolean; error?: string } {
+/**
+ * 【提交员动态】输出 schema。
+ * 要求包含本次提交的哈希信息。
+ */
+const 提交员动态Schema = {
+  type: "object",
+  required: ["一句话动态"],
+  properties: {
+    一句话动态: {
+      type: "string",
+      description: '必须严格为以下格式之一：\n1. 有提交时："已提交，git哈希: <哈希>，svn哈希: <哈希>"（没有某类仓库则省略对应行）\n2. 无提交时："无提交，原因: <原因>"',
+    },
+  },
+}
+
+function validate修复性动态(raw: string): { valid: boolean; error?: string } {
   const json = extractJSON(raw)
   if (!json) return { valid: false, error: "输出中未找到有效的 JSON 对象" }
   if (typeof json.一句话动态 !== "string") return { valid: false, error: "一句话动态必须是字符串" }
   if (!json.一句话动态.trim()) return { valid: false, error: "一句话动态不能为空" }
+  return { valid: true }
+}
+
+function validate提交员动态(raw: string): { valid: boolean; error?: string } {
+  const json = extractJSON(raw)
+  if (!json) return { valid: false, error: "输出中未找到有效的 JSON 对象" }
+  if (typeof json.一句话动态 !== "string") return { valid: false, error: "一句话动态必须是字符串" }
+  if (!json.一句话动态.trim()) return { valid: false, error: "一句话动态不能为空" }
+  // 校验格式：必须是"已提交，git哈希: xxx"或"无提交，原因: xxx"
+  const content = json.一句话动态
+  const isCommit = content.startsWith("已提交，")
+  const isNoCommit = content.startsWith("无提交，原因:")
+  if (!isCommit && !isNoCommit) {
+    return { valid: false, error: '一句话动态必须以"已提交，git哈希: xxx"或"无提交，原因: xxx"开头' }
+  }
   return { valid: true }
 }
 
@@ -311,9 +341,9 @@ ${upstreamMsg}
   accessMode: "readonly" | "writable" = "writable"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
-  outputSchema = 一句话动态Schema
+  outputSchema = 修复性动态Schema
   validateOutput(raw: string): { valid: boolean; error?: string } {
-    return validate一句话动态(raw)
+    return validate修复性动态(raw)
   }
 }
 
@@ -386,9 +416,9 @@ ${upstreamMsg}
   accessMode: "readonly" | "writable" = "writable"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
-  outputSchema = 一句话动态Schema
+  outputSchema = 修复性动态Schema
   validateOutput(raw: string): { valid: boolean; error?: string } {
-    return validate一句话动态(raw)
+    return validate修复性动态(raw)
   }
 }
 
@@ -412,9 +442,9 @@ ${upstreamMsg}
   accessMode: "readonly" | "writable" = "writable"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
-  outputSchema = 一句话动态Schema
+  outputSchema = 修复性动态Schema
   validateOutput(raw: string): { valid: boolean; error?: string } {
-    return validate一句话动态(raw)
+    return validate修复性动态(raw)
   }
 }
 
@@ -457,19 +487,24 @@ ${upstreamMsg}
 export class 提交员 implements IRole {
   name = "Commitman"
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { 
+  knowledgeDomainPrompt() {
     return `你是一个提交员，负责提交仓库。包括git仓库（如有）、svn仓库（如有）等等。
 
-${Commit()}` 
-  }
-  systemPrompt(upstreamMsg: string) { return `根据现在仓库的情况决定是否提交、如何提交。` }
+${Commit()}
+
+【一句话动态要求】
+提交完成后，必须输出一句话动态，格式如下（JSON对象）：
+- 有提交时：{"一句话动态": "已提交，git哈希: <哈希>，svn哈希: <哈希>"}（没有某类仓库则省略对应行）
+- 无提交时：{"一句话动态": "无提交，原因: <原因>"}
+
+【重要】哈希必须从实际提交后的输出中获取，只提交了一个仓库就只写一个哈希，多个仓库都提交了必须分别写。` }
+  systemPrompt(upstreamMsg: string) { return `根据现在仓库的情况决定是否提交、如何提交。\n\n输出要求：按【一句话动态要求】输出JSON对象。` }
   accessMode: "readonly" | "writable" = "writable"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
-  outputSchema = { type: "text" }
+  outputSchema = 提交员动态Schema
   validateOutput(raw: string): { valid: boolean; error?: string } {
-    if (!raw.trim()) return { valid: false, error: "输出为空" }
-    return { valid: true }
+    return validate提交员动态(raw)
   }
 }
 
@@ -638,10 +673,10 @@ function getActivityRoleName(currentRole: IRole): string {
 }
 
 /**
- * 将角色自述的"一句话动态"写入任务表。
+ * 将角色自述的"修复性动态"写入任务表。
  *
- * 适用于冗余枝剪者 / 质保员 / 边缘质保员——这三个"检查-修复-汇报"型角色的 outputSchema
- * 统一约束为 `一句话动态Schema`，主循环解析出 `一句话动态` 字段后调用此函数搬运入库。
+ * 适用于冗余枝剪者 / 质保员 / 边缘质保员 / 提交员——这四个"检查-修复-汇报"型角色的 outputSchema
+ * 统一约束为 `修复性动态Schema`，主循环解析出 `一句话动态` 字段后调用此函数搬运入库。
  *
  * 与 recordRejectionActivity 的区别：打回动态由系统根据评估者/架构师的判决自动合成；
  * 此处的动态由角色自己生成，系统只负责透传。
@@ -685,7 +720,7 @@ async function recordRoleActivity(
 
 /**
  * 查询任务完整信息（含所有字段），返回解析后的任务对象。
- * 
+ *
  * CLI query-by-title 返回格式: { 成功: true, 数量: n, 任务: [...] }
  */
 async function queryTaskByTitleFull(projectDir: string, taskTitle: string): Promise<Record<string, any> | null> {
@@ -706,7 +741,7 @@ async function queryTaskByTitleFull(projectDir: string, taskTitle: string): Prom
 
     child.on('close', (exitCode) => {
       if (exitCode !== 0) {
-        logFile.warn(`[任务表] 查询任务失败: ${stderr.trim()}`)
+        logFile.warn(`[任务表] 按标题查询任务失败: ${stderr.trim()}`)
         resolve(null)
         return
       }
@@ -721,7 +756,51 @@ async function queryTaskByTitleFull(projectDir: string, taskTitle: string): Prom
     })
 
     child.on('error', (err) => {
-      logFile.warn(`[任务表] 查询任务失败: ${err.message}`)
+      logFile.warn(`[任务表] 按标题查询任务失败: ${err.message}`)
+      resolve(null)
+    })
+  })
+}
+
+/**
+ * 按ID查询任务完整信息（含所有字段），返回解析后的任务对象。
+ * ID是稳定索引，任务改名后仍能正确查询。
+ *
+ * CLI query-by-id 返回格式: { 成功: true, 任务: {...} }
+ */
+async function queryTaskByIdFull(projectDir: string, taskId: number): Promise<Record<string, any> | null> {
+  const cliPath = join(projectDir, "任务表CLI.js")
+  const projectName = projectDir.split("/").pop() || "project"
+
+  return new Promise((resolve) => {
+    const child = spawn("node", [cliPath, "query-by-id", "--id", String(taskId)], {
+      cwd: projectDir,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, TASKTABLE_PROJECT_NAME: projectName },
+    })
+
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (data) => { stdout += data.toString() })
+    child.stderr?.on('data', (data) => { stderr += data.toString() })
+
+    child.on('close', (exitCode) => {
+      if (exitCode !== 0) {
+        logFile.warn(`[任务表] 按ID查询任务失败: ${stderr.trim()}`)
+        resolve(null)
+        return
+      }
+      try {
+        const result = JSON.parse(stdout)
+        resolve(result.成功 && result.任务 ? result.任务 : null)
+      } catch (e) {
+        logFile.warn(`[任务表] 解析任务结果失败: ${e instanceof Error ? e.message : String(e)}`)
+        resolve(null)
+      }
+    })
+
+    child.on('error', (err) => {
+      logFile.warn(`[任务表] 按ID查询任务失败: ${err.message}`)
       resolve(null)
     })
   })
@@ -800,7 +879,7 @@ async function validatePlannerDispatch(
     }
 
     // 2. 解析依赖（损坏或非数组结构均视为不通过）
-    let dependencies: { 依赖任务: string; 原因: string }[] = []
+    let dependencies: { 依赖任务ID?: number; 依赖任务: string; 原因: string }[] = []
     if (task.依赖) {
       let parsed: unknown
       try {
@@ -821,32 +900,39 @@ async function validatePlannerDispatch(
         }, false)
         continue
       }
-      dependencies = parsed as { 依赖任务: string; 原因: string }[]
+      dependencies = parsed as { 依赖任务ID?: number; 依赖任务: string; 原因: string }[]
     }
 
-    // 3. 校验每个依赖项结构，缺失 依赖任务 字段的不合法
+    // 3. 校验每个依赖项结构，必须有 依赖任务 或 依赖任务ID
     if (dependencies.length > 0) {
-      const malformed = dependencies.findIndex(dep => !dep || typeof dep.依赖任务 !== "string" || !dep.依赖任务.trim())
+      const malformed = dependencies.findIndex(dep => !dep || (!dep.依赖任务?.trim() && !dep.依赖任务ID))
       if (malformed !== -1) {
-        consoleAndLogFile.warn(`[派发验证] 任务"${title}"的第${malformed + 1}条依赖缺少"依赖任务"字段，阻止派发`)
+        consoleAndLogFile.warn(`[派发验证] 任务"${title}"的第${malformed + 1}条依赖缺少"依赖任务"或"依赖任务ID"，阻止派发`)
         response = await session.sendMsg({
           msgSource: MSG_SOURCE.system,
-          content: `任务"${title}"的第${malformed + 1}条依赖数据不完整（缺少"依赖任务"字段），可能是任务表数据损坏。请检查并修复，或重新派发。`,
+          content: `任务"${title}"的第${malformed + 1}条依赖数据不完整（缺少"依赖任务"或"依赖任务ID"字段），可能是任务表数据损坏。请检查并修复，或重新派发。`,
         }, false)
         continue
       }
     }
 
-    // 4. 检查依赖是否全部完成且未被删除（仅检查一层依赖即可，这是预期内的）
+    // 4. 检查依赖是否全部完成且未被删除（优先用ID查询，ID更稳定；无ID则用标题）
     if (dependencies.length > 0) {
-      const checks = dependencies.map(dep => queryTaskByTitleFull(projectDir, dep.依赖任务))
+      const checks = dependencies.map(dep => {
+        if (dep.依赖任务ID) {
+          return queryTaskByIdFull(projectDir, dep.依赖任务ID)
+        }
+        return queryTaskByTitleFull(projectDir, dep.依赖任务)
+      })
       const results = await Promise.all(checks)
 
       const incompleteDeps: string[] = []
       for (let i = 0; i < dependencies.length; i++) {
         const depTask = results[i]
+        const dep = dependencies[i]
+        if (!dep) continue
         if (!depTask || depTask.已删除 || !depTask.是否完成) {
-          incompleteDeps.push(dependencies[i].依赖任务)
+          incompleteDeps.push(dep.依赖任务)
         }
       }
 
@@ -1516,12 +1602,12 @@ export async function main(): Promise<void> {
           }
         }
         
-        // 【冗余枝剪者/质保员/边缘质保员动态记录】
-        // 
+        // 【冗余枝剪者/质保员/边缘质保员/提交员动态记录】
+        //
         // 设计思路：
-        // 1. 这三个角色的 outputSchema 统一为 `一句话动态Schema`，要求输出 {"一句话动态": "..."}
+        // 1. 这四个角色的 outputSchema 统一为 `修复性动态Schema`，要求输出 {"一句话动态": "..."}
         // 2. 主循环的通用校验机制（L1200-L1230）已经对所有结构化输出角色进行了最多 3 次重试
-        // 3. 能走到这里的 response，要么已通过 validate一句话动态 校验，要么是 3 次重试后系统"接受原始输出"放行
+        // 3. 能走到这里的 response，要么已通过 validate 校验，要么是 3 次重试后系统"接受原始输出"放行
         // 4. 因此这里只需简单判断：解析成功就记录，解析失败就跳过（不再额外重试）
         // 5. 动态记录属于辅助信息，不应为此再消耗 1 轮 tokens——信任通用机制已经尽力
         //
@@ -1529,16 +1615,17 @@ export async function main(): Promise<void> {
         // - 打回动态：由系统根据分支路由自动合成消息（"evaluator打回N次"）
         // - 此处动态：由角色自己生成内容，系统只负责解析和搬运
         if (
-          currentRole instanceof 冗余枝剪者 || 
-          currentRole instanceof 质保员 || 
-          currentRole instanceof 边缘质保员
+          currentRole instanceof 冗余枝剪者 ||
+          currentRole instanceof 质保员 ||
+          currentRole instanceof 边缘质保员 ||
+          currentRole instanceof 提交员
         ) {
           const roleOutput = extractJSON(response)
           if (roleOutput?.一句话动态 && currentTaskTitle) {
             // 解析成功，记录动态
             const activityMessage = roleOutput.一句话动态
             const roleName = getActivityRoleName(currentRole)
-            
+
             await recordRoleActivity(projectDir, currentTaskTitle, roleName, activityMessage)
             consoleAndLogFile.info(`[${roleName}] 动态已记录: ${activityMessage}`)
           } else {
@@ -1547,7 +1634,7 @@ export async function main(): Promise<void> {
             logFile.warn(`[${currentRole.name}] 输出未包含有效的"一句话动态"字段，跳过动态记录`)
           }
         }
-        
+
         // 【提交员完成后提取提交信息】
         if (currentRole instanceof 提交员) {
           // 提取提交信息，作为下一轮规划者的 upstream
