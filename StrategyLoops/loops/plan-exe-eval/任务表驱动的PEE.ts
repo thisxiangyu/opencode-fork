@@ -18,6 +18,29 @@ import { existsSync, mkdirSync } from "fs"
 import { 代码评审, 架构评审, Commit } from "./metaPrompts/评审相关"
 import { 基于ReactNative和Electron技术栈, 强引用的基于TS代码的文档和注释原则} from "./metaPrompts/立项相关"
 
+// 导入工具函数
+import {
+  buildCommonUpstreamFromTaskQuery,
+  buildRejectionUpstream,
+  buildCompactorUpstream,
+  buildCommitmanUpstream,
+  buildUpstreamForRole,
+  buildRoundInfo,
+  buildMsgToBeSent,
+  createRejectionState,
+  enqueueRollbackInterruption,
+  extractJSON,
+  extractRejectionUpstream,
+  getDependencyDisplayName,
+  getRejectionActivityToRecord,
+  isDispatchableInterruption,
+  normalizeRoleName,
+  planResumedValidation,
+  resetRejectionState,
+  takeLatestDispatchableInterruption,
+  type RejectionState,
+} from "./PEE.utils"
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
@@ -57,6 +80,7 @@ const config = new LoopConfig({ maxCycles: 3 , startPrompt: makeAI网站开发St
 
 /** 输出格式校验最大重试次数 */
 const OUTPUT_MAX_FORMAT_RETRIES = 3
+const EXECUTOR_REJECTION_ROUNDINFO_SUFFIX = "检查是的确存在的问题还是瞎说。\n\n"
 
 /** 单个角色打回上限（第5次打回会触发） */
 const MAX_REJECTIONS_PER_ROLE = 4
@@ -64,68 +88,9 @@ const MAX_REJECTIONS_PER_ROLE = 4
 /** 总打回循环上限 */
 const MAX_TOTAL_REJECTION_LOOPS = 15
 
-/**
- * 从原始文本中提取第一个平衡的 `{...}` JSON 字符串。
- * 处理字符串内的转义引号、括号，以及 JSON 前后的琐碎上下文。
- *
- * - "好的，结果是{"前情点评":"..."}，请您过目" → {"前情点评":"..."}
- * - 引号内含有 `{` 或 `}` 不会干扰深度计数
- */
-function extractFirstJSON(raw: string): string | null {
-  const start = raw.indexOf("{")
-  if (start === -1) return null
-
-  let depth = 0
-  let inString = false
-  let escaped = false
-
-  for (let i = start; i < raw.length; i++) {
-    const ch = raw[i]
-    if (escaped) {
-      escaped = false
-      continue
-    }
-    if (ch === "\\") {
-      escaped = true
-      continue
-    }
-    if (ch === '"') {
-      inString = !inString
-      continue
-    }
-    if (inString) continue
-    if (ch === "{") depth++
-    if (ch === "}") {
-      depth--
-      if (depth === 0) return raw.slice(start, i + 1)
-    }
-  }
-  return null
-}
-
-/**
- * 从模型原始输出中提取 JSON 对象。
- * 模型常在 JSON 前后包裹 markdown 代码块或额外说明文字。
- */
-function extractJSON(raw: string): Record<string, any> | null {
-  // 尝试直接解析
-  try { const v = JSON.parse(raw.trim()); if (typeof v === "object" && v !== null) return v } catch {}
-  // 尝试匹配 ```json ... ``` 或 ``` ... ``` 代码块
-  const codeBlock = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/)
-  if (codeBlock && codeBlock[1]) {
-    try { const v = JSON.parse(codeBlock[1].trim()); if (typeof v === "object" && v !== null) return v } catch {}
-  }
-  // 尝试匹配第一个平衡的 { ... } 对象（支持 JSON 前后有琐碎上下文）
-  const candidate = extractFirstJSON(raw)
-  if (candidate) {
-    try { const v = JSON.parse(candidate); if (typeof v === "object" && v !== null) return v } catch {}
-  }
-  return null
-}
-
-// Note：角色的systemPrompt 是每轮都发的，但是其实理论上只要发一次就够了，因为“重要的事情说三遍”在大部分llm架构都未必成立。
+// Note：角色的systemPrompt 是每轮都发的，但是其实理论上只要发一次就够了，因为"重要的事情说三遍"在大部分llm架构都未必成立。
 // 后续可以试一下将systemPrompt接入一个本地模型，这样可以动态生成systemPrompt，看看效果怎么样。
-// ⭐️ 某种意义上来说，远程大模型相当于一支“雇佣军”，而本地大模型负责的是“秘书/管家”这样的端侧亲密的角色，
+// ⭐️ 某种意义上来说，远程大模型相当于一支"雇佣军"，而本地大模型负责的是"秘书/管家"这样的端侧亲密的角色，
 //    届时，本地 systemPrompt 的生成应当遵循两个原则：了解模型（通过benchmark）、了解用户（通过用户数据）、了解项目（通过项目数据）。
 
 /**
@@ -402,7 +367,7 @@ export class 质保员 implements IRole {
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个质保员，负责写测试、找bug/复现bug/记录bug。
 
-    确保覆盖率足够高。
+    确保覆盖率足够高。写真测试，不要写蠢测试。
 
     工作流程：
     1. 先检查问题：查阅仓库变更，检查测试覆盖率，排查bug，识别缺失的测试用例
@@ -430,7 +395,7 @@ export class 边缘质保员 implements IRole {
 
     关注的边缘情况包括7类：大数据量、大参数量、多次重复操作、交叠式重复操作、覆盖式操作、特殊情况中断、长时间运行。
 
-    不要死脑筋，有一些逻辑面对以上情况肯定不会有事。但有一些逻辑面对以上情况是高危的。针对后者设计充分必要的测试。
+    不要死脑筋，有一些逻辑面对以上情况肯定不会有事不用测。但有一些逻辑面对以上情况是高危的。针对后者设计充分必要的测试。
 
     确保覆盖率足够高。
 
@@ -516,104 +481,11 @@ ${Commit()}
 export const 策略描述 = "任务表驱动的PEE（plan-execute-eval）策略"
 export const backendURL = "http://127.0.0.1:4096"
 
-/**
- * 从中断队列中取出最新一条可派发的中断，并清空整条队列。
- *
- * ## 扫描方向：从尾到头
- * 队列可能在异步操作期间堆积多条中断事件。从尾部（最新）开始扫描，
- * 确保优先处理最近一次用户操作，而非早期已过时的中断。
- *
- * ## 可派发判定
- * 只有 pause / new_message / rollback 视为"可派发"——这三种中断
- * 需要重新定位角色并派发消息。而 aborted 类中断不在此处理：
- * aborted 在 catch (AbortError) 路径中单独处理，随后通过手工补充的
- * rollback 事件重新进入本函数进行派发。
- *
- * ## 清空队列的语义
- * 一旦找到一条有效的中断，立即清空整条队列。设计假设是：最新的
- * 可派发中断代表用户的最新意图，此前的旧中断事件已无意义。
- * 不留残余也避免了下一轮循环重复处理过时事件。
- *
- * @returns 最新可派发的中断事件，队列为空或无匹配时返回 null
- */
-function takeLatestDispatchableInterruption(queue: InterruptedMsgContext[]): InterruptedMsgContext | null {
-  for (let index = queue.length - 1; index >= 0; index--) {
-    const item = queue[index]
-    if (!item) continue
-    if (!isDispatchableInterruption(item.reason)) continue
-    queue.length = 0
-    return item
-  }
-  return null
-}
-
-function isDispatchableInterruption(reason: InterruptedMsgContext["reason"]): boolean {
-  return (
-    reason === INTERRUPTION_REASON.pause ||
-    reason === INTERRUPTION_REASON.new_message ||
-    reason === INTERRUPTION_REASON.rollback
-  )
-}
-
 function isCycleCompleted(nextRole: IRole, theFirstRole: IRole): boolean {
   return nextRole.name === theFirstRole.name
 }
 
-/**
- * 打回状态管理
- */
-interface RejectionState {
-  /** 评估者打回次数 */
-  evaluatorRejections: number
-  /** 架构师打回次数 */
-  architectRejections: number
-  /** 执行者实践次数 */
-  executorPractices: number
-  /** 总打回循环次数 */
-  totalRejectionLoops: number
-  /** 是否处于打回循环中 */
-  inRejectionLoop: boolean
-  /** 打回循环的起点角色（evaluator 或 architect） */
-  rejectionSource?: "evaluator" | "architect"
-  /** 规划者的原始信息（打回循环期间保持不变） */
-  frozenPlannerInfo?: string
-}
 
-function resetRejectionState(rejectionState: RejectionState ){
-    rejectionState.evaluatorRejections = 0
-    rejectionState.architectRejections = 0
-    rejectionState.executorPractices = 0
-    rejectionState.inRejectionLoop = false
-    rejectionState.rejectionSource = undefined
-    rejectionState.frozenPlannerInfo = undefined
-}
-
-function createRejectionState(): RejectionState {
-  return {
-    evaluatorRejections: 0,
-    architectRejections: 0,
-    executorPractices: 0,
-    totalRejectionLoops: 0,
-    inRejectionLoop: false,
-  }
-}
-
-/**
- * 生成打回循环的 upstream 信息
- */
-function buildRejectionUpstream(state: RejectionState): string {
-  const parts: string[] = ["正在协作优化中"]
-  if (state.evaluatorRejections > 0) {
-    parts.push(`评估者第${state.evaluatorRejections}次打回`)
-  }
-  if (state.architectRejections > 0) {
-    parts.push(`架构师第${state.architectRejections}次打回`)
-  }
-  if (state.executorPractices > 0) {
-    parts.push(`执行者第${state.executorPractices}次实践`)
-  }
-  return parts.join("  ")
-}
 
 /**
  * 将评估者/架构师的打回事件合成为一条动态写入任务表。
@@ -624,7 +496,7 @@ function buildRejectionUpstream(state: RejectionState): string {
  * 与 recordRoleActivity 的区别：此处的 activity message 由系统合成，角色自身
  * 的输出内容（问题列表、打回留言）不入库，仅通过 upstream 传给执行者。
  *
- * CLI 失败只写日志不抛错——动态记录属于辅助信息，不应阻断主循环。
+ * 【重要】CLI 脚本丢失时直接抛异常，因为动态记录是打回追踪的关键依据。
  */
 async function recordRejectionActivity(
   projectDir: string,
@@ -633,6 +505,12 @@ async function recordRejectionActivity(
   rejectionCount: number
 ): Promise<void> {
   const cliPath = join(projectDir, "任务表CLI.js")
+
+  // 检查CLI是否存在，不存在则抛异常
+  if (!existsSync(cliPath)) {
+    throw new Error(`任务表CLI脚本不存在: ${cliPath}，无法记录打回动态。请确保项目根目录存在任务表CLI。`)
+  }
+
   const projectName = projectDir.split("/").pop() || "project"
   const message = `${roleName}打回${rejectionCount}次`
 
@@ -642,39 +520,41 @@ async function recordRejectionActivity(
       env: { ...process.env, TASKTABLE_PROJECT_NAME: projectName },
       stdio: ['ignore', 'pipe', 'pipe']
     })
-    
+
     let stderr = ''
     child.stderr?.on('data', (data) => { stderr += data.toString() })
-    
+
     child.on('close', (exitCode) => {
       if (exitCode !== 0) {
-        logFile.warn(`[任务表] 记录打回动态失败: ${stderr.trim()}`)
+        // CLI执行失败（非零退出码），抛异常
+        const errMsg = `[任务表] 记录打回动态失败 (exit=${exitCode}): ${stderr.trim()}`
+        logFile.error(errMsg)
+        reject(new Error(errMsg))
       } else {
         logFile.info(`[任务表] 已记录打回动态: ${taskTitle} - ${message}`)
+        resolve()
       }
-      resolve()
     })
-    
+
     child.on('error', (err) => {
-      logFile.warn(`[任务表] 记录打回动态失败: ${err.message}`)
-      resolve()
+      // spawn error（CLI不存在等），抛异常
+      const errMsg = `[任务表] 记录打回动态失败: ${err.message}`
+      logFile.error(errMsg)
+      reject(new Error(errMsg))
     })
   })
 }
 
 /**
  * 获取"检查-修复-汇报"型角色在任务表中的标准名称。
- * 
+ *
  * 三个角色的 name 属性与任务表约定的 roleName 不一致，需要映射：
  * - 冗余枝剪者.name = "ScissorHands" → 任务表 roleName = "ScissorHands"
  * - 质保员.name = "QA" → 任务表 roleName = "QA"
  * - 边缘质保员.name = "EdgeQA" → 任务表 roleName = "EdgeQA"
  */
-function getActivityRoleName(currentRole: IRole): string {
-  if (currentRole instanceof 冗余枝剪者) return "ScissorHands"
-  if (currentRole instanceof 质保员) return "QA"
-  if (currentRole instanceof 边缘质保员) return "EdgeQA"
-  return currentRole.name
+export function getActivityRoleName(currentRole: IRole): string {
+  return normalizeRoleName(currentRole.name)
 }
 
 /**
@@ -684,9 +564,9 @@ function getActivityRoleName(currentRole: IRole): string {
  * 统一约束为 `修复性动态Schema`，主循环解析出 `一句话动态` 字段后调用此函数搬运入库。
  *
  * 与 recordRejectionActivity 的区别：打回动态由系统根据评估者/架构师的判决自动合成；
- * 此处的动态由角色自己生成，系统只负责透传。
+ * 此处的动态由角色自己生成内容，系统只负责透传。
  *
- * CLI 失败只写日志不抛错——动态记录属于辅助信息，不应阻断主循环。
+ * 【重要】CLI 脚本丢失时直接抛异常，因为动态记录是质量追踪的关键依据。
  */
 async function recordRoleActivity(
   projectDir: string,
@@ -695,6 +575,12 @@ async function recordRoleActivity(
   activityMessage: string
 ): Promise<void> {
   const cliPath = join(projectDir, "任务表CLI.js")
+
+  // 检查CLI是否存在，不存在则抛异常
+  if (!existsSync(cliPath)) {
+    throw new Error(`任务表CLI脚本不存在: ${cliPath}，无法记录角色动态。请确保项目根目录存在任务表CLI。`)
+  }
+
   const projectName = projectDir.split("/").pop() || "project"
 
   return new Promise((resolve, reject) => {
@@ -703,22 +589,27 @@ async function recordRoleActivity(
       env: { ...process.env, TASKTABLE_PROJECT_NAME: projectName },
       stdio: ['ignore', 'pipe', 'pipe']
     })
-    
+
     let stderr = ''
     child.stderr?.on('data', (data) => { stderr += data.toString() })
-    
+
     child.on('close', (exitCode) => {
       if (exitCode !== 0) {
-        logFile.warn(`[任务表] 记录角色动态失败: ${stderr.trim()}`)
+        // CLI执行失败（非零退出码），抛异常
+        const errMsg = `[任务表] 记录角色动态失败 (exit=${exitCode}): ${stderr.trim()}`
+        logFile.error(errMsg)
+        reject(new Error(errMsg))
       } else {
         logFile.info(`[任务表] 已记录角色动态: ${taskTitle} - ${roleName} - ${activityMessage}`)
+        resolve()
       }
-      resolve()
     })
-    
+
     child.on('error', (err) => {
-      logFile.warn(`[任务表] 记录角色动态失败: ${err.message}`)
-      resolve()
+      // spawn error（CLI不存在等），抛异常
+      const errMsg = `[任务表] 记录角色动态失败: ${err.message}`
+      logFile.error(errMsg)
+      reject(new Error(errMsg))
     })
   })
 }
@@ -937,7 +828,7 @@ async function validatePlannerDispatch(
         const dep = dependencies[i]
         if (!dep) continue
         if (!depTask || depTask.已删除 || !depTask.是否完成) {
-          incompleteDeps.push(dep.依赖任务)
+          incompleteDeps.push(getDependencyDisplayName(dep))
         }
       }
 
@@ -967,7 +858,8 @@ async function validatePlannerDispatch(
  * 此函数：
  * 1. 调用任务表 CLI 的 query-dependency-chain 命令获取任务详情 + 依赖链
  * 2. 将规划者的输出与任务表信息合并为一条完整的 upstream 文本
- * 3. 依赖链默认查询 3 层，避免信息过载
+ * 3. 只查询 1 层依赖（需求指定）
+ * 4. 结构：前情 + 本轮任务标题 + 描述 + Tag + 上层依赖任务(标题+Tag+动态) + 当前任务动态 + 留言
  *
  * @returns 格式化后的 upstream 文本，查询失败则回退到规划者原始输出
  */
@@ -981,7 +873,7 @@ async function buildTaskUpstream(
   const taskTitle = typeof taskTitleRaw === "string" ? taskTitleRaw.trim() : ""
   const 前情点评 = typeof plannerOutput.前情点评 === "string" ? plannerOutput.前情点评 : ""
   const 留言 = typeof plannerOutput.留言 === "string" ? plannerOutput.留言 : ""
-  const maxDepth = 3
+  const maxDepth = 1  // 只查询一层依赖（设计意图指定）
 
   // 基础信息（规划者输出）
   let upstream = ""
@@ -995,7 +887,7 @@ async function buildTaskUpstream(
   }
 
   try {
-    const result = await new Promise<{ 成功: boolean; 任务?: any; 依赖链?: any[]; 消息?: string }>((resolve) => {
+      const result = await new Promise<{ 成功: boolean; 任务?: any; 依赖链?: any[]; 消息?: string }>((resolve) => {
       const child = spawn("node", [cliPath, "query-dependency-chain", "--标题", taskTitle, "--最大层数", String(maxDepth)], {
         cwd: projectDir,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -1028,35 +920,7 @@ async function buildTaskUpstream(
     })
 
     if (result.成功 && result.任务) {
-      const task = result.任务
-      if (task.任务描述) upstream += `描述: ${task.任务描述}\n`
-      if (task.Tag && task.Tag.length > 0) upstream += `Tag: ${task.Tag.join(", ")}\n`
-
-      // 格式化依赖链
-      if (result.依赖链 && result.依赖链.length > 0) {
-        upstream += `\n依赖链（共${result.依赖链.length}层）：\n`
-        for (const layer of result.依赖链) {
-          upstream += `--- 第${layer.层}层 ---\n`
-          for (const dep of layer.依赖) {
-            upstream += `${dep.标题} | 依赖原因: ${dep.原因}\n`
-            if (dep.动态 && dep.动态.length > 0) {
-              // 每条动态格式化为 "角色:消息" 的紧凑形式
-              const 动态摘要 = dep.动态
-                .slice(-5) // 只展示最近5条动态，避免上下文过长
-                .map((d: { 角色: string; 消息: string }) => `[${d.角色}: ${d.消息}]`)
-                .join(" | ")
-              upstream += `  动态: ${动态摘要}\n`
-              if (dep.动态.length > 5) {
-                upstream += `  (..还有${dep.动态.length - 5}条更早的动态)\n`
-              }
-            } else {
-              upstream += `  动态: 暂无\n`
-            }
-          }
-        }
-      } else {
-        upstream += `\n依赖链: 无（无前置依赖任务）\n`
-      }
+      upstream = buildCommonUpstreamFromTaskQuery(plannerOutput, result.任务, result.依赖链)
     } else {
       // 查询失败（非致命），但仍然附上基础信息
       upstream += `\n(依赖链查询失败: ${result.消息 || "未知错误"}，已回退到基础信息)\n`
@@ -1065,7 +929,7 @@ async function buildTaskUpstream(
     upstream += `\n(依赖链查询异常: ${e instanceof Error ? e.message : String(e)}，已回退到基础信息)\n`
   }
 
-  if (留言) upstream += `\n留言: ${留言}\n`
+  if (!upstream.includes(`\n留言: ${留言}\n`) && 留言) upstream += `\n留言: ${留言}\n`
 
   logFile.info(`[buildTaskUpstream] 已构建 upstream (${upstream.length} 字符)`)
   return upstream
@@ -1101,6 +965,9 @@ export async function main(): Promise<void> {
   // 打回状态管理
   const rejectionState = createRejectionState()
   let currentTaskTitle = "" // 当前任务标题
+  let resumedRoleName: string | undefined
+  let resumedResponse: string | undefined
+  let pendingDispatchInterruption: InterruptedMsgContext | undefined
 
     /**
    * 完整大循环的跳转策略：
@@ -1112,27 +979,27 @@ export async function main(): Promise<void> {
    * - 评估者打回：执行者 → 评估者 → (继续打回 OR 通过到冗余枝剪者)
    * - 架构师打回：执行者 → 评估者 → 冗余枝剪者 → 架构师 → (继续打回 OR 通过到质保员)
    */
-  const Role跳转策略: (current: IRole, lastResponse: string) => IRole = (r, response) => {
+  const Role跳转策略内核 = (r: IRole, response: string, state: RejectionState): IRole => {
     // 评估者的分支判断
     if(r instanceof 评估者) {
       const evalOutput = extractJSON(response)
       if (evalOutput?.检查结果 === "打回") {
         // 评估者打回
-        rejectionState.evaluatorRejections++
-        rejectionState.executorPractices++
-        rejectionState.totalRejectionLoops++
-        rejectionState.inRejectionLoop = true
-        rejectionState.rejectionSource = "evaluator"
+        state.evaluatorRejections++
+        state.executorPractices++
+        state.totalRejectionLoops++
+        state.inRejectionLoop = true
+        state.rejectionSource = "evaluator"
         
-        logFile.info(`[评估者打回] 第${rejectionState.evaluatorRejections}次，总循环${rejectionState.totalRejectionLoops}次`)
+        logFile.info(`[评估者打回] 第${state.evaluatorRejections}次，总循环${state.totalRejectionLoops}次`)
         
         // 检查打回上限
-        if (rejectionState.evaluatorRejections > MAX_REJECTIONS_PER_ROLE) {
+        if (state.evaluatorRejections > MAX_REJECTIONS_PER_ROLE) {
           consoleAndLogFile.error(`[打回上限] 评估者打回超过${MAX_REJECTIONS_PER_ROLE}次，强制通过`)
-          rejectionState.inRejectionLoop = false
+          state.inRejectionLoop = false
           return 冗余枝剪者instance
         }
-        if (rejectionState.totalRejectionLoops > MAX_TOTAL_REJECTION_LOOPS) {
+        if (state.totalRejectionLoops > MAX_TOTAL_REJECTION_LOOPS) {
           consoleAndLogFile.error(`[打回上限] 总打回循环超过${MAX_TOTAL_REJECTION_LOOPS}次，程序退出`)
           throw new Error("打回循环超过上限，程序终止")
         }
@@ -1140,10 +1007,10 @@ export async function main(): Promise<void> {
         return 执行者instance
       } else {
         // 评估者通过
-        if (rejectionState.rejectionSource === "evaluator") {
+        if (state.rejectionSource === "evaluator") {
           // 结束评估者打回循环
-          rejectionState.inRejectionLoop = false
-          rejectionState.rejectionSource = undefined
+          state.inRejectionLoop = false
+          state.rejectionSource = undefined
           logFile.info(`[评估者通过] 结束打回循环`)
         }
         return 冗余枝剪者instance
@@ -1155,21 +1022,21 @@ export async function main(): Promise<void> {
       const archOutput = extractJSON(response)
       if (archOutput?.检查结果 === "打回") {
         // 架构师打回
-        rejectionState.architectRejections++
-        rejectionState.executorPractices++
-        rejectionState.totalRejectionLoops++
-        rejectionState.inRejectionLoop = true
-        rejectionState.rejectionSource = "architect"
+        state.architectRejections++
+        state.executorPractices++
+        state.totalRejectionLoops++
+        state.inRejectionLoop = true
+        state.rejectionSource = "architect"
         
-        logFile.info(`[架构师打回] 第${rejectionState.architectRejections}次，总循环${rejectionState.totalRejectionLoops}次`)
+        logFile.info(`[架构师打回] 第${state.architectRejections}次，总循环${state.totalRejectionLoops}次`)
         
         // 检查打回上限
-        if (rejectionState.architectRejections > MAX_REJECTIONS_PER_ROLE) {
+        if (state.architectRejections > MAX_REJECTIONS_PER_ROLE) {
           consoleAndLogFile.error(`[打回上限] 架构师打回超过${MAX_REJECTIONS_PER_ROLE}次，强制通过`)
-          rejectionState.inRejectionLoop = false
+          state.inRejectionLoop = false
           return 质保员instance
         }
-        if (rejectionState.totalRejectionLoops > MAX_TOTAL_REJECTION_LOOPS) {
+        if (state.totalRejectionLoops > MAX_TOTAL_REJECTION_LOOPS) {
           consoleAndLogFile.error(`[打回上限] 总打回循环超过${MAX_TOTAL_REJECTION_LOOPS}次，程序退出`)
           throw new Error("打回循环超过上限，程序终止")
         }
@@ -1177,10 +1044,10 @@ export async function main(): Promise<void> {
         return 执行者instance
       } else {
         // 架构师通过
-        if (rejectionState.rejectionSource === "architect") {
+        if (state.rejectionSource === "architect") {
           // 结束架构师打回循环
-          rejectionState.inRejectionLoop = false
-          rejectionState.rejectionSource = undefined
+          state.inRejectionLoop = false
+          state.rejectionSource = undefined
           logFile.info(`[架构师通过] 结束打回循环`)
         }
         return 质保员instance
@@ -1196,7 +1063,7 @@ export async function main(): Promise<void> {
     }
     if(r instanceof 执行者) {
       // 执行者完成后，根据打回状态决定下一步
-      if (rejectionState.rejectionSource === "architect") {
+      if (state.rejectionSource === "architect") {
         // 架构师打回循环：执行者 → 评估者 → 冗余枝剪者 → 架构师
         return 评估者instance
       } else {
@@ -1220,6 +1087,9 @@ export async function main(): Promise<void> {
     }
     
     throw new Error(`未知角色类型: name="${r.name}", 无法跳转。constructor=${r.constructor?.name ?? "unknown"}`)
+  }
+  const Role跳转策略: (current: IRole, lastResponse: string) => IRole = (r, response) => {
+    return Role跳转策略内核(r, response, rejectionState)
   }
 
   const interruptionQueue: InterruptedMsgContext[] = []
@@ -1403,16 +1273,23 @@ export async function main(): Promise<void> {
     while (cycle < config.maxCycles) {
       // 【中断消费语义】
       // 这里统一消费四种中断语义：
-      // - pause / new_message / rollback：允许用户决定消息应该派发给哪个角色
+      // - pause / new_message / rollback：恢复被中断角色的本轮输出，随后允许用户决定消息派发给哪个角色
       // - aborted：说明当前生成已被终止，不在循环顶部处理，而是在 catch AbortError 后进入等待恢复路径
+      //
+      // 中断恢复必须拆成两段：
+      // 1. 顶部只把 interrupt.receivedMessage 注入回被中断角色，让它像正常 sendMsg 返回值一样继续走格式校验、
+      //    规划者派发验证、upstream 构建、动态记录等后处理。
+      // 2. 这些后处理完成后，才根据验证后的 response 计算默认下一角色，并弹出派发选择。
+      // 这样用户的派发覆盖只改变“发给谁”，不绕过“这条消息是否合法”。
       //
       // 【中断来源角色确定】
       // 使用 interrupt.roleName（而非循环变量 currentRole）来锚定触发中断的 session，
       // 这样确保每个 role 的 session 状态独立管理，不会因角色切换而混乱
       const interrupt = takeLatestDispatchableInterruption(interruptionQueue)
       if (interrupt) {
-        // interrupt.roleName 表示产生中断的 session 所属 role，
-        // 只用于定位和清理中断来源；默认派发目标仍由角色跳转策略决定。
+        // interrupt.roleName 表示产生中断的 session 所属 role。
+        // 这里只恢复“当前应由谁完成本轮输出校验”的身份，不在这里选择下游派发目标；
+        // 否则规划者可能在派发验证重试后改写本轮任务，早选出的下游角色会和最终合法输出脱节。
         const interruptedRole = allRoles.find((r) => r.name === interrupt.roleName)
         if (!interruptedRole) {
           logFile.error(`[中断处理] 未知roleName="${interrupt.roleName}"，所有角色名=${allRoles.map(r => r.name).join(", ")}，receivedMessage="${interrupt.receivedMessage.substring(0, 50)}"`)
@@ -1420,16 +1297,23 @@ export async function main(): Promise<void> {
         }
 
         logFile.info(`[中断处理] reason=${interrupt.reason}, 来源角色=${interruptedRole.name}`)
-        const fallbackRole = Role跳转策略(interruptedRole, lastResponse)
-        logFile.info(`[派发决策] interruptRole=${interrupt.roleName}, fallbackRole=${fallbackRole.name}`)
-        currentRole = await AskTo重新定位角色(allRoles, fallbackRole, interrupt)
+        const resumedPlan = planResumedValidation(
+          interruptedRole.name,
+          interrupt.receivedMessage,
+        )
+        resumedRoleName = resumedPlan.currentRoleName
+        resumedResponse = resumedPlan.resumedResponse
+        // 保存原始中断上下文，供验证通过后的 AskTo重新定位角色 展示“中断前/恢复后”信息。
+        // 它不是下一角色 override；override 必须等 Role跳转策略(currentRole, response) 算完默认目标后再产生。
+        pendingDispatchInterruption = interrupt
+        currentRole = interruptedRole
 
         // 要清理的是触发中断的那个 role 的 session，不是 currentRole 的
         if (interruptedRole.currentSessionInstance) {
           interruptedRole.currentSessionInstance.clearInterruption()
         }
 
-        // 直到处理完中断，才进入下一步，否则返回去继续消费中断事件
+        // 立刻回到循环顶部，下一轮会通过 injectedResponse 复用 resumedResponse，避免重复发送消息。
         continue
       }
 
@@ -1470,50 +1354,51 @@ export async function main(): Promise<void> {
         const shouldActivateKnowledge = !knowledgeSent.has(currentRole.name) || compactBeforeSend
 
         let msgToBeSent: string
-
-        const now = new Date()
-        const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`
-        const roundInfo = `当前时间：${timeStr}，第${cycle + 1}轮/共${config.maxCycles}轮\n\n`
-
-        // 【构建 upstream 消息】根据打回状态和角色类型
-        let upstreamMsg = lastResponse
-        
-        if (rejectionState.inRejectionLoop) {
-          // 打回循环中
-          if (currentRole instanceof 执行者) {
-            // 执行者：使用打回留言
-            upstreamMsg = lastResponse
-          } else if (
-            currentRole instanceof 评估者 || 
-            currentRole instanceof 架构师
-          ) {
-            // 评估者/架构师：使用打回循环信息
-            upstreamMsg = buildRejectionUpstream(rejectionState)
-          } else {
-            // 其他角色（冗余枝剪者等）：使用打回循环信息
-            upstreamMsg = buildRejectionUpstream(rejectionState)
-          }
-        } else {
-          // 正常流程：使用规划者的原始信息或上一个角色的输出
-          if (rejectionState.frozenPlannerInfo && currentRole !== 规划者instance) {
-            upstreamMsg = rejectionState.frozenPlannerInfo
-          } else {
-            upstreamMsg = lastResponse
-          }
-        }
+        const roundInfo = buildRoundInfo(cycle, config.maxCycles)
+        const roundInfoSuffix = rejectionState.inRejectionLoop && currentRole instanceof 执行者
+          ? EXECUTOR_REJECTION_ROUNDINFO_SUFFIX
+          : ""
+        const upstreamMsg = buildUpstreamForRole(
+          currentRole.name,
+          rejectionState,
+          rejectionState.inRejectionLoop && currentRole instanceof 执行者
+            ? extractRejectionUpstream(lastResponse)
+            : lastResponse,
+        )
 
         if (shouldActivateKnowledge) {
-          if (!upstreamMsg?.trim()) // 空、null、undefined、纯空格
-          {
+          // 【重要】规划者只接收 roundInfo，不注入空上游占位文本
+          if (currentRole !== 规划者instance && !upstreamMsg?.trim()) {
             lastResponseEmptyCount++
-            upstreamMsg = `暂无(第${lastResponseEmptyCount}次空缺上游消息)，请你自行决断本轮行为。`;            
-          }else{
+            msgToBeSent = buildMsgToBeSent(
+              roundInfo,
+              currentRole.knowledgeDomainPrompt(),
+              currentRole.systemPrompt.bind(currentRole),
+              `暂无(第${lastResponseEmptyCount}次空缺上游消息)，请你自行决断本轮行为。`,
+              true,
+              roundInfoSuffix,
+            )
+          } else {
             lastResponseEmptyCount = 0 // 重置计数
+            msgToBeSent = buildMsgToBeSent(
+              roundInfo,
+              currentRole.knowledgeDomainPrompt(),
+              currentRole.systemPrompt.bind(currentRole),
+              upstreamMsg,
+              true,
+              roundInfoSuffix,
+            )
           }
-          msgToBeSent = currentRole.knowledgeDomainPrompt()+`\n${currentRole.systemPrompt(upstreamMsg)}`
           knowledgeSent.add(currentRole.name)
         } else {
-          msgToBeSent = roundInfo + currentRole.systemPrompt(upstreamMsg)
+          msgToBeSent = buildMsgToBeSent(
+            roundInfo,
+            currentRole.knowledgeDomainPrompt(),
+            currentRole.systemPrompt.bind(currentRole),
+            upstreamMsg,
+            false,
+            roundInfoSuffix,
+          )
         }
 
         // 对结构化输出角色，注入格式要求
@@ -1527,17 +1412,27 @@ export async function main(): Promise<void> {
         let validation: { valid: boolean; error?: string } = { valid: false, error: "未发送" }
         let 提前完成确认中 = false // 防止重复确认
         let 提前完成已确认 = false // 确认后跳过派发验证
+        const injectedResponse = resumedRoleName === currentRole.name ? resumedResponse : undefined
+        if (injectedResponse !== undefined) {
+          resumedRoleName = undefined
+          resumedResponse = undefined
+        }
 
         for (let retry = 0; retry <= OUTPUT_MAX_FORMAT_RETRIES; retry++) {
           if (retry > 0) {
             msgToBeSent = `上一次输出格式不符合要求：${validation.error}\n\n请严格按照格式要求，重新组织输出。`
           }
 
-          consoleAndLogFile.info(`\x1b[32m[发送>>]\x1b[0m "${msgToBeSent.substring(0, 60)}..."`)
-          response = await session.sendMsg({
-            msgSource: MSG_SOURCE.system,
-            content: msgToBeSent,
-          }, retry === 0 ? compactBeforeSend : false) // 仅首次压缩，重试不重复压缩
+          if (retry === 0 && injectedResponse !== undefined) {
+            response = injectedResponse
+            consoleAndLogFile.info(`\x1b[32m[恢复复用]<<]\x1b[0m "${response.substring(0, 80)}..."`)
+          } else {
+            consoleAndLogFile.info(`\x1b[32m[发送>>]\x1b[0m "${msgToBeSent.substring(0, 60)}..."`)
+            response = await session.sendMsg({
+              msgSource: MSG_SOURCE.system,
+              content: msgToBeSent,
+            }, retry === 0 ? compactBeforeSend : false) // 仅首次压缩，重试不重复压缩
+          }
 
           consoleAndLogFile.info(`\x1b[32m[<<收到]\x1b[0m "${response.substring(0, 80)}..."`)
 
@@ -1580,30 +1475,22 @@ export async function main(): Promise<void> {
         // 【规划者派发验证 + 构建完整 upstream】（提前完成已确认则跳过）
         if (currentRole instanceof 规划者 && !提前完成已确认) {
           const dispatch = await validatePlannerDispatch(projectDir, session, 规划者instance.validateOutput.bind(规划者instance), response)
+          // 保存旧任务标题（用于压缩决策员的"上轮任务标题"），再更新为新任务
+          const 上轮任务标题 = currentTaskTitle
           currentTaskTitle = dispatch.title
           response = dispatch.response
-          
+
           // 构建完整 upstream（含任务描述、Tag、依赖链），保存用于下游角色和打回循环
           // 只在非打回循环时更新——打回期间 upstream 冻结，避免重复查询污染上下文
           if (!rejectionState.inRejectionLoop && currentTaskTitle) {
             const latestOutput = extractJSON(response)
             const fullUpstream = await buildTaskUpstream(projectDir, latestOutput || { 本轮任务标题: currentTaskTitle })
+            rejectionState.previousTaskTitle = 上轮任务标题
             rejectionState.frozenPlannerInfo = fullUpstream
+            // 构建压缩决策员专用upstream（需传入上轮任务标题用于判断任务翻新度）
+            rejectionState.compactorUpstream = buildCompactorUpstream(fullUpstream, rejectionState.previousTaskTitle)
             consoleAndLogFile.info(`[upstream] 已构建完整上游信息（含依赖链），${fullUpstream.length} 字符`)
-          }
-        }
-        
-        // 【评估者/架构师打回后记录动态】
-        if (currentRole instanceof 评估者) {
-          const evalOutput = extractJSON(response)
-          if (evalOutput?.检查结果 === "打回" && currentTaskTitle) {
-            await recordRejectionActivity(projectDir, currentTaskTitle, "evaluator", rejectionState.evaluatorRejections)
-          }
-        }
-        if (currentRole instanceof 架构师) {
-          const archOutput = extractJSON(response)
-          if (archOutput?.检查结果 === "打回" && currentTaskTitle) {
-            await recordRejectionActivity(projectDir, currentTaskTitle, "architect", rejectionState.architectRejections)
+            consoleAndLogFile.info(`[upstream] 已构建压缩决策员专用信息，${rejectionState.compactorUpstream.length} 字符`)
           }
         }
         
@@ -1665,7 +1552,35 @@ export async function main(): Promise<void> {
           compactBeforeSend = false
         }
 
-        const nextRole = Role跳转策略(currentRole, response)
+        let nextRole = Role跳转策略(currentRole, response)
+        // 【中断派发覆盖点】
+        // 走到这里说明 currentRole 的本轮输出已经完成了正常校验与后处理：
+        // - 对规划者：任务存在、未删除、依赖已完成，并已构建 frozenPlannerInfo / compactorUpstream。
+        // - 对评估者/架构师：打回状态已经由 Role跳转策略基于最终 response 更新。
+        // 因此此处只允许用户覆盖“下一角色”，不允许跳过上面的验证链路。
+        const dispatchInterruption = pendingDispatchInterruption?.roleName === currentRole.name ? pendingDispatchInterruption : undefined
+        if (dispatchInterruption) {
+          pendingDispatchInterruption = undefined
+          logFile.info(`[派发决策] interruptRole=${dispatchInterruption.roleName}, fallbackRole=${nextRole.name}`)
+          const selectedNextRole = await AskTo重新定位角色(allRoles, nextRole, dispatchInterruption)
+          if (selectedNextRole.name !== nextRole.name) {
+            logFile.info(`[派发覆盖] 当前角色=${currentRole.name}, 默认下一角色=${nextRole.name}, 用户选择=${selectedNextRole.name}`)
+            nextRole = selectedNextRole
+          }
+        }
+
+        // 【评估者/架构师打回后记录动态】
+        // 注意：打回计数在 Role跳转策略 中递增，因此必须在跳转判定之后记录，
+        // 才能保证首次打回落库为“1次”而不是“0次”。
+        const rejectionActivity = getRejectionActivityToRecord(currentRole.name, response, rejectionState)
+        if (rejectionActivity && currentTaskTitle) {
+          await recordRejectionActivity(
+            projectDir,
+            currentTaskTitle,
+            rejectionActivity.roleName,
+            rejectionActivity.rejectionCount,
+          )
+        }
 
         // 硬规则: 提前闭环回到首角色(规划者)，算一圈
         // 没回到首角色，不算一圈
@@ -1702,15 +1617,7 @@ export async function main(): Promise<void> {
            * 这样顶部循环才能正确清理：interruptedRole.currentSessionInstance.clearInterruption()
            * "恢复后默认派发给谁"由 Role跳转策略(interruptedRole) 计算
            */
-          if (!interruptionQueue.some((item) => item.reason === INTERRUPTION_REASON.rollback)) {
-            interruptionQueue.push({
-              roleName: currentRole.name,
-              beforeMessage: lastResponse || "（无）", // 记录恢复前的最后一条消息
-              receivedMessage: resumedResponse,
-              timestamp: new Date(),
-              reason: INTERRUPTION_REASON.rollback,
-            })
-          }
+          enqueueRollbackInterruption(interruptionQueue, currentRole.name, lastResponse, resumedResponse)
           
           lastResponse = resumedResponse // 更新 lastResponse，确保恢复后消息能正确传递给下游
           continue

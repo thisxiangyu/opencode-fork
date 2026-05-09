@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
-    include: ['common/tools/任务表/test/**/*.test.ts', 'common/test/**/*.test.ts'],
+    include: ['common/tools/任务表/test/**/*.test.ts', 'common/test/**/*.test.ts', 'loops/**/test/**/*.test.ts'],
     environment: 'node',
     globals: true,
     reporters: ['verbose'],
