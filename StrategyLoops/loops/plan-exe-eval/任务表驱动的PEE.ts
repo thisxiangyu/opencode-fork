@@ -265,6 +265,7 @@ ${upstreamMsg}
     if (!json) return { valid: false, error: "输出中未找到有效的 JSON 对象" }
     if (typeof json.是否压缩 !== "boolean") return { valid: false, error: "是否压缩 应为 boolean" }
     if (typeof json.关键记忆点 !== "string") return { valid: false, error: "关键记忆点 应为 string" }
+    if (!json.是否压缩 && json.关键记忆点.trim()) return { valid: false, error: "是否压缩为false的情况下，关键记忆点应该为空，目前存在矛盾，请重试" }
     return { valid: true }
   }
 }
@@ -330,6 +331,7 @@ ${upstreamMsg}
     if (!["通过", "打回"].includes(json.检查结果)) return { valid: false, error: "检查结果必须是'通过'或'打回'" }
     if (!Array.isArray(json.问题列表)) return { valid: false, error: "问题列表必须是数组" }
     if (typeof json.打回留言 !== "string") return { valid: false, error: "打回留言必须是字符串" }
+    if (json.检查结果 === "通过" && (json.问题列表.length > 0 || json.打回留言.trim())) return { valid: false, error: "问题列表不为空，或存在打回留言，检查结果却未通过，这是矛盾的，请重试" }
     return { valid: true }
   }
 }
@@ -408,6 +410,7 @@ ${upstreamMsg}
     if (!Array.isArray(json.架构问题)) return { valid: false, error: "架构问题必须是数组" }
     if (typeof json.重构建议 !== "string") return { valid: false, error: "重构建议必须是字符串" }
     if (typeof json.打回留言 !== "string") return { valid: false, error: "打回留言必须是字符串" }
+    if (json.检查结果 === "通过" && (json.架构问题.length > 0 || json.打回留言.trim())) return { valid: false, error: "问题列表不为空，或存在打回留言，检查结果却未通过，这是矛盾的，请重试" }
     return { valid: true }
   }
 }

@@ -303,6 +303,11 @@ describe("PEE utils", () => {
       const role = new 评估者()
       expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" }))).toEqual({ valid: true })
       expect(role.validateOutput(JSON.stringify({ 检查结果: "未知", 问题列表: [], 打回留言: "" })).valid).toBe(false)
+      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 问题列表: ["仍有问题"], 打回留言: "" }))).toEqual({
+        valid: false,
+        error: "问题列表不为空，或存在打回留言，检查结果却未通过，这是矛盾的，请重试",
+      })
+      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "请修复" })).valid).toBe(false)
     })
 
     it("validates architect schema", () => {
@@ -311,12 +316,21 @@ describe("PEE utils", () => {
         role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "无需重构", 打回留言: "" })),
       ).toEqual({ valid: true })
       expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: "bad", 重构建议: "x", 打回留言: "" })).valid).toBe(false)
+      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: ["分层不清"], 重构建议: "", 打回留言: "" }))).toEqual({
+        valid: false,
+        error: "问题列表不为空，或存在打回留言，检查结果却未通过，这是矛盾的，请重试",
+      })
+      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "", 打回留言: "请重构" })).valid).toBe(false)
     })
 
     it("validates compactor schema", () => {
       const role = new 压缩决策员()
       expect(role.validateOutput(JSON.stringify({ 是否压缩: false, 关键记忆点: "" }))).toEqual({ valid: true })
       expect(role.validateOutput(JSON.stringify({ 是否压缩: "false", 关键记忆点: "" })).valid).toBe(false)
+      expect(role.validateOutput(JSON.stringify({ 是否压缩: false, 关键记忆点: "保留上轮关键设计" }))).toEqual({
+        valid: false,
+        error: "是否压缩为false的情况下，关键记忆点应该为空，目前存在矛盾，请重试",
+      })
     })
 
     it("validates fixer-style activity schema across scissorhands qa and edgeqa", () => {
