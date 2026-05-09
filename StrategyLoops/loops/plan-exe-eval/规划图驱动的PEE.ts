@@ -59,7 +59,7 @@ const makeAI网站开发Start_REPO_WIKI =   `
 
   // 完成后删除
   const 起步引导 = \`
-  注意，本段是起步引导，较为口语，完成后请删除起步引导。
+  注意，本段是起步引导，较为口语，完成后请保留重要信息，然后再删除起步引导。
     makeAI是我想要的一个只属于个人的学习AI的私教网站/App。技术栈:
     ${基于ReactNative和Electron技术栈.基于ReactNative和Electron的全平台WebApp立项技术选型(true)}
 
@@ -82,7 +82,7 @@ const makeAI网站开发Start_REPO_WIKI =   `
     以下是建议先执行的任务，请规划者优先考虑：
     一、${基于ReactNative和Electron技术栈.初始化开发目录结构_Git和SVN仓库创建("项目根")}
     二、${基于ReactNative和Electron技术栈.HelloWorld测试()}
-    三、完成上述任务后，在本WIKI中删除上述起步引导，把REPO_WIKI.ts正式化、正规化。
+    三、完成上述任务后，在本WIKI中保留起步信息重要内容后删除上述起步引导，把REPO_WIKI.ts正式化、正规化。
   \`
   `
 
@@ -90,7 +90,7 @@ const config = new LoopConfig({ maxCycles: 30 , startPrompt: makeAI网站开发S
 
 /** 输出格式校验最大重试次数 */
 const OUTPUT_MAX_FORMAT_RETRIES = 3
-const EXECUTOR_REJECTION_ROUNDINFO_SUFFIX = "检查是的确存在的问题还是瞎说。完成打回实践后，请输出5句话以内的执行反馈，说明你实际处理了什么、是否仍有遗留风险。\n\n"
+const EXECUTOR_REJECTION_ROUNDINFO_SUFFIX = "检查是的确存在的问题还是瞎说。实践后，请输出5句话以内的执行反馈\n\n"
 
 /** 单个角色打回上限（第5次打回会触发） */
 const MAX_REJECTIONS_PER_ROLE = 4
@@ -106,7 +106,7 @@ const MAX_TOTAL_REJECTION_LOOPS = 15
 /**
  * 【修复性动态】输出 schema。
  * 供冗余枝剪者、质保员、边缘质保员三个"检查-修复-汇报"型角色复用。
- * 主循环会据此自动注入格式要求，无需再在 knowledgeDomainPrompt 中硬编码。
+ * 知识域激活时会据此自动注入格式要求，无需再在 knowledgeDomainPrompt 中硬编码。
  */
 const 修复性动态Schema = {
   type: "object",
@@ -132,6 +132,11 @@ const 提交员动态Schema = {
       description: '必须严格为以下格式之一：\n1. 有提交时："已提交，git哈希: <哈希>，svn哈希: <哈希>"（没有某类仓库则省略对应行）\n2. 无提交时："无提交，原因: <原因>"',
     },
   },
+}
+
+function buildKnowledgeDomainPrompt(role: IRole): string {
+  if (role.outputSchema.type === "text") return role.knowledgeDomainPrompt()
+  return role.knowledgeDomainPrompt() + "\n\n【输出格式】请严格按照 JSON Schema 输出：\n```json\n" + JSON.stringify(role.outputSchema, null, 2) + "\n```\n"
 }
 
 function validate修复性动态(raw: string): { valid: boolean; error?: string } {
@@ -174,9 +179,14 @@ export class 规划者 implements IRole {
   }
   压缩阈值 = 1000 * 330
 
-  knowledgeDomainPrompt() { return `你是一个规划者，负责理解目标、分析当前局面、制定规划图。
+  knowledgeDomainPrompt() { return `你作为规划者接手项目，负责理解目标、分析当前局面、制定规划图。
 
-    你尽量不要亲自去执行。但是你必须亲自理解、亲自规划。
+    你可以不亲自去执行。但是你必须亲自理解、亲自规划（使用规划图而不要使用文件）。
+
+    你是唯一规划者。
+    
+    不要在规划图或任务留言中让别人去规划，不要让别人动你的规划图。
+
 
     你每一轮都要做的事：
     1.阅读一些信息；
@@ -204,10 +214,9 @@ export class 规划者 implements IRole {
     【完美主义】如果达到上限前完成（即，还有富余的轮次），继续探索创新或者优化已有实现。直到实在没有任何更优的做法了，允许通过发送${this.项目已提前完成sign}宣告提前完成。
     【给团队成员的留言】可以是对本轮任务的补充说明，或者对目标的期望，切勿跟规划图中任务的描述重复（重复是极大的啰嗦），你应当始终以规划图描述传达信息优先。
     ` }
-  systemPrompt(upstreamMsg: string) { return `一些信息：
----
-${upstreamMsg}
----
+
+    // 规划者不需要upstream，因为他应自己探索仓库
+  systemPrompt(upstreamMsg: string) { return `
 【一步步来，慢思考】查看任务动态，根据当前仓库情况，派发新一轮任务。仅派发末端任务，不派发高层次任务。
 ` }
   accessMode: "readonly" | "writable" = "writable"
@@ -241,6 +250,8 @@ export class 压缩决策员 implements IRole {
   knowledgeDomainPrompt() { return `你是一个压缩决策员，负责在每轮执行前判断是否需要对执行者的会话进行压缩（compact）。
 压缩的含义：将旧的对话历史总结为摘要，仅保留最近的关键上下文。好的压缩让执行者更聪明（释放无关历史，聚焦当前任务），坏的压缩因思维链断裂导致状态不一致。
 
+你可以阅读规划图、阅读仓库历史、阅读源码或相关资产，从而了解任务详情。
+
 你的判断依据：
 1. 翻新度：如果本轮任务跟上一轮比是"高翻新"（7-10分：不同任务类型、同任务的不同层次、切换功能模块、不同文件、同文件中度或大型重构、思维链不需延续）→ 建议压缩
           如果本轮任务跟上一轮比是"低翻新"（1-6分：必须严格复用上一个任务思维链）→ 不压缩
@@ -272,6 +283,9 @@ export class 执行者 implements IRole {
   name = "executor"
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个执行者，负责落实每一轮任务。你首先应阅读项目WIKI，了解项目要求。
+
+    你决不允许擅自提交，无论是代码仓库还是资产仓库。你只负责实现。
+
     如果你认为规划者的任务分配不合理，你需要先完成你觉得合理的部分，不合理的部分给出明确的理由和建议。通过在规划图CLI中添加动态的方式反驳规划者的决策。
     对于团队成员给出的修复建议，先理解，再分步执行。` }
   systemPrompt(upstreamMsg: string) { return `下面是一些信息：
@@ -1323,7 +1337,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             lastResponseEmptyCount++
             msgToBeSent = buildMsgToBeSent(
               roundInfo,
-              currentRole.knowledgeDomainPrompt(),
+              buildKnowledgeDomainPrompt(currentRole),
               currentRole.systemPrompt.bind(currentRole),
               `暂无(第${lastResponseEmptyCount}次空缺上游消息)，请你自行决断本轮行为。`,
               true,
@@ -1333,7 +1347,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             lastResponseEmptyCount = 0 // 重置计数
             msgToBeSent = buildMsgToBeSent(
               roundInfo,
-              currentRole.knowledgeDomainPrompt(),
+              buildKnowledgeDomainPrompt(currentRole),
               currentRole.systemPrompt.bind(currentRole),
               upstreamMsg,
               true,
@@ -1351,12 +1365,6 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             roundInfoSuffix,
           )
         }
-
-        // 对结构化输出角色，注入格式要求
-        if (currentRole.outputSchema.type !== "text") {
-          msgToBeSent += `\n\n【输出格式】请严格按照 JSON Schema 输出：\n\`\`\`json\n${JSON.stringify(currentRole.outputSchema, null, 2)}\n\`\`\`\n`
-        }
-
         // 【输出校验】发送后校验输出格式，不通过则同 session 内重试（最多 MAX_FORMAT_RETRIES 次）。
         // 重试和首次发送在同一个 try 块中——任何一次 sendMsg 抛出 AbortError 都会进入中断恢复路径。
         let response = ""
