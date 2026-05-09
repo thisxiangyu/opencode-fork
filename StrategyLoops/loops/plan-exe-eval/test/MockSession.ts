@@ -14,6 +14,8 @@ export class MockSession implements ISession {
   directory: string
   private messages: SessionMessage[] = []
   private interruptions: InterruptedMsgContext[] = []
+  private interruptionCallbacks: Array<(msg: InterruptedMsgContext) => void> = []
+  private messageCallbacks: Array<(msg: SessionMessage) => void> = []
   private receiveState: MessageReceiveState = MessageReceiveState.IDLE
   private tokenUsage: TokenUsageInfo | undefined = undefined
 
@@ -36,11 +38,11 @@ export class MockSession implements ISession {
   }
 
   onInterruption(callback: (msg: InterruptedMsgContext) => void): void {
-    // Mock实现
+    this.interruptionCallbacks.push(callback)
   }
 
   onMessage(callback: (msg: SessionMessage) => void): void {
-    // Mock实现
+    this.messageCallbacks.push(callback)
   }
 
   setCurrentContext(roleName: string): void {
@@ -57,6 +59,9 @@ export class MockSession implements ISession {
 
   async sendMsg(message: SessionMessage, compactHistory?: boolean): Promise<string> {
     this.messages.push(message)
+    for (const callback of this.messageCallbacks) {
+      callback(message)
+    }
     this.receiveState = MessageReceiveState.WAITING_PROMPT_RESPONSE
 
     // 默认返回空字符串，子类可以覆盖
@@ -103,6 +108,9 @@ export class MockSession implements ISession {
       reason,
     }
     this.interruptions.push(ctx)
+    for (const callback of this.interruptionCallbacks) {
+      callback(ctx)
+    }
   }
 }
 

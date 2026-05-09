@@ -13,7 +13,7 @@ import { initDb } from "../../common/tools/任务表/任务表CLI"
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
 import { spawn } from "child_process"
-import { copyFile, writeFile, readFile } from "fs/promises"
+import { copyFile, writeFile, readFile, readdir, mkdir } from "fs/promises"
 import { existsSync, mkdirSync } from "fs"
 import { 代码评审, 架构评审, Commit } from "./metaPrompts/评审相关"
 import { 基于ReactNative和Electron技术栈, 强引用的基于TS代码的文档和注释原则} from "./metaPrompts/立项相关"
@@ -481,11 +481,164 @@ ${Commit()}
 export const 策略描述 = "任务表驱动的PEE（plan-execute-eval）策略"
 export const backendURL = "http://127.0.0.1:4096"
 
+export interface PEEMainDeps {
+  linkBackend: typeof linkBackend
+  selectOrCreateSession: typeof selectOrCreateSession
+  createSession: typeof createSession
+  relocateRole: typeof AskTo重新定位角色
+  setupProjectEnvironment: (projectDir: string, startPrompt: string) => Promise<void>
+  loopConfig: LoopConfig
+}
+
 function isCycleCompleted(nextRole: IRole, theFirstRole: IRole): boolean {
   return nextRole.name === theFirstRole.name
 }
 
+/**
+ * 递归拷贝目录。
+ * 使用 fs/promises API，跨平台兼容。
+ */
+async function copyDirRecursive(src: string, dest: string): Promise<void> {
+  await mkdir(dest, { recursive: true })
+  const entries = await readdir(src, { withFileTypes: true })
+  for (const entry of entries) {
+    const srcPath = join(src, entry.name)
+    const destPath = join(dest, entry.name)
+    if (entry.isDirectory()) {
+      await copyDirRecursive(srcPath, destPath)
+    } else {
+      await copyFile(srcPath, destPath)
+    }
+  }
+}
 
+async function setupProjectEnvironment(projectDir: string, startPrompt: string): Promise<void> {
+  const projectName = projectDir.split("/").pop() || "project"
+  const toolsDir = join(__dirname, "../../common/tools/任务表")
+  const cliDestJs = join(projectDir, "任务表CLI.js")
+  const readmeSource = join(toolsDir, "README.md")
+  const readmeDest = join(projectDir, "任务表CLI使用说明书.md")
+  const repoWikiPath = join(projectDir, "REPO_WIKI.ts")
+  const strategyNodeModules = join(__dirname, "../../node_modules")
+  const betterSqliteSrc = join(strategyNodeModules, "better-sqlite3")
+  const betterSqliteDest = join(projectDir, "node_modules", "better-sqlite3")
+  const bindingsSrc = join(strategyNodeModules, "bindings")
+  const bindingsDest = join(projectDir, "node_modules", "bindings")
+  const fileUriToPathSrc = join(strategyNodeModules, "file-uri-to-path")
+  const fileUriToPathDest = join(projectDir, "node_modules", "file-uri-to-path")
+
+  // REPO_WIKI.ts：已存在则跳过
+  if (existsSync(repoWikiPath)) {
+    consoleAndLogFile.info(`[初始环境] REPO_WIKI.ts 已存在，跳过`)
+  } else {
+    await writeFile(repoWikiPath, "/// 请全文阅读本WIKI\n" + startPrompt, "utf-8")
+    logFile.info(`[项目] 起始文档已创建 -> ${repoWikiPath}`)
+  }
+
+  // 任务表CLI.js：已存在则询问用户
+  if (existsSync(cliDestJs)) {
+    const answer = await askUser(`[初始环境] 任务表CLI.js 已存在，是否覆盖？(y/n): `)
+    if (answer.toLowerCase() !== "n") {
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn("npx", ["tsx", join(toolsDir, "任务表Build.ts"), cliDestJs], {
+          cwd: toolsDir,
+          stdio: ["ignore", "pipe", "pipe"],
+        })
+        let stderr = ""
+        child.stderr?.on("data", (data) => { stderr += data.toString() })
+        child.on("close", (code) => {
+          if (code === 0) {
+            logFile.info(`[初始环境] CLI已覆盖 -> ${cliDestJs}`)
+            resolve()
+            return
+          }
+          const msg = `[初始环境] CLI编译失败 (exit=${code}): ${stderr.trim()}`
+          consoleAndLogFile.error(msg)
+          reject(new Error(msg))
+        })
+        child.on("error", (err) => {
+          const msg = `[初始环境] CLI编译失败: ${err.message}`
+          consoleAndLogFile.error(msg)
+          reject(new Error(msg))
+        })
+      })
+    } else {
+      consoleAndLogFile.info(`[初始环境] 跳过任务表CLI.js`)
+    }
+  } else {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn("npx", ["tsx", join(toolsDir, "任务表Build.ts"), cliDestJs], {
+        stdio: ["ignore", "pipe", "pipe"],
+      })
+      let stderr = ""
+      child.stderr?.on("data", (data) => { stderr += data.toString() })
+      child.on("close", (code) => {
+        if (code === 0) {
+          logFile.info(`[初始环境] CLI已编译 -> ${cliDestJs}`)
+          resolve()
+          return
+        }
+        const msg = `[初始环境] CLI编译失败 (exit=${code}): ${stderr.trim()}`
+        consoleAndLogFile.error(msg)
+        reject(new Error(msg))
+      })
+      child.on("error", (err) => {
+        const msg = `[初始环境] CLI编译失败: ${err.message}`
+        consoleAndLogFile.error(msg)
+        reject(new Error(msg))
+      })
+    })
+  }
+
+  // 任务表CLI使用说明书.md：已存在则询问用户
+  if (existsSync(readmeDest)) {
+    const answer = await askUser(`[初始环境] 任务表CLI使用说明书.md 已存在，是否覆盖？(y/n): `)
+    if (answer.toLowerCase() !== "n") {
+      await copyFile(readmeSource, readmeDest)
+      logFile.info(`[初始环境] 说明书已覆盖 -> ${readmeDest}`)
+    } else {
+      consoleAndLogFile.info(`[初始环境] 跳过任务表CLI使用说明书.md`)
+    }
+  } else {
+    await copyFile(readmeSource, readmeDest)
+    logFile.info(`[初始环境] 说明书已拷贝 -> ${readmeDest}`)
+  }
+
+  // node_modules/better-sqlite3 及其依赖：递归拷贝整个目录
+  // better-sqlite3 运行时依赖 bindings -> file-uri-to-path，必须一并部署
+  if (existsSync(betterSqliteDest)) {
+    const answer = await askUser(`[初始环境] node_modules/better-sqlite3 已存在，是否覆盖？(y/n): `)
+    if (answer.toLowerCase() !== "n") {
+      await copyDirRecursive(betterSqliteSrc, betterSqliteDest)
+      await copyDirRecursive(bindingsSrc, bindingsDest)
+      await copyDirRecursive(fileUriToPathSrc, fileUriToPathDest)
+      logFile.info(`[初始环境] better-sqlite3 + bindings + file-uri-to-path 已覆盖 -> ${join(projectDir, "node_modules")}`)
+    } else {
+      consoleAndLogFile.info(`[初始环境] 跳过 node_modules/better-sqlite3`)
+    }
+  } else {
+    await copyDirRecursive(betterSqliteSrc, betterSqliteDest)
+    await copyDirRecursive(bindingsSrc, bindingsDest)
+    await copyDirRecursive(fileUriToPathSrc, fileUriToPathDest)
+    logFile.info(`[初始环境] better-sqlite3 + bindings + file-uri-to-path 已拷贝 -> ${join(projectDir, "node_modules")}`)
+  }
+
+  // 任务表数据库：已存在则跳过，不覆盖；未存在则创建
+  const dbDir = join(projectDir, "data", `.taskTable.${projectName}`)
+  const dbPath = join(dbDir, `${projectName}TaskTable.db`)
+  if (existsSync(dbPath)) {
+    consoleAndLogFile.info(`[初始环境] 已存在数据库，跳过创建`)
+    return
+  }
+  try {
+    initDb(projectName, projectDir)
+    logFile.info(`[初始环境] 数据库初始化成功`)
+    consoleAndLogFile.info(`[初始环境] 数据库初始化成功`)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    consoleAndLogFile.error(`[初始环境] 数据库初始化失败: ${message}`)
+  }
+}
 
 /**
  * 将评估者/架构师的打回事件合成为一条动态写入任务表。
@@ -937,7 +1090,16 @@ async function buildTaskUpstream(
 
 
 
-export async function main(): Promise<void> {
+export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
+  const runtimeDeps: PEEMainDeps = {
+    linkBackend,
+    selectOrCreateSession,
+    createSession,
+    relocateRole: AskTo重新定位角色,
+    setupProjectEnvironment,
+    loopConfig: config,
+    ...deps,
+  }
 
   let 规划者instance = new 规划者() as IRole
   let 执行者instance = new 执行者() as IRole
@@ -1094,138 +1256,14 @@ export async function main(): Promise<void> {
 
   const interruptionQueue: InterruptedMsgContext[] = []
 
-  consoleAndLogFile.infoC(LOG_COLOR.GREEN, `[${策略描述}][预备] 总圈数=${config.maxCycles}`)
+  consoleAndLogFile.infoC(LOG_COLOR.GREEN, `[${策略描述}][预备] 总圈数=${runtimeDeps.loopConfig.maxCycles}`)
   consoleAndLogFile.info(`服务器URL: ${backendURL}`)
   consoleAndLogFile.info(`日志目录: ${LOG_DIR}`)
-  consoleAndLogFile.info(`后端: ${linkBackend(backendURL)}`)
+  consoleAndLogFile.info(`后端: ${runtimeDeps.linkBackend(backendURL)}`)
 
-  const entrySession: ISession = await selectOrCreateSession(规划者instance)
+  const entrySession: ISession = await runtimeDeps.selectOrCreateSession(规划者instance)
   const projectDir = entrySession.directory
-
-  // 【任务表部署】将任务表CLI工具和说明书拷贝到项目目录，并在项目目录下初始化任务表数据库
-  const projectName = projectDir.split("/").pop() || "project"
-  const toolsDir = join(__dirname, "../../common/tools/任务表")
-  const cliDestJs = join(projectDir, "任务表CLI.js")
-  const readmeSource = join(toolsDir, "README.md")
-  const readmeDest = join(projectDir, "任务表CLI使用说明书.md")
-  const repoWikiPath = join(projectDir, "REPO_WIKI.ts")
-  const strategyNodeModules = join(__dirname, "../../node_modules")
-  const betterSqliteSrc = join(strategyNodeModules, "better-sqlite3")
-  const betterSqliteDest = join(projectDir, "node_modules", "better-sqlite3")
-
-  // REPO_WIKI.ts：已存在则跳过
-  if (existsSync(repoWikiPath)) {
-    consoleAndLogFile.info(`[初始环境] REPO_WIKI.ts 已存在，跳过`)
-  } else {
-    await writeFile(repoWikiPath, "/// 请全文阅读本WIKI\n" + config.startPrompt, 'utf-8')
-    logFile.info(`[项目] 起始文档已创建 -> ${repoWikiPath}`)
-  }
-
-  // 任务表CLI.js：已存在则询问用户
-  if (existsSync(cliDestJs)) {
-    const answer = await askUser(`[初始环境] 任务表CLI.js 已存在，是否覆盖？(y/n): `)
-    if (answer.toLowerCase() !== 'n') {
-      await new Promise<void>((resolve, reject) => {
-        const child = spawn("npx", ["tsx", join(toolsDir, "任务表Build.ts"), cliDestJs], {
-          cwd: toolsDir,
-          stdio: ['ignore', 'pipe', 'pipe']
-        })
-        let stderr = ''
-        child.stderr?.on('data', (data) => { stderr += data.toString() })
-        child.on('close', (code) => {
-          if (code === 0) {
-            logFile.info(`[初始环境] CLI已覆盖 -> ${cliDestJs}`)
-            resolve()
-          } else {
-            const msg = `[初始环境] CLI编译失败 (exit=${code}): ${stderr.trim()}`
-            consoleAndLogFile.error(msg)
-            reject(new Error(msg))
-          }
-        })
-        child.on('error', (err) => {
-          const msg = `[初始环境] CLI编译失败: ${err.message}`
-          consoleAndLogFile.error(msg)
-          reject(new Error(msg))
-        })
-      })
-    } else {
-      consoleAndLogFile.info(`[初始环境] 跳过任务表CLI.js`)
-    }
-  } else {
-    await new Promise<void>((resolve, reject) => {
-      const child = spawn("npx", ["tsx", join(toolsDir, "任务表Build.ts"), cliDestJs], {
-        stdio: ['ignore', 'pipe', 'pipe']
-      })
-      let stderr = ''
-      child.stderr?.on('data', (data) => { stderr += data.toString() })
-      child.on('close', (code) => {
-        if (code === 0) {
-          logFile.info(`[初始环境] CLI已编译 -> ${cliDestJs}`)
-          resolve()
-        } else {
-          const msg = `[初始环境] CLI编译失败 (exit=${code}): ${stderr.trim()}`
-          consoleAndLogFile.error(msg)
-          reject(new Error(msg))
-        }
-      })
-      child.on('error', (err) => {
-        const msg = `[初始环境] CLI编译失败: ${err.message}`
-        consoleAndLogFile.error(msg)
-        reject(new Error(msg))
-      })
-    })
-  }
-
-  // 任务表CLI使用说明书.md：已存在则询问用户
-  if (existsSync(readmeDest)) {
-    const answer = await askUser(`[初始环境] 任务表CLI使用说明书.md 已存在，是否覆盖？(y/n): `)
-    if (answer.toLowerCase() !== 'n') {
-      await copyFile(readmeSource, readmeDest)
-      logFile.info(`[初始环境] 说明书已覆盖 -> ${readmeDest}`)
-    } else {
-      consoleAndLogFile.info(`[初始环境] 跳过任务表CLI使用说明书.md`)
-    }
-  } else {
-    await copyFile(readmeSource, readmeDest)
-    logFile.info(`[初始环境] 说明书已拷贝 -> ${readmeDest}`)
-  }
-
-  // node_modules/better-sqlite3：已存在则询问用户
-  if (existsSync(betterSqliteDest)) {
-    const answer = await askUser(`[初始环境] node_modules/better-sqlite3 已存在，是否覆盖？(y/n): `)
-    if (answer.toLowerCase() !== 'n') {
-      mkdirSync(join(betterSqliteDest, "lib"), { recursive: true })
-      mkdirSync(join(betterSqliteDest, "build", "Release"), { recursive: true })
-      await copyFile(join(betterSqliteSrc, "package.json"), join(betterSqliteDest, "package.json"))
-      await copyFile(join(betterSqliteSrc, "lib", "index.js"), join(betterSqliteDest, "lib", "index.js"))
-      await copyFile(join(betterSqliteSrc, "lib", "database.js"), join(betterSqliteDest, "lib", "database.js"))
-      await copyFile(join(betterSqliteSrc, "lib", "sqlite-error.js"), join(betterSqliteDest, "lib", "sqlite-error.js"))
-      await copyFile(join(betterSqliteSrc, "lib", "util.js"), join(betterSqliteDest, "lib", "util.js"))
-      await copyFile(join(betterSqliteSrc, "build", "Release", "better_sqlite3.node"), join(betterSqliteDest, "build", "Release", "better_sqlite3.node"))
-      logFile.info(`[初始环境] better-sqlite3 已覆盖 -> ${betterSqliteDest}`)
-    } else {
-      consoleAndLogFile.info(`[初始环境] 跳过 node_modules/better-sqlite3`)
-    }
-  } else {
-    mkdirSync(join(betterSqliteDest, "lib"), { recursive: true })
-    mkdirSync(join(betterSqliteDest, "build", "Release"), { recursive: true })
-    await copyFile(join(betterSqliteSrc, "package.json"), join(betterSqliteDest, "package.json"))
-    await copyFile(join(betterSqliteSrc, "lib", "index.js"), join(betterSqliteDest, "lib", "index.js"))
-    await copyFile(join(betterSqliteSrc, "lib", "database.js"), join(betterSqliteDest, "lib", "database.js"))
-    await copyFile(join(betterSqliteSrc, "lib", "sqlite-error.js"), join(betterSqliteDest, "lib", "sqlite-error.js"))
-    await copyFile(join(betterSqliteSrc, "lib", "util.js"), join(betterSqliteDest, "lib", "util.js"))
-    await copyFile(join(betterSqliteSrc, "build", "Release", "better_sqlite3.node"), join(betterSqliteDest, "build", "Release", "better_sqlite3.node"))
-    logFile.info(`[初始环境] better-sqlite3 已拷贝 -> ${betterSqliteDest}`)
-  }
-
-  try {
-    initDb(projectName, projectDir)
-    logFile.info(`[初始环境] 数据库初始化成功`)
-    consoleAndLogFile.info(`[初始环境] 数据库初始化成功`)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    consoleAndLogFile.error(`[初始环境] 数据库初始化失败: ${message}，可能已存在同名项目数据库`)
-  }
+  await runtimeDeps.setupProjectEnvironment(projectDir, runtimeDeps.loopConfig.startPrompt)
 
   entrySession.onInterruption((msg) => {
     interruptionQueue.push(msg)
@@ -1241,7 +1279,7 @@ export async function main(): Promise<void> {
     if (role.currentSessionInstance) {
       return role.currentSessionInstance
     }
-    const session = await createSession(role, `[${role.name}] 会话开始于${formatDateTime({ isoString: new Date().toISOString(), showYear: false, showPeriod: true, showTime: true ,showSeconds: false})}`, projectDir)
+    const session = await runtimeDeps.createSession(role, `[${role.name}] 会话开始于${formatDateTime({ isoString: new Date().toISOString(), showYear: false, showPeriod: true, showTime: true ,showSeconds: false})}`, projectDir)
     role.currentSessionInstance = session
     session.onInterruption((msg) => {
       interruptionQueue.push(msg)
@@ -1270,7 +1308,7 @@ export async function main(): Promise<void> {
     /** 记录执行节点本轮是否压缩，供跟随角色同步决策 */
     let executorDidCompact = false
 
-    while (cycle < config.maxCycles) {
+    while (cycle < runtimeDeps.loopConfig.maxCycles) {
       // 【中断消费语义】
       // 这里统一消费四种中断语义：
       // - pause / new_message / rollback：恢复被中断角色的本轮输出，随后允许用户决定消息派发给哪个角色
@@ -1354,7 +1392,7 @@ export async function main(): Promise<void> {
         const shouldActivateKnowledge = !knowledgeSent.has(currentRole.name) || compactBeforeSend
 
         let msgToBeSent: string
-        const roundInfo = buildRoundInfo(cycle, config.maxCycles)
+        const roundInfo = buildRoundInfo(cycle, runtimeDeps.loopConfig.maxCycles)
         const roundInfoSuffix = rejectionState.inRejectionLoop && currentRole instanceof 执行者
           ? EXECUTOR_REJECTION_ROUNDINFO_SUFFIX
           : ""
@@ -1449,7 +1487,7 @@ export async function main(): Promise<void> {
                 consoleAndLogFile.info(`[提前完成] 确认项目已全部完成，跳出循环`)
                 validation.valid = true
                 提前完成已确认 = true
-                cycle = config.maxCycles // 触发外层while循环结束
+                cycle = runtimeDeps.loopConfig.maxCycles // 触发外层while循环结束
                 break // 跳出验证重试循环
               }
               consoleAndLogFile.info(`[提前完成] 模型未肯定回应，继续往下跑`)
@@ -1562,7 +1600,7 @@ export async function main(): Promise<void> {
         if (dispatchInterruption) {
           pendingDispatchInterruption = undefined
           logFile.info(`[派发决策] interruptRole=${dispatchInterruption.roleName}, fallbackRole=${nextRole.name}`)
-          const selectedNextRole = await AskTo重新定位角色(allRoles, nextRole, dispatchInterruption)
+          const selectedNextRole = await runtimeDeps.relocateRole(allRoles, nextRole, dispatchInterruption)
           if (selectedNextRole.name !== nextRole.name) {
             logFile.info(`[派发覆盖] 当前角色=${currentRole.name}, 默认下一角色=${nextRole.name}, 用户选择=${selectedNextRole.name}`)
             nextRole = selectedNextRole
