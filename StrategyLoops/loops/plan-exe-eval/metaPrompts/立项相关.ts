@@ -275,7 +275,7 @@ export const 基于ReactNative和Electron技术栈 = {
 
       在没有 xvfb-run 的环境（如 macOS/Windows 的 agent），可直接 npx electron . 并加 --no-sandbox，同样检查进程存活。
 
-    ${git远程仓库 ? `6. 先检查确保构建产物已被git忽略。然后提交到 Git 并推送远程：
+    ${git远程仓库 ? `6. 先检查确保构建产物已被git忽略。遵循正确的提交流程。提交并推送远程：
       - git add -A
       - git commit -m "init: hello world 项目初始化"
       - 检查是否关联远程，如果尚未关联，执行：
@@ -283,7 +283,7 @@ export const 基于ReactNative和Electron技术栈 = {
       - git push -u origin main（或 master，视默认分支名）
       - 验证：git log 应看到提交` 
       : 
-      '6. 先检查确保构建产物已被git忽略。然后做一次提交 - git commit -m "init: hello world 项目初始化"'}
+      '6. 先检查确保构建产物已被git忽略。遵循正确的提交流程做一次提交 - git commit -m "init: hello world 项目初始化"'}
 
     ${SVN远程仓库 ? `7. 推送到 SVN 远程：
       - 如果 SVN 远程仓库已存在且为空，先将本地创建的仓库同步上去：
