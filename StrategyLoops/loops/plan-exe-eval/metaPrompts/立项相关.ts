@@ -206,21 +206,74 @@ export const 基于ReactNative和Electron技术栈 = {
 
     4. Web 端无需额外文件，Expo 的 web 模式直接工作
 
-    5. 运行（这一步请用户人工协助验证。如果用户持续3回等待依然不在，可以跳过，直接下一步。）：
-      a) 移动端（需有模拟器或 Expo Go）：
-          - cd apps/mobile
-          - npx expo start           # 启动开发服务器，按 i（iOS）或 a（Android）打开模拟器
-          - 用户确认屏幕上显示 "Hello World from Mobile!"
-      b) Web 端：
-          - cd apps/mobile
-          - npx expo start --web     # 自动打开浏览器，确认显示相同内容
-      c) 桌面端：
-          - 先确保 Web 服务仍在运行（expo start --web 或 expo start 同时带 web 模式）
-          - cd apps/desktop
-          - 使用 electron-vite 启动开发模式（需安装 electron 和 electron-vite）： 
-            npx electron-vite dev
-            或直接用 electron . 启动（需先编译 main 到 JS）
-          - 用户确认 Electron 窗口加载 localhost:19006 并显示 Hello World
+    5 自行运行验证。以下是可能的做法：
+
+      5.1 移动端 & Web 端自动验证（metro 打包 + HTTP 内容检查）
+      依赖：curl, wait-on（或循环检查端口），无需模拟器。
+
+      bash
+      # 在后台启动 Expo 开发服务器（同时支持 mobile bundle 和 web）
+      cd apps/mobile
+      npx expo start --web --non-interactive &
+      EXPO_PID=$!
+
+      # 等待 web 服务就绪（默认 19006）
+      npx wait-on http://localhost:19006
+
+      # 1. Web 端验证：请求页面，检查是否包含 Hello World
+      echo "=== 验证 Web 端 ==="
+      curl -s http://localhost:19006 | grep -q "Hello World from Mobile!" && echo "✅ Web 端通过" || echo "❌ Web 端失败"
+
+      # 2. 移动端验证：请求 Metro 打包的 iOS bundle，检查是否包含 Hello World
+      #    （Metro 默认端口 8081，此请求会触发对 index.tsx 的打包）
+      echo "=== 验证移动端（Metro bundle）==="
+      curl -s "http://localhost:8081/index.bundle?platform=ios&dev=true" | grep -q "Hello World from Mobile!" && echo "✅ 移动端打包通过" || echo "❌ 移动端失败"
+
+      # 停止 Expo 进程
+      kill $EXPO_PID 2>/dev/null
+      这会验证：Expo Router 能正确处理 index.tsx，Web 构建成功，Metro 能打包 mobile bundle，且内容中包含 Hello World 文案。
+
+      如果 bundle 请求返回错误（如组件编译失败），grep 不到字符串即失败。
+
+      5.2 桌面端自动验证（编译 + 进程存活检查）
+      先补一个最小的编译脚本，让 electron . 能直接工作。
+      在 apps/desktop/package.json 中确保有：
+      json
+      {
+        "main": "dist/main.js",
+        "scripts": {
+          "build:main": "esbuild electron/main.ts --bundle --platform=node --external:electron --outfile=dist/main.js"
+        },
+        "devDependencies": {
+          "esbuild": "*"
+        }
+      }
+      自动验证步骤：
+
+      bash
+      cd apps/desktop
+
+      # 1. 编译主进程 TypeScript → JS
+      npx esbuild electron/main.ts --bundle --platform=node --external:electron --outfile=dist/main.js
+      echo "=== 编译 main.ts 完成 ==="
+
+      # 2. 在虚拟帧缓冲下启动 Electron（避免 CI 无图形界面报错），等待 5 秒检查进程是否存活
+      #    如果 Electron 未能加载 localhost:19006 会很快崩溃退出
+      echo "=== 启动 Electron 并检查进程 ==="
+      timeout 5 xvfb-run --auto-servernum npx electron . --no-sandbox &
+      ELECTRON_PID=$!
+      sleep 3
+
+      if kill -0 $ELECTRON_PID 2>/dev/null; then
+        echo "✅ Electron 启动成功（进程存活）"
+        kill $ELECTRON_PID 2>/dev/null
+      else
+        echo "❌ Electron 进程已退出，可能加载失败"
+        exit 1
+      fi
+      如果连不上 http://localhost:19006，main.ts 中的 loadURL 会触发窗口加载失败（electron 即使加载失败也可能不退出，但是窗口会显示错误页），最简单的补充验证是用 curl 确认 web 服务仍在运行，结合进程存活判断。
+
+      在没有 xvfb-run 的环境（如 macOS/Windows 的 agent），可直接 npx electron . 并加 --no-sandbox，同样检查进程存活。
 
     ${git远程仓库 ? `6. 先检查确保构建产物已被git忽略。然后提交到 Git 并推送远程：
       - git add -A
