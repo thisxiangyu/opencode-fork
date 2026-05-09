@@ -117,13 +117,11 @@ describe("PEE main loop integration", () => {
     const createSession = vi.fn(async (role: IRole) => makeSession(role))
     const relocateRole = vi.fn(options.relocateRole ?? (async (allRoles: IRole[]) => allRoles.find((role) => role.name === "edgeQA")!))
 
-    const originalSpawn = await import("child_process")
-    const spawnSpy = vi.spyOn(originalSpawn, "spawn").mockImplementation((command: string, args: readonly string[] | string[]) => {
-      const argv = [...args] as string[]
-      const action = argv[1]
+    const runTaskTableCli = vi.fn(async (_projectDir: string, args: string[]) => {
+      const action = args[0]
       const result = (() => {
         if (action === "query-by-title") {
-          const title = argv[3]
+          const title = args[2]
           if (options.failQueryByTitle) {
             return { stdout: "", stderr: "forced query failure", exitCode: 1 }
           }
@@ -144,59 +142,41 @@ describe("PEE main loop integration", () => {
           }
         }
         if (action === "add-activity") {
-          if (options.failOnActivityRole && argv[5] === options.failOnActivityRole) {
+          if (options.failOnActivityRole && args[4] === options.failOnActivityRole) {
             return { stdout: "", stderr: "forced activity failure", exitCode: 1 }
           }
-          activities.push({ 标题: argv[3]!, 角色: argv[5]!, 消息: argv[7]! })
+          activities.push({ 标题: args[2]!, 角色: args[4]!, 消息: args[6]! })
           return { stdout: "OK", stderr: "", exitCode: 0 }
         }
         return { stdout: "", stderr: "unexpected command", exitCode: 1 }
       })()
-
-      return {
-        stdout: {
-          on: (event: string, callback: (data: Buffer) => void) => {
-            if (event === "data") setTimeout(() => callback(Buffer.from(result.stdout)), 0)
-          },
-        },
-        stderr: {
-          on: (event: string, callback: (data: Buffer) => void) => {
-            if (event === "data") setTimeout(() => callback(Buffer.from(result.stderr)), 0)
-          },
-        },
-        on: (event: string, callback: (value: any) => void) => {
-          if (event === "close") setTimeout(() => callback(result.exitCode), 0)
-        },
-      } as any
+      return result
     })
 
-    try {
-      const mainPromise = main({
-        linkBackend,
-        selectOrCreateSession,
-        createSession,
-        relocateRole,
-        setupProjectEnvironment,
-        loopConfig: new LoopConfig({ maxCycles: 1, startPrompt: "test-start" }),
-        askUser: vi.fn(async () => options.askUserResponse ?? ""),
+    const mainPromise = main({
+      linkBackend,
+      selectOrCreateSession,
+      createSession,
+      relocateRole,
+      setupProjectEnvironment,
+      loopConfig: new LoopConfig({ maxCycles: 1, startPrompt: "test-start" }),
+      askUser: vi.fn(async () => options.askUserResponse ?? ""),
+      runTaskTableCli,
+    })
+
+    if (options.interruptRoleName) {
+      const interruptedSession = sessions.get(options.interruptRoleName)
+      interruptedSession?.emitInterruption({
+        roleName: options.interruptRoleName,
+        beforeMessage: "执行中",
+        receivedMessage: options.interruptMessage ?? "用户改口",
+        timestamp: new Date(),
+        reason: options.interruptReason ?? INTERRUPTION_REASON.rollback,
       })
-
-      if (options.interruptRoleName) {
-        const interruptedSession = sessions.get(options.interruptRoleName)
-        interruptedSession?.emitInterruption({
-          roleName: options.interruptRoleName,
-          beforeMessage: "执行中",
-          receivedMessage: options.interruptMessage ?? "用户改口",
-          timestamp: new Date(),
-          reason: options.interruptReason ?? INTERRUPTION_REASON.rollback,
-        })
-      }
-
-      await mainPromise
-      return { activities, sessions, setupProjectEnvironment, relocateRole }
-    } finally {
-      spawnSpy.mockRestore()
     }
+
+    await mainPromise
+    return { activities, sessions, setupProjectEnvironment, relocateRole }
   }
 
   it("reuses resumed response after abort, then lets user override next dispatch", async () => {
@@ -232,7 +212,7 @@ describe("PEE main loop integration", () => {
       interruptMessage: "用户改口：先只去找边缘用例",
     })
 
-    expect(setupProjectEnvironment).toHaveBeenCalledWith(projectDir, "test-start")
+    expect(setupProjectEnvironment).toHaveBeenCalledWith(projectDir, "test-start", expect.any(Function))
     expect(relocateRole).toHaveBeenCalled()
     const executorSession = sessions.get("executor")
     const edgeSession = sessions.get("edgeQA")
@@ -480,7 +460,7 @@ describe("PEE main loop integration", () => {
       askUserResponse: "", // 空输入 = 回车退出
     })
 
-    expect(setupProjectEnvironment).toHaveBeenCalledWith(projectDir, "test-start")
+    expect(setupProjectEnvironment).toHaveBeenCalledWith(projectDir, "test-start", expect.any(Function))
     const plannerSession = sessions.get("planner")
     expect(plannerSession).toBeDefined()
     const plannerMessages = await plannerSession!.getMessages()

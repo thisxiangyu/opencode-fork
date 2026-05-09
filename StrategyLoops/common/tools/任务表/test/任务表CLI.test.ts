@@ -1199,7 +1199,17 @@ function runCliWithInput(args: string[], input: string, env: Record<string, stri
 
     let stdout = ''
     let stderr = ''
-    proc.stdout?.on('data', (data) => { stdout += data.toString() })
+    let inputSent = false
+    const sendInput = () => {
+      if (inputSent) return
+      inputSent = true
+      proc.stdin?.end(input)
+    }
+
+    proc.stdout?.on('data', (data) => {
+      stdout += data.toString()
+      if (stdout.includes("(y/n)") || stdout.includes("y新建，n退出")) sendInput()
+    })
     proc.stderr?.on('data', (data) => { stderr += data.toString() })
 
     proc.on('close', (exitCode) => {
@@ -1220,9 +1230,7 @@ function runCliWithInput(args: string[], input: string, env: Record<string, stri
       resolve({ stdout, stderr: err.message, exitCode: 1 })
     })
 
-    // 发送输入
-    proc.stdin?.write(input)
-    proc.stdin?.end()
+    setTimeout(sendInput, 1000).unref()
   })
 }
 
@@ -1328,7 +1336,7 @@ describe("CLI命令集成测试", () => {
     queryStdout = await runCli(["query-by-title", "--标题", "CLI待删除父任务"], cliEnv).then(r => r.stdout)
     queryResult = JSON.parse(queryStdout)
     expect(queryResult.任务[0].已删除).toBe(true)
-  })
+  }, 15000)
 
   test("CLI 删除有子任务的任务，输入 n 取消删除", async () => {
     // 先添加父任务和子任务
@@ -1369,7 +1377,7 @@ describe("CLI命令集成测试", () => {
     queryStdout = await runCli(["query-by-title", "--标题", "CLI取消删除子任务"], cliEnv).then(r => r.stdout)
     queryResult = JSON.parse(queryStdout)
     expect(queryResult.任务[0].已删除).toBe(false)
-  })
+  }, 15000)
 
   test("CLI query-deleted命令", async () => {
     const { stdout } = await runCli([

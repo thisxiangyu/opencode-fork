@@ -10,11 +10,17 @@ import type { ISession } from "../../common/session"
 import { linkBackend,createSession, selectOrCreateSession } from "../../common/adapters/opencodeAdapter"
 import { formatDateTime, askUser } from "../../common/system"
 import { initDb } from "../../common/tools/任务表/任务表CLI"
+import {
+  deployTaskTableRuntimeDependencies,
+  isMissingBetterSqlite3Error,
+  repairTaskTableRuntimeDependencies,
+  verifyTaskTableRuntimeDependencies,
+} from "../../common/tools/任务表/任务表Runtime依赖"
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
 import { spawn } from "child_process"
-import { copyFile, writeFile, readFile, readdir, mkdir } from "fs/promises"
-import { existsSync, mkdirSync } from "fs"
+import { copyFile, writeFile, readFile } from "fs/promises"
+import { existsSync } from "fs"
 import { 代码评审, 架构评审, Commit, 预备Commit } from "./metaPrompts/评审相关"
 import { 基于ReactNative和Electron技术栈, 强引用的基于TS代码的文档和注释原则} from "./metaPrompts/立项相关"
 
@@ -499,51 +505,57 @@ export interface PEEMainDeps {
   selectOrCreateSession: typeof selectOrCreateSession
   createSession: typeof createSession
   relocateRole: typeof AskTo重新定位角色
-  setupProjectEnvironment: (projectDir: string, startPrompt: string) => Promise<void>
+  setupProjectEnvironment: (projectDir: string, startPrompt: string, askUserFn?: (prompt: string) => Promise<string>) => Promise<void>
   loopConfig: LoopConfig
   askUser?: (prompt: string) => Promise<string>
+  runTaskTableCli?: typeof runTaskTableCli
 }
 
 function isCycleCompleted(nextRole: IRole, theFirstRole: IRole): boolean {
   return nextRole.name === theFirstRole.name
 }
 
-/**
- * 递归拷贝目录。
- * 使用 fs/promises API，跨平台兼容。
- */
-async function copyDirRecursive(src: string, dest: string): Promise<void> {
-  await mkdir(dest, { recursive: true })
-  const entries = await readdir(src, { withFileTypes: true })
-  for (const entry of entries) {
-    const srcPath = join(src, entry.name)
-    const destPath = join(dest, entry.name)
-    if (entry.isDirectory()) {
-      await copyDirRecursive(srcPath, destPath)
-    } else {
-      await copyFile(srcPath, destPath)
-    }
+async function runTaskTableCli(
+  projectDir: string,
+  args: string[],
+  options: { repairOnMissingBetterSqlite3?: boolean } = {},
+): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  const cliPath = join(projectDir, "任务表CLI.js")
+  const projectName = projectDir.split("/").pop() || "project"
+  const execute = () => new Promise<{ stdout: string; stderr: string; exitCode: number | null }>((resolve, reject) => {
+    const child = spawn("node", [cliPath, ...args], {
+      cwd: projectDir,
+      env: { ...process.env, TASKTABLE_PROJECT_NAME: projectName },
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
+
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (data) => { stdout += data.toString() })
+    child.stderr?.on('data', (data) => { stderr += data.toString() })
+    child.on('close', (exitCode) => resolve({ stdout, stderr, exitCode }))
+    child.on('error', (err) => reject(err))
+  })
+
+  const result = await execute()
+  if (options.repairOnMissingBetterSqlite3 && result.exitCode !== 0 && isMissingBetterSqlite3Error(result.stderr)) {
+    await repairTaskTableRuntimeDependencies(projectDir, (message) => logFile.info(message))
+    return execute()
   }
+  return result
 }
 
-async function setupProjectEnvironment(projectDir: string, startPrompt: string): Promise<void> {
+async function setupProjectEnvironment(projectDir: string, startPrompt: string, askUserFn = askUser): Promise<void> {
   const projectName = projectDir.split("/").pop() || "project"
   const toolsDir = join(__dirname, "../../common/tools/任务表")
   const cliDestJs = join(projectDir, "任务表CLI.js")
   const readmeSource = join(toolsDir, "README.md")
   const readmeDest = join(projectDir, "任务表CLI使用说明书.md")
   const repoWikiPath = join(projectDir, "REPO_WIKI.ts")
-  const strategyNodeModules = join(__dirname, "../../node_modules")
-  const betterSqliteSrc = join(strategyNodeModules, "better-sqlite3")
-  const betterSqliteDest = join(projectDir, "node_modules", "better-sqlite3")
-  const bindingsSrc = join(strategyNodeModules, "bindings")
-  const bindingsDest = join(projectDir, "node_modules", "bindings")
-  const fileUriToPathSrc = join(strategyNodeModules, "file-uri-to-path")
-  const fileUriToPathDest = join(projectDir, "node_modules", "file-uri-to-path")
 
   // REPO_WIKI.ts：已存在则跳过
   if (existsSync(repoWikiPath)) {
-    consoleAndLogFile.info(`[初始环境] REPO_WIKI.ts 已存在，跳过`)
+    consoleAndLogFile.info(`[初始环境] 已存在REPO_WIKI，跳过创建`)
   } else {
     await writeFile(repoWikiPath, "/// 请全文阅读本WIKI\n" + startPrompt, "utf-8")
     logFile.info(`[项目] 起始文档已创建 -> ${repoWikiPath}`)
@@ -551,7 +563,7 @@ async function setupProjectEnvironment(projectDir: string, startPrompt: string):
 
   // 任务表CLI.js：已存在则询问用户
   if (existsSync(cliDestJs)) {
-    const answer = await askUser(`[初始环境] 任务表CLI.js 已存在，是否覆盖？(y/n): `)
+    const answer = await askUserFn(`[初始环境] 任务表CLI.js 已存在，是否覆盖？(y/n): `)
     if (answer.toLowerCase() !== "n") {
       await new Promise<void>((resolve, reject) => {
         const child = spawn("npx", ["tsx", join(toolsDir, "任务表Build.ts"), cliDestJs], {
@@ -606,7 +618,7 @@ async function setupProjectEnvironment(projectDir: string, startPrompt: string):
 
   // 任务表CLI使用说明书.md：已存在则询问用户
   if (existsSync(readmeDest)) {
-    const answer = await askUser(`[初始环境] 任务表CLI使用说明书.md 已存在，是否覆盖？(y/n): `)
+    const answer = await askUserFn(`[初始环境] 任务表CLI使用说明书.md 已存在，是否覆盖？(y/n): `)
     if (answer.toLowerCase() !== "n") {
       await copyFile(readmeSource, readmeDest)
       logFile.info(`[初始环境] 说明书已覆盖 -> ${readmeDest}`)
@@ -618,24 +630,8 @@ async function setupProjectEnvironment(projectDir: string, startPrompt: string):
     logFile.info(`[初始环境] 说明书已拷贝 -> ${readmeDest}`)
   }
 
-  // node_modules/better-sqlite3 及其依赖：递归拷贝整个目录
-  // better-sqlite3 运行时依赖 bindings -> file-uri-to-path，必须一并部署
-  if (existsSync(betterSqliteDest)) {
-    const answer = await askUser(`[初始环境] node_modules/better-sqlite3 已存在，是否覆盖？(y/n): `)
-    if (answer.toLowerCase() !== "n") {
-      await copyDirRecursive(betterSqliteSrc, betterSqliteDest)
-      await copyDirRecursive(bindingsSrc, bindingsDest)
-      await copyDirRecursive(fileUriToPathSrc, fileUriToPathDest)
-      logFile.info(`[初始环境] better-sqlite3 + bindings + file-uri-to-path 已覆盖 -> ${join(projectDir, "node_modules")}`)
-    } else {
-      consoleAndLogFile.info(`[初始环境] 跳过 node_modules/better-sqlite3`)
-    }
-  } else {
-    await copyDirRecursive(betterSqliteSrc, betterSqliteDest)
-    await copyDirRecursive(bindingsSrc, bindingsDest)
-    await copyDirRecursive(fileUriToPathSrc, fileUriToPathDest)
-    logFile.info(`[初始环境] better-sqlite3 + bindings + file-uri-to-path 已拷贝 -> ${join(projectDir, "node_modules")}`)
-  }
+  const runtimeDependencyDecision = await deployTaskTableRuntimeDependencies(projectDir, { askUser: askUserFn, log: (message) => logFile.info(message) })
+  if (runtimeDependencyDecision === "overwrite") await verifyTaskTableRuntimeDependencies(projectDir)
 
   // 任务表数据库：已存在则跳过，不覆盖；未存在则创建
   const dbDir = join(projectDir, "data", `.taskTable.${projectName}`)
@@ -669,7 +665,8 @@ async function recordRejectionActivity(
   projectDir: string,
   taskTitle: string,
   roleName: string,
-  rejectionCount: number
+  rejectionCount: number,
+  runCli = runTaskTableCli,
 ): Promise<void> {
   const cliPath = join(projectDir, "任务表CLI.js")
 
@@ -678,38 +675,15 @@ async function recordRejectionActivity(
     throw new Error(`任务表CLI脚本不存在: ${cliPath}，无法记录打回动态。请确保项目根目录存在任务表CLI。`)
   }
 
-  const projectName = projectDir.split("/").pop() || "project"
   const message = `${roleName}打回${rejectionCount}次`
 
-  return new Promise((resolve, reject) => {
-    const child = spawn("node", [cliPath, "add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", message], {
-      cwd: projectDir,
-      env: { ...process.env, TASKTABLE_PROJECT_NAME: projectName },
-      stdio: ['ignore', 'pipe', 'pipe']
-    })
-
-    let stderr = ''
-    child.stderr?.on('data', (data) => { stderr += data.toString() })
-
-    child.on('close', (exitCode) => {
-      if (exitCode !== 0) {
-        // CLI执行失败（非零退出码），抛异常
-        const errMsg = `[任务表] 记录打回动态失败 (exit=${exitCode}): ${stderr.trim()}`
-        logFile.error(errMsg)
-        reject(new Error(errMsg))
-      } else {
-        logFile.info(`[任务表] 已记录打回动态: ${taskTitle} - ${message}`)
-        resolve()
-      }
-    })
-
-    child.on('error', (err) => {
-      // spawn error（CLI不存在等），抛异常
-      const errMsg = `[任务表] 记录打回动态失败: ${err.message}`
-      logFile.error(errMsg)
-      reject(new Error(errMsg))
-    })
-  })
+  const result = await runCli(projectDir, ["add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", message], { repairOnMissingBetterSqlite3: true })
+  if (result.exitCode !== 0) {
+    const errMsg = `[任务表] 记录打回动态失败 (exit=${result.exitCode}): ${result.stderr.trim()}`
+    logFile.error(errMsg)
+    throw new Error(errMsg)
+  }
+  logFile.info(`[任务表] 已记录打回动态: ${taskTitle} - ${message}`)
 }
 
 /**
@@ -739,7 +713,8 @@ async function recordRoleActivity(
   projectDir: string,
   taskTitle: string,
   roleName: string,
-  activityMessage: string
+  activityMessage: string,
+  runCli = runTaskTableCli,
 ): Promise<void> {
   const cliPath = join(projectDir, "任务表CLI.js")
 
@@ -748,37 +723,13 @@ async function recordRoleActivity(
     throw new Error(`任务表CLI脚本不存在: ${cliPath}，无法记录角色动态。请确保项目根目录存在任务表CLI。`)
   }
 
-  const projectName = projectDir.split("/").pop() || "project"
-
-  return new Promise((resolve, reject) => {
-    const child = spawn("node", [cliPath, "add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", activityMessage], {
-      cwd: projectDir,
-      env: { ...process.env, TASKTABLE_PROJECT_NAME: projectName },
-      stdio: ['ignore', 'pipe', 'pipe']
-    })
-
-    let stderr = ''
-    child.stderr?.on('data', (data) => { stderr += data.toString() })
-
-    child.on('close', (exitCode) => {
-      if (exitCode !== 0) {
-        // CLI执行失败（非零退出码），抛异常
-        const errMsg = `[任务表] 记录角色动态失败 (exit=${exitCode}): ${stderr.trim()}`
-        logFile.error(errMsg)
-        reject(new Error(errMsg))
-      } else {
-        logFile.info(`[任务表] 已记录角色动态: ${taskTitle} - ${roleName} - ${activityMessage}`)
-        resolve()
-      }
-    })
-
-    child.on('error', (err) => {
-      // spawn error（CLI不存在等），抛异常
-      const errMsg = `[任务表] 记录角色动态失败: ${err.message}`
-      logFile.error(errMsg)
-      reject(new Error(errMsg))
-    })
-  })
+  const result = await runCli(projectDir, ["add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", activityMessage], { repairOnMissingBetterSqlite3: true })
+  if (result.exitCode !== 0) {
+    const errMsg = `[任务表] 记录角色动态失败 (exit=${result.exitCode}): ${result.stderr.trim()}`
+    logFile.error(errMsg)
+    throw new Error(errMsg)
+  }
+  logFile.info(`[任务表] 已记录角色动态: ${taskTitle} - ${roleName} - ${activityMessage}`)
 }
 
 /**
@@ -786,43 +737,22 @@ async function recordRoleActivity(
  *
  * CLI query-by-title 返回格式: { 成功: true, 数量: n, 任务: [...] }
  */
-async function queryTaskByTitleFull(projectDir: string, taskTitle: string): Promise<Record<string, any> | null> {
+async function queryTaskByTitleFull(projectDir: string, taskTitle: string, runCli = runTaskTableCli): Promise<Record<string, any> | null> {
   const cliPath = join(projectDir, "任务表CLI.js")
-  const projectName = projectDir.split("/").pop() || "project"
-
-  return new Promise((resolve) => {
-    const child = spawn("node", [cliPath, "query-by-title", "--标题", taskTitle], {
-      cwd: projectDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, TASKTABLE_PROJECT_NAME: projectName },
-    })
-
-    let stdout = ''
-    let stderr = ''
-    child.stdout?.on('data', (data) => { stdout += data.toString() })
-    child.stderr?.on('data', (data) => { stderr += data.toString() })
-
-    child.on('close', (exitCode) => {
-      if (exitCode !== 0) {
-        logFile.warn(`[任务表] 按标题查询任务失败: ${stderr.trim()}`)
-        resolve(null)
-        return
-      }
-      try {
-        const result = JSON.parse(stdout)
-        const tasks = result.成功 && Array.isArray(result.任务) ? result.任务 : []
-        resolve(tasks.length > 0 ? tasks[0] : null)
-      } catch (e) {
-        logFile.warn(`[任务表] 解析任务结果失败: ${e instanceof Error ? e.message : String(e)}`)
-        resolve(null)
-      }
-    })
-
-    child.on('error', (err) => {
-      logFile.warn(`[任务表] 按标题查询任务失败: ${err.message}`)
-      resolve(null)
-    })
-  })
+  if (!existsSync(cliPath)) return null
+  try {
+    const result = await runCli(projectDir, ["query-by-title", "--标题", taskTitle], { repairOnMissingBetterSqlite3: true })
+    if (result.exitCode !== 0) {
+      logFile.warn(`[任务表] 按标题查询任务失败: ${result.stderr.trim()}`)
+      return null
+    }
+    const parsed = JSON.parse(result.stdout)
+    const tasks = parsed.成功 && Array.isArray(parsed.任务) ? parsed.任务 : []
+    return tasks.length > 0 ? tasks[0] : null
+  } catch (e) {
+    logFile.warn(`[任务表] 解析任务结果失败: ${e instanceof Error ? e.message : String(e)}`)
+    return null
+  }
 }
 
 /**
@@ -831,42 +761,21 @@ async function queryTaskByTitleFull(projectDir: string, taskTitle: string): Prom
  *
  * CLI query-by-id 返回格式: { 成功: true, 任务: {...} }
  */
-async function queryTaskByIdFull(projectDir: string, taskId: number): Promise<Record<string, any> | null> {
+async function queryTaskByIdFull(projectDir: string, taskId: number, runCli = runTaskTableCli): Promise<Record<string, any> | null> {
   const cliPath = join(projectDir, "任务表CLI.js")
-  const projectName = projectDir.split("/").pop() || "project"
-
-  return new Promise((resolve) => {
-    const child = spawn("node", [cliPath, "query-by-id", "--id", String(taskId)], {
-      cwd: projectDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, TASKTABLE_PROJECT_NAME: projectName },
-    })
-
-    let stdout = ''
-    let stderr = ''
-    child.stdout?.on('data', (data) => { stdout += data.toString() })
-    child.stderr?.on('data', (data) => { stderr += data.toString() })
-
-    child.on('close', (exitCode) => {
-      if (exitCode !== 0) {
-        logFile.warn(`[任务表] 按ID查询任务失败: ${stderr.trim()}`)
-        resolve(null)
-        return
-      }
-      try {
-        const result = JSON.parse(stdout)
-        resolve(result.成功 && result.任务 ? result.任务 : null)
-      } catch (e) {
-        logFile.warn(`[任务表] 解析任务结果失败: ${e instanceof Error ? e.message : String(e)}`)
-        resolve(null)
-      }
-    })
-
-    child.on('error', (err) => {
-      logFile.warn(`[任务表] 按ID查询任务失败: ${err.message}`)
-      resolve(null)
-    })
-  })
+  if (!existsSync(cliPath)) return null
+  try {
+    const result = await runCli(projectDir, ["query-by-id", "--id", String(taskId)], { repairOnMissingBetterSqlite3: true })
+    if (result.exitCode !== 0) {
+      logFile.warn(`[任务表] 按ID查询任务失败: ${result.stderr.trim()}`)
+      return null
+    }
+    const parsed = JSON.parse(result.stdout)
+    return parsed.成功 && parsed.任务 ? parsed.任务 : null
+  } catch (e) {
+    logFile.warn(`[任务表] 解析任务结果失败: ${e instanceof Error ? e.message : String(e)}`)
+    return null
+  }
 }
 
 /**
@@ -887,6 +796,7 @@ async function validatePlannerDispatch(
   session: ISession,
   validateOutput: (raw: string) => { valid: boolean; error?: string },
   initialResponse: string,
+  runCli = runTaskTableCli,
 ): Promise<{ title: string; response: string }> {
   let response = initialResponse
   let retries = 0
@@ -923,7 +833,7 @@ async function validatePlannerDispatch(
     }
 
     // 1. 检查任务是否存在且未被删除
-    const task = await queryTaskByTitleFull(projectDir, title)
+    const task = await queryTaskByTitleFull(projectDir, title, runCli)
     if (!task) {
       consoleAndLogFile.warn(`[派发验证] 任务"${title}"不存在于任务表中`)
       response = await session.sendMsg({
@@ -983,9 +893,9 @@ async function validatePlannerDispatch(
     if (dependencies.length > 0) {
       const checks = dependencies.map(dep => {
         if (dep.依赖任务ID) {
-          return queryTaskByIdFull(projectDir, dep.依赖任务ID)
+          return queryTaskByIdFull(projectDir, dep.依赖任务ID, runCli)
         }
-        return queryTaskByTitleFull(projectDir, dep.依赖任务)
+        return queryTaskByTitleFull(projectDir, dep.依赖任务, runCli)
       })
       const results = await Promise.all(checks)
 
@@ -1033,9 +943,8 @@ async function validatePlannerDispatch(
 async function buildTaskUpstream(
   projectDir: string,
   plannerOutput: Record<string, any>,
+  runCli = runTaskTableCli,
 ): Promise<string> {
-  const cliPath = join(projectDir, "任务表CLI.js")
-  const projectName = projectDir.split("/").pop() || "project"
   const taskTitleRaw = plannerOutput.本轮任务标题
   const taskTitle = typeof taskTitleRaw === "string" ? taskTitleRaw.trim() : ""
   const 前情点评 = typeof plannerOutput.前情点评 === "string" ? plannerOutput.前情点评 : ""
@@ -1054,37 +963,19 @@ async function buildTaskUpstream(
   }
 
   try {
-      const result = await new Promise<{ 成功: boolean; 任务?: any; 依赖链?: any[]; 消息?: string }>((resolve) => {
-      const child = spawn("node", [cliPath, "query-dependency-chain", "--标题", taskTitle, "--最大层数", String(maxDepth)], {
-        cwd: projectDir,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, TASKTABLE_PROJECT_NAME: projectName },
-      })
-
-      let stdout = ''
-      let stderr = ''
-      child.stdout?.on('data', (data) => { stdout += data.toString() })
-      child.stderr?.on('data', (data) => { stderr += data.toString() })
-
-      child.on('close', (exitCode) => {
-        if (exitCode !== 0) {
-          logFile.warn(`[任务表] 查询依赖链失败: ${stderr.trim()}`)
-          resolve({ 成功: false, 消息: stderr.trim() })
-          return
-        }
-        try {
-          resolve(JSON.parse(stdout))
-        } catch (e) {
-          logFile.warn(`[任务表] 解析依赖链结果失败: ${e instanceof Error ? e.message : String(e)}`)
-          resolve({ 成功: false, 消息: `解析失败: ${stdout.substring(0, 200)}` })
-        }
-      })
-
-      child.on('error', (err) => {
-        logFile.warn(`[任务表] 查询依赖链失败: ${err.message}`)
-        resolve({ 成功: false, 消息: err.message })
-      })
-    })
+    const cliResult = await runCli(projectDir, ["query-dependency-chain", "--标题", taskTitle, "--最大层数", String(maxDepth)], { repairOnMissingBetterSqlite3: true })
+    const result = (() => {
+      if (cliResult.exitCode !== 0) {
+        logFile.warn(`[任务表] 查询依赖链失败: ${cliResult.stderr.trim()}`)
+        return { 成功: false, 消息: cliResult.stderr.trim() }
+      }
+      try {
+        return JSON.parse(cliResult.stdout) as { 成功: boolean; 任务?: any; 依赖链?: any[]; 消息?: string }
+      } catch (e) {
+        logFile.warn(`[任务表] 解析依赖链结果失败: ${e instanceof Error ? e.message : String(e)}`)
+        return { 成功: false, 消息: `解析失败: ${cliResult.stdout.substring(0, 200)}` }
+      }
+    })()
 
     if (result.成功 && result.任务) {
       upstream = buildCommonUpstreamFromTaskQuery(plannerOutput, result.任务, result.依赖链)
@@ -1113,6 +1004,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     setupProjectEnvironment,
     loopConfig: config,
     askUser,
+    runTaskTableCli,
     ...deps,
   }
 
@@ -1278,7 +1170,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
 
   const entrySession: ISession = await runtimeDeps.selectOrCreateSession(规划者instance)
   const projectDir = entrySession.directory
-  await runtimeDeps.setupProjectEnvironment(projectDir, runtimeDeps.loopConfig.startPrompt)
+  await runtimeDeps.setupProjectEnvironment(projectDir, runtimeDeps.loopConfig.startPrompt, runtimeDeps.askUser)
 
   entrySession.onInterruption((msg) => {
     interruptionQueue.push(msg)
@@ -1533,7 +1425,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         
         // 【规划者派发验证 + 构建完整 upstream】（提前完成已确认则跳过）
         if (currentRole instanceof 规划者 && !提前完成已确认) {
-          const dispatch = await validatePlannerDispatch(projectDir, session, 规划者instance.validateOutput.bind(规划者instance), response)
+          const dispatch = await validatePlannerDispatch(projectDir, session, 规划者instance.validateOutput.bind(规划者instance), response, runtimeDeps.runTaskTableCli)
           // 保存旧任务标题（用于压缩决策员的"上轮任务标题"），再更新为新任务
           const 上轮任务标题 = currentTaskTitle
           currentTaskTitle = dispatch.title
@@ -1543,7 +1435,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
           // 只在非打回循环时更新——打回期间 upstream 冻结，避免重复查询污染上下文
           if (!rejectionState.inRejectionLoop && currentTaskTitle) {
             const latestOutput = extractJSON(response)
-            const fullUpstream = await buildTaskUpstream(projectDir, latestOutput || { 本轮任务标题: currentTaskTitle })
+            const fullUpstream = await buildTaskUpstream(projectDir, latestOutput || { 本轮任务标题: currentTaskTitle }, runtimeDeps.runTaskTableCli)
             rejectionState.previousTaskTitle = 上轮任务标题
             rejectionState.frozenPlannerInfo = fullUpstream
             // 构建压缩决策员专用upstream（需传入上轮任务标题用于判断任务翻新度）
@@ -1577,7 +1469,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             const activityMessage = roleOutput.一句话动态
             const roleName = getActivityRoleName(currentRole)
 
-            await recordRoleActivity(projectDir, currentTaskTitle, roleName, activityMessage)
+            await recordRoleActivity(projectDir, currentTaskTitle, roleName, activityMessage, runtimeDeps.runTaskTableCli)
             consoleAndLogFile.info(`[${roleName}] 动态已记录: ${activityMessage}`)
           } else {
             // 解析失败（通用机制已重试 3 次），跳过记录
@@ -1638,6 +1530,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             currentTaskTitle,
             rejectionActivity.roleName,
             rejectionActivity.rejectionCount,
+            runtimeDeps.runTaskTableCli,
           )
         }
 
