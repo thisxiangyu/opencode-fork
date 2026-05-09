@@ -437,11 +437,11 @@ const 任务表 = {
   查询已删除任务(数量, 从, 到, 描述字数阈值, 动态字数阈值) {
     const taskDb = 获取任务表Db();
     if (数量 <= 0) {
-      return `【已删除任务错误】数量必须大于0，当前值: ${数量}`;
+      return `错误Found: 数量必须大于0，当前值: ${数量}`;
     }
     const { sql: 时间过滤, params: 时间参数, 校验失败消息 } = 构建时间过滤条件(从, 到);
     if (校验失败消息) {
-      return `【已删除任务错误】${校验失败消息}`;
+      return `错误Found: ${校验失败消息}`;
     }
     const deletedTasks = taskDb.prepare(
       `SELECT * FROM 任务表 WHERE 是否删除 = 1${时间过滤} ORDER BY 创建时间UTC DESC LIMIT ?`
@@ -749,11 +749,11 @@ function 构建时间过滤条件(从, 到) {
 function 查询任务表_返回视图(一次性聚焦数量上限, 从, 到, 描述字数展示阈值, 任务动态字数展示阈值) {
   const taskDb = 获取任务表Db();
   if (一次性聚焦数量上限 <= 0) {
-    return `【任务表错误】一次性聚焦数量上限必须大于0，当前值: ${一次性聚焦数量上限}`;
+    return `错误Found: 一次性聚焦数量上限必须大于0，当前值: ${一次性聚焦数量上限}`;
   }
   const { sql: 时间过滤, params: 时间参数, 校验失败消息 } = 构建时间过滤条件(从, 到);
   if (校验失败消息) {
-    return `【任务表错误】${校验失败消息}`;
+    return `错误Found: ${校验失败消息}`;
   }
   const 末端任务数 = 当前表中总任务数_仅末端();
   const 总任务数 = 当前表中全部任务数();
@@ -1133,7 +1133,7 @@ async function runCli() {
       parseInt(flags.描述字数阈值),
       parseInt(flags.动态字数阈值)
     );
-    if (result.includes("错误")) {
+    if (result.startsWith("错误Found")) {
       outputResult({ 成功: false, 消息: result });
       process.exit(1);
     }
@@ -1229,7 +1229,7 @@ async function runCli() {
       parseInt(flags.描述字数阈值),
       parseInt(flags.动态字数阈值)
     );
-    if (result.includes("错误")) {
+    if (result.startsWith("错误Found")) {
       outputResult({ 成功: false, 消息: result });
       process.exit(1);
     }

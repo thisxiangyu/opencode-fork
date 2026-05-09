@@ -514,12 +514,12 @@ export const 任务表 = {
     const taskDb = 获取任务表Db()
 
     if (数量 <= 0) {
-      return `【已删除任务错误】数量必须大于0，当前值: ${数量}`
+      return `错误Found: 数量必须大于0，当前值: ${数量}`
     }
 
     const { sql: 时间过滤, params: 时间参数, 校验失败消息 } = 构建时间过滤条件(从, 到)
     if (校验失败消息) {
-      return `【已删除任务错误】${校验失败消息}`
+      return `错误Found: ${校验失败消息}`
     }
 
     const deletedTasks = taskDb.prepare(
@@ -1345,7 +1345,7 @@ async function runCli() {
       parseInt(flags.描述字数阈值),
       parseInt(flags.动态字数阈值),
     )
-    if (result.includes("错误")) {
+    if (result.startsWith("错误Found")) {
       outputResult({ 成功: false, 消息: result })
       process.exit(1)
     }
@@ -1448,7 +1448,7 @@ async function runCli() {
       parseInt(flags.描述字数阈值),
       parseInt(flags.动态字数阈值),
     )
-    if (result.includes("错误")) {
+    if (result.startsWith("错误Found")) {
       outputResult({ 成功: false, 消息: result })
       process.exit(1)
     }
