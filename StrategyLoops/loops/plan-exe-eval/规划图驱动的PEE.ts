@@ -242,8 +242,7 @@ export class 压缩决策员 implements IRole {
 你的判断依据：
 1. 翻新度：如果本轮任务跟上一轮比是"高翻新"（7-10分：不同任务类型、同任务的不同层次、切换功能模块、不同文件、同文件中度或大型重构、思维链不需延续）→ 建议压缩
           如果本轮任务跟上一轮比是"低翻新"（1-6分：必须严格复用上一个任务思维链）→ 不压缩
-2. Context Rot 迹象：如果会话过长或模型频繁"忘记"前文 → 建议压缩
-3. 关键记忆点：如果有必须跨轮保留的关键信息（设计决策、重要思维链、未闭合的bug），请注明。只在需要压缩时注明，如果不需要压缩，则关键记忆点也应同样视作不需要。` }
+2. Context Rot 迹象：如果会话过长或模型频繁"忘记"前文 → 建议压缩` }
   systemPrompt(upstreamMsg: string) { return `本轮的任务：
 ---
 ${upstreamMsg}
@@ -254,18 +253,15 @@ ${upstreamMsg}
 
   outputSchema = {
     type: "object",
-    required: ["是否压缩", "关键记忆点"],
+    required: ["是否压缩"],
     properties: {
       是否压缩: { type: "boolean" },
-      关键记忆点: { type: "string" },
     },
   }
   validateOutput(raw: string): { valid: boolean; error?: string } {
     const json = extractJSON(raw)
     if (!json) return { valid: false, error: "输出中未找到有效的 JSON 对象" }
     if (typeof json.是否压缩 !== "boolean") return { valid: false, error: "是否压缩 应为 boolean" }
-    if (typeof json.关键记忆点 !== "string") return { valid: false, error: "关键记忆点 应为 string" }
-    if (!json.是否压缩 && json.关键记忆点.trim()) return { valid: false, error: "是否压缩为false的情况下，关键记忆点应该为空，目前存在矛盾，请重试" }
     return { valid: true }
   }
 }
@@ -1492,7 +1488,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
           lastResponse = response
         }
 
-        // 压缩决策员输出后：解析其 { 是否压缩, 关键记忆点 } 以决定是否对下一角色（执行者）触发
+        // 压缩决策员输出后：解析其 是否压缩 以决定是否对下一角色（执行者）触发
         if (currentRole === 压缩决策员instance) {
           const compactorOutput = extractJSON(response)
           compactBeforeSend = compactorOutput?.是否压缩 === true

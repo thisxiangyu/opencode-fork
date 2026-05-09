@@ -88,7 +88,7 @@ describe("PEE main loop integration", () => {
       if (sessions.has(role.name)) return sessions.get(role.name)!
       const scriptedResponses =
         role.name === "planner" ? options.plannerResponses :
-        role.name === "compactor" ? (options.compactorResponses ?? [async () => JSON.stringify({ 是否压缩: false, 关键记忆点: "" })]) :
+        role.name === "compactor" ? (options.compactorResponses ?? [async () => JSON.stringify({ 是否压缩: false })]) :
         role.name === "executor" ? (options.executorResponses ?? [async () => "执行完成"]) :
         role.name === "evaluator" ? (options.evaluatorResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" })]) :
         role.name === "scissorHands" ? (options.scissorResponses ?? [async () => JSON.stringify({ 一句话动态: "检查无问题" })]) :
@@ -503,7 +503,7 @@ describe("PEE main loop integration", () => {
         async () => "<整个项目已全部提前完成>",
         async () => "是的",
       ],
-      compactorResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 是否压缩: false, 关键记忆点: "" })),
+      compactorResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 是否压缩: false })),
       executorResponses: Array.from({ length: 6 }, () => async () => "执行完成"),
       evaluatorResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" })),
       scissorResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 一句话动态: "无提交，原因: 测试" })),

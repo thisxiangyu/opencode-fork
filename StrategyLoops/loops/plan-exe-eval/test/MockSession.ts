@@ -196,8 +196,7 @@ export class PresetMockSession extends MockSession {
     }
     if (this.role.name === "compactor") {
       return JSON.stringify({
-        是否压缩: false,
-        关键记忆点: ""
+        是否压缩: false
       })
     }
     if (this.role.name === "ScissorHands" || this.role.name === "QA" || this.role.name === "EdgeQA" || this.role.name === "Commitman") {

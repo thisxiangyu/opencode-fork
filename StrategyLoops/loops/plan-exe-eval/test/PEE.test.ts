@@ -325,12 +325,9 @@ describe("PEE utils", () => {
 
     it("validates compactor schema", () => {
       const role = new 压缩决策员()
-      expect(role.validateOutput(JSON.stringify({ 是否压缩: false, 关键记忆点: "" }))).toEqual({ valid: true })
-      expect(role.validateOutput(JSON.stringify({ 是否压缩: "false", 关键记忆点: "" })).valid).toBe(false)
-      expect(role.validateOutput(JSON.stringify({ 是否压缩: false, 关键记忆点: "保留上轮关键设计" }))).toEqual({
-        valid: false,
-        error: "是否压缩为false的情况下，关键记忆点应该为空，目前存在矛盾，请重试",
-      })
+      expect(role.validateOutput(JSON.stringify({ 是否压缩: false }))).toEqual({ valid: true })
+      expect(role.validateOutput(JSON.stringify({ 是否压缩: true }))).toEqual({ valid: true })
+      expect(role.validateOutput(JSON.stringify({ 是否压缩: "false" })).valid).toBe(false)
     })
 
     it("validates fixer-style activity schema across scissorhands qa and edgeqa", () => {
