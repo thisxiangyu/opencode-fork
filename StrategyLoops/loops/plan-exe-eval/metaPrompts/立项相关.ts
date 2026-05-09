@@ -206,7 +206,7 @@ export const 基于ReactNative和Electron技术栈 = {
 
     4. Web 端无需额外文件，Expo 的 web 模式直接工作
 
-    5. 运行（这一步请用户人工协助验证，人工验证通过再往下一步执行）：
+    5. 运行（这一步请用户人工协助验证。如果用户持续3回等待依然不在，可以跳过，直接下一步。）：
       a) 移动端（需有模拟器或 Expo Go）：
           - cd apps/mobile
           - npx expo start           # 启动开发服务器，按 i（iOS）或 a（Android）打开模拟器

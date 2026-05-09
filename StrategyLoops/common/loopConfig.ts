@@ -2,7 +2,7 @@ export class LoopConfig {
 
   public startPrompt: string = "准备好开始了吗？"
 
-  public maxCycles: number = 1
+  public maxCycles: number = 3
 
   constructor(params?: { maxCycles?: number, startPrompt: string }) {
     if (params?.maxCycles !== undefined) {

@@ -15,7 +15,7 @@ import { fileURLToPath } from "url"
 import { spawn } from "child_process"
 import { copyFile, writeFile, readFile, readdir, mkdir } from "fs/promises"
 import { existsSync, mkdirSync } from "fs"
-import { 代码评审, 架构评审, Commit } from "./metaPrompts/评审相关"
+import { 代码评审, 架构评审, Commit, 预备Commit } from "./metaPrompts/评审相关"
 import { 基于ReactNative和Electron技术栈, 强引用的基于TS代码的文档和注释原则} from "./metaPrompts/立项相关"
 
 // 导入工具函数
@@ -47,6 +47,10 @@ const __dirname = dirname(__filename)
 const makeAI网站开发Start_REPO_WIKI =   `
   ${强引用的基于TS代码的文档和注释原则()}
 
+  export const 仓库须知_NOTE = \`
+      ${Commit()}
+    \`
+
   // 完成后删除
   const 起步引导 = \`
   注意，本段是起步引导，较为口语，完成后请删除起步引导。
@@ -76,7 +80,7 @@ const makeAI网站开发Start_REPO_WIKI =   `
   \`
   `
 
-const config = new LoopConfig({ maxCycles: 3 , startPrompt: makeAI网站开发Start_REPO_WIKI })
+const config = new LoopConfig({ maxCycles: 30 , startPrompt: makeAI网站开发Start_REPO_WIKI })
 
 /** 输出格式校验最大重试次数 */
 const OUTPUT_MAX_FORMAT_RETRIES = 3
@@ -223,10 +227,48 @@ ${upstreamMsg}
   }
 }
 
+export class 压缩决策员 implements IRole {
+  name = "compactor"
+  disabledTools = ["question", "github_*"]
+  knowledgeDomainPrompt() { return `你是一个压缩决策员，负责在每轮执行前判断是否需要对执行者的会话进行压缩（compact）。
+压缩的含义：将旧的对话历史总结为摘要，仅保留最近的关键上下文。好的压缩让执行者更聪明（释放无关历史，聚焦当前任务），坏的压缩因思维链断裂导致状态不一致。
+
+你的判断依据：
+1. 翻新度：如果本轮任务跟上一轮比是"高翻新"（7-10分：不同任务类型、同任务的不同层次、切换功能模块、不同文件、同文件中度或大型重构、思维链不需延续）→ 建议压缩
+          如果本轮任务跟上一轮比是"低翻新"（1-6分：必须严格复用上一个任务思维链）→ 不压缩
+2. Context Rot 迹象：如果会话过长或模型频繁"忘记"前文 → 建议压缩
+3. 关键记忆点：如果有必须跨轮保留的关键信息（设计决策、重要思维链、未闭合的bug），请注明。只在需要压缩时注明，如果不需要压缩，则关键记忆点也应同样视作不需要。` }
+  systemPrompt(upstreamMsg: string) { return `本轮的任务：
+---
+${upstreamMsg}
+---
+请判断本轮是否需要压缩执行者的会话。` } 
+  accessMode: "readonly" | "writable" = "readonly"
+  model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
+
+  outputSchema = {
+    type: "object",
+    required: ["是否压缩", "关键记忆点"],
+    properties: {
+      是否压缩: { type: "boolean" },
+      关键记忆点: { type: "string" },
+    },
+  }
+  validateOutput(raw: string): { valid: boolean; error?: string } {
+    const json = extractJSON(raw)
+    if (!json) return { valid: false, error: "输出中未找到有效的 JSON 对象" }
+    if (typeof json.是否压缩 !== "boolean") return { valid: false, error: "是否压缩 应为 boolean" }
+    if (typeof json.关键记忆点 !== "string") return { valid: false, error: "关键记忆点 应为 string" }
+    return { valid: true }
+  }
+}
+
 export class 执行者 implements IRole {
   name = "executor"
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return "你是一个执行者，负责执行任务。" }
+  knowledgeDomainPrompt() { return `你是一个执行者，负责落实每一轮任务。你首先应阅读项目WIKI，了解项目要求。
+    如果你认为规划者的任务分配不合理，你需要先完成你觉得合理的部分，不合理的部分给出明确的理由和建议。通过在任务表CLI中添加动态的方式反驳规划者的决策。
+    对于团队成员给出的修复建议，先理解，再分步执行。` }
   systemPrompt(upstreamMsg: string) { return `下面是一些信息：
 ---
 ${upstreamMsg}
@@ -322,6 +364,8 @@ ${架构评审()}
 【全局视角】任务表工具请查看说明书。你只允许查询，不允许增删改动。
 
 【局部整体性视角】多查看diff（关注暂存区、工作区以及整体变动），跳出来看跨文件关系，多问自己：
+  文件是否放在了正确的文件夹？
+  代码块是否放在了正确的文件？
   这次变动是否引入了冗余？
   是否有更优雅的实现？
   是否有更合理的分层？
@@ -367,7 +411,8 @@ export class 质保员 implements IRole {
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个质保员，负责写测试、找bug/复现bug/记录bug。
 
-    确保覆盖率足够高。写真测试，不要写蠢测试。
+    在正确的文件夹写测试。
+    确保覆盖率足够高。模拟真实生产环境测试，不要写蠢测试。
 
     工作流程：
     1. 先检查问题：查阅仓库变更，检查测试覆盖率，排查bug，识别缺失的测试用例
@@ -393,8 +438,11 @@ export class 边缘质保员 implements IRole {
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个边缘质保员，负责写测试、寻找质保员测试时未覆盖到的边缘情况。
 
+    在正确的文件夹写测试。
+
     关注的边缘情况包括7类：大数据量、大参数量、多次重复操作、交叠式重复操作、覆盖式操作、特殊情况中断、长时间运行。
 
+    模拟真实生产环境测试。
     不要死脑筋，有一些逻辑面对以上情况肯定不会有事不用测。但有一些逻辑面对以上情况是高危的。针对后者设计充分必要的测试。
 
     确保覆盖率足够高。
@@ -418,48 +466,13 @@ ${upstreamMsg}
   }
 }
 
-export class 压缩决策员 implements IRole {
-  name = "compactor"
-  disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return `你是一个压缩决策员，负责在每轮执行前判断是否需要对执行者的会话进行压缩（compact）。
-压缩的含义：将旧的对话历史总结为摘要，仅保留最近的关键上下文。好的压缩让执行者更聪明（释放无关历史，聚焦当前任务），坏的压缩因思维链断裂导致状态不一致。
-
-你的判断依据：
-1. 翻新度：如果本轮任务跟上一轮比是"高翻新"（7-10分：不同任务类型、同任务的不同层次、切换功能模块、不同文件、同文件中度或大型重构、思维链不需延续）→ 建议压缩
-          如果本轮任务跟上一轮比是"低翻新"（1-6分：必须严格复用上一个任务思维链）→ 不压缩
-2. Context Rot 迹象：如果会话过长或模型频繁"忘记"前文 → 建议压缩
-3. 关键记忆点：如果有必须跨轮保留的关键信息（设计决策、重要思维链、未闭合的bug），请注明。只在需要压缩时注明，如果不需要压缩，则关键记忆点也应同样视作不需要。` }
-  systemPrompt(upstreamMsg: string) { return `本轮的任务：
----
-${upstreamMsg}
----
-请判断本轮是否需要压缩执行者的会话。` } 
-  accessMode: "readonly" | "writable" = "readonly"
-  model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
-
-  outputSchema = {
-    type: "object",
-    required: ["是否压缩", "关键记忆点"],
-    properties: {
-      是否压缩: { type: "boolean" },
-      关键记忆点: { type: "string" },
-    },
-  }
-  validateOutput(raw: string): { valid: boolean; error?: string } {
-    const json = extractJSON(raw)
-    if (!json) return { valid: false, error: "输出中未找到有效的 JSON 对象" }
-    if (typeof json.是否压缩 !== "boolean") return { valid: false, error: "是否压缩 应为 boolean" }
-    if (typeof json.关键记忆点 !== "string") return { valid: false, error: "关键记忆点 应为 string" }
-    return { valid: true }
-  }
-}
-
 export class 提交员 implements IRole {
   name = "commitman"
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() {
     return `你是一个提交员，负责提交仓库。包括git仓库（如有）、svn仓库（如有）等等。
 
+${预备Commit()}
 ${Commit()}
 
 【一句话动态要求】
@@ -488,6 +501,7 @@ export interface PEEMainDeps {
   relocateRole: typeof AskTo重新定位角色
   setupProjectEnvironment: (projectDir: string, startPrompt: string) => Promise<void>
   loopConfig: LoopConfig
+  askUser?: (prompt: string) => Promise<string>
 }
 
 function isCycleCompleted(nextRole: IRole, theFirstRole: IRole): boolean {
@@ -1098,6 +1112,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     relocateRole: AskTo重新定位角色,
     setupProjectEnvironment,
     loopConfig: config,
+    askUser,
     ...deps,
   }
 
@@ -1307,8 +1322,13 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     let compactBeforeSend = false
     /** 记录执行节点本轮是否压缩，供跟随角色同步决策 */
     let executorDidCompact = false
+    /** 标记是否通过"项目已提前完成"路径退出循环 */
+    let exitedViaEarlyCompletion = false
 
-    while (cycle < runtimeDeps.loopConfig.maxCycles) {
+    // 外层循环：处理"所有轮次耗尽后询问用户是否继续"的逻辑
+    outer: while (true) {
+      // 内层循环：正常轮次执行
+      while (cycle < runtimeDeps.loopConfig.maxCycles) {
       // 【中断消费语义】
       // 这里统一消费四种中断语义：
       // - pause / new_message / rollback：恢复被中断角色的本轮输出，随后允许用户决定消息派发给哪个角色
@@ -1487,6 +1507,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
                 consoleAndLogFile.info(`[提前完成] 确认项目已全部完成，跳出循环`)
                 validation.valid = true
                 提前完成已确认 = true
+                exitedViaEarlyCompletion = true
                 cycle = runtimeDeps.loopConfig.maxCycles // 触发外层while循环结束
                 break // 跳出验证重试循环
               }
@@ -1666,7 +1687,33 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
           break
         }
       }
+    } // end while (轮次循环)
+
+    // 【所有轮次已耗尽】
+    // 当 inner while 循环条件不满足时，说明最后一圈已经跑完（cycle 已在返回规划者时递增）
+    // 此时向规划者发一条结束消息，然后询问用户是否继续
+    // 注意：如果是提前完成路径退出的（exitedViaEarlyCompletion），则跳过此逻辑
+    if (cycle > 0 && !exitedViaEarlyCompletion) {
+      const finalRoundInfo = buildRoundInfo(cycle - 1, runtimeDeps.loopConfig.maxCycles)
+      consoleAndLogFile.info(`[轮次耗尽] 已完成${cycle}圈，向规划者发送结束通知`)
+      const 规划者session = await getOrCreateSession(规划者instance)
+      await 规划者session.sendMsg({
+        msgSource: MSG_SOURCE.system,
+        content: `${finalRoundInfo}所有轮次已耗尽。\n\n输入任意数字n，继续跑n轮。点击回车退出。`,
+      }, false)
+      const userInput = await runtimeDeps.askUser!(`所有轮次已耗尽。输入任意数字n继续跑n轮，点击回车退出: `)
+      const n = parseInt(userInput.trim(), 10)
+      if (!isNaN(n) && n > 0) {
+        consoleAndLogFile.info(`[用户续跑] 额外追加${n}轮`)
+        runtimeDeps.loopConfig.maxCycles += n
+        exitedViaEarlyCompletion = false // 重置，以便后续轮次耗尽时能再次触发询问
+        consoleAndLogFile.infoC(LOG_COLOR.GREEN, `[追加轮次后] 总圈数=${runtimeDeps.loopConfig.maxCycles}`)
+        continue outer // 重新进入外层循环，从而重新进入内层 while
+      }
     }
+    break outer // 用户回车退出，跳出外层循环
+  } // end outer while
+
   } finally {
     // 释放所有 role 的 session 资源，避免连接泄漏
     for (const role of allRoles) {
