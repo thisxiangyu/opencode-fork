@@ -22,7 +22,6 @@ import {
   解析任务行,
   type 任务Row,
   type 任务,
-  type AddedTaskMsg,
 } from "../规划图CLI"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -74,11 +73,6 @@ describe("1. 添加任务", () => {
       任务Tag.FEAT,
     )
     expect(result.成功).toBe(true)
-    expect(result.res任务).toBeDefined()
-    expect(result.res任务!.任务描述).toBe("这是一个根任务的描述，用于测试添加功能")
-    expect(result.res任务!.是否完成).toBe(false)
-    expect((result.res任务 as AddedTaskMsg).创建时间).toBeDefined()
-    expect(result.res任务!.优先级序号).toBe(0)
     expect(当前表中全部任务数()).toBe(1)
   })
 
@@ -91,9 +85,6 @@ describe("1. 添加任务", () => {
       任务Tag.DETAIL,
     )
     expect(result.成功).toBe(true)
-    expect(result.res任务!.任务描述).toBe("这是子任务B的描述")
-    expect(result.res任务!.是否完成).toBe(false)
-    expect(result.res任务!.优先级序号).toBe(0)
     expect(当前表中全部任务数()).toBe(2)
   })
 
@@ -108,9 +99,6 @@ describe("1. 添加任务", () => {
       deps,
     )
     expect(result.成功).toBe(true)
-    expect(result.res任务!.任务描述).toBe("这是子任务C的描述，依赖B")
-    expect(result.res任务!.是否完成).toBe(false)
-    expect(result.res任务!.优先级序号).toBe(1)
   })
 
   test("添加带其它Tag的任务", () => {
@@ -124,9 +112,6 @@ describe("1. 添加任务", () => {
       [任务Tag.DETAIL, 任务Tag.CHORE],
     )
     expect(result.成功).toBe(true)
-    expect(result.res任务!.任务描述).toBe("根任务D的描述")
-    expect(result.res任务!.是否完成).toBe(false)
-    expect(result.res任务!.优先级序号).toBe(1)
   })
 
   test("标题为空应失败", () => {
@@ -156,14 +141,12 @@ describe("1. 添加任务", () => {
   test("传入超大优先级序号自动截断到末尾", () => {
     const result = 规划图.添加任务(null, "大序号描述", "大序号任务", 99999, 任务Tag.FEAT)
     expect(result.成功).toBe(true)
-    expect(result.res任务!.优先级序号).toBeGreaterThan(1)
     expect(result.消息).toContain("优先级")
   })
 
   test("传入合理优先级序号不被截断", () => {
     const result = 规划图.添加任务(null, "中间描述", "中间任务", 2, 任务Tag.FEAT)
     expect(result.成功).toBe(true)
-    expect(result.res任务!.优先级序号).toBe(2)
   })
 })
 
@@ -451,8 +434,6 @@ describe("7. 改描述", () => {
   test("修改描述成功", () => {
     const result = 规划图.改描述("改描述任务", "新的描述内容")
     expect(result.成功).toBe(true)
-    expect(result.res任务).toBeDefined()
-    expect(result.res任务!.任务描述).toBe("新的描述内容")
   })
 
   test("验证数据库已更新", () => {
@@ -484,7 +465,6 @@ describe("8. 改标题", () => {
   test("改标题成功", () => {
     const result = 规划图.改标题("旧标题任务", "新标题任务")
     expect(result.成功).toBe(true)
-    expect((result.res任务 as 任务).标题).toBe("新标题任务")
   })
 
   test("子任务的父任务ID保持不变（基于ID的索引不受标题更名影响）", () => {
@@ -543,8 +523,8 @@ describe("9. 改依赖", () => {
     ]
     const result = 规划图.改依赖("待改依赖任务", newDeps)
     expect(result.成功).toBe(true)
-    expect(result.res任务).toBeDefined()
-    const deps = JSON.parse((result.res任务 as 任务).依赖!) as 任务依赖[]
+    const found = 规划图.按标题查("待改依赖任务")
+    const deps = JSON.parse(found[0].依赖!) as 任务依赖[]
     expect(deps).toHaveLength(2)
     expect(deps[0].依赖任务).toBe("依赖目标A")
     expect(deps[1].依赖任务).toBe("依赖目标B")
@@ -632,7 +612,6 @@ describe("9.2 改优先级", () => {
     const result = 规划图.改优先级("任务E", 1)
     expect(result.成功).toBe(true)
     expect(result.消息).toContain("从 4 改为 1")
-    expect(result.res任务!.优先级序号).toBe(1)
   })
 
   test("改优先级后同级重新排序", () => {
@@ -753,7 +732,6 @@ describe("10. 标记为已完成", () => {
   test("标记为已完成成功", () => {
     const result = 规划图.标记为已完成("待完成任务")
     expect(result.成功).toBe(true)
-    expect(result.res任务!.是否完成).toBe(true)
   })
 
   test("验证数据库已更新", () => {
@@ -814,7 +792,6 @@ describe("10.1 级联标记为已完成", () => {
     // 再标记父任务
     const result = 规划图.标记为已完成("完成根任务")
     expect(result.成功).toBe(true)
-    expect(result.res任务!.是否完成).toBe(true)
   })
 
   test("级联完成后所有子任务均标记为已完成", () => {
@@ -979,20 +956,16 @@ describe("11. 添加动态", () => {
   test("添加动态成功", () => {
     const result = 规划图.添加动态("动态测试任务", "planner", "开始规划")
     expect(result.成功).toBe(true)
-    expect(result.res任务).toBeDefined()
-    const res任务 = result.res任务 as 任务
-    expect(res任务.动态).toHaveLength(1)
-    expect(res任务.动态[0].角色).toBe("planner")
-    expect(res任务.动态[0].消息).toBe("开始规划")
-    expect(res任务.动态[0].时间UTC).toBeDefined()
+  })
+
+  test("验证数据库已更新", () => {
+    const found = 规划图.按标题查("动态测试任务")
+    expect(found[0].动态).toHaveLength(1)
   })
 
   test("添加第二条动态", () => {
     const result = 规划图.添加动态("动态测试任务", "executor", "执行中")
     expect(result.成功).toBe(true)
-    const res任务 = result.res任务 as 任务
-    expect(res任务.动态).toHaveLength(2)
-    expect(res任务.动态[1].角色).toBe("executor")
   })
 
   test("验证数据库已更新", () => {
@@ -1458,7 +1431,6 @@ describe("CLI命令集成测试", () => {
     ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
-    expect(result.res任务.动态.length).toBeGreaterThanOrEqual(1)
   })
 
   test("CLI add-activity缺少参数应失败", async () => {

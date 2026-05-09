@@ -215,17 +215,9 @@ function 级联更新字段(父任务ID: number, 字段: string, 值: number | s
 
 export type 任务Row = Omit<任务, "Tag" | "动态"> & { Tag?: string | string[], 动态?: string }
 
-export interface AddedTaskMsg {
-  任务描述: string
-  是否完成: boolean
-  创建时间: string
-  优先级序号: number
-}
-
 type 任务操作结果 = {
   成功: boolean
   消息: string
-  res任务?: 任务 | AddedTaskMsg
   需要确认?: boolean
   子任务数?: number
 }
@@ -476,12 +468,6 @@ export const 规划图 = {
     return {
       成功: true,
       消息: `已添加${isRoot ? "根任务" : "子任务"}「${标题trim}」${父任务标题信息}（优先级：${实际优先级序号}，ID：${newTaskId}）${依赖提醒}`,
-      res任务: {
-        任务描述: 任务描述.trim(),
-        是否完成: false,
-        创建时间: 创建时间UTC,
-        优先级序号: 实际优先级序号,
-      },
     }
   },
 
@@ -699,8 +685,7 @@ export const 规划图 = {
     const existing = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` }
     获取规划图Db().prepare("UPDATE 规划图 SET 任务描述 = ? WHERE id = ?").run(新描述.trim(), existing.id)
-    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id) as 任务Row | undefined
-    return { 成功: true, 消息: `已更新任务「${标题trim}」的描述`, res任务: updated ? 解析任务行(updated) : undefined }
+    return { 成功: true, 消息: `已更新任务「${标题trim}」的描述` }
   },
 
   改标题(旧标题: string, 新标题: string): 任务操作结果 {
@@ -715,8 +700,7 @@ export const 规划图 = {
 
     获取规划图Db().prepare("UPDATE 规划图 SET 标题 = ? WHERE id = ?").run(新标题trim, existing.id)
 
-    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id) as 任务Row | undefined
-    return { 成功: true, 消息: `已将任务「${旧标题trim}」更名为「${新标题trim}」（ID：${existing.id}不变，父子关系和依赖关系不受影响）`, res任务: updated ? 解析任务行(updated) : undefined }
+    return { 成功: true, 消息: `已将任务「${旧标题trim}」更名为「${新标题trim}」（ID：${existing.id}不变，父子关系和依赖关系不受影响）` }
   },
 
   改依赖(标题: string, 新依赖: 任务依赖[]): 任务操作结果 {
@@ -740,9 +724,8 @@ export const 规划图 = {
     const 依赖校验结果 = 校验同级依赖规则(标题trim, existingTask.父任务ID ?? null, existingTask.优先级序号 ?? 0, 新依赖)
     if (依赖校验结果) return 依赖校验结果
     获取规划图Db().prepare("UPDATE 规划图 SET 依赖 = ? WHERE id = ?").run(JSON.stringify(新依赖), existing.id)
-    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id) as 任务Row | undefined
     const 依赖提醒 = 新依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，依赖链是极为重要的，不要忽视隐性依赖）" : ""
-    return { 成功: true, 消息: `已更新任务「${标题trim}」的依赖${依赖提醒}`, res任务: updated ? 解析任务行(updated) : undefined }
+    return { 成功: true, 消息: `已更新任务「${标题trim}」的依赖${依赖提醒}` }
   },
 
   改优先级(标题: string, 新优先级序号: number): 任务操作结果 {
@@ -813,8 +796,7 @@ export const 规划图 = {
     const 前两个描述 = 前两个任务.length > 0 ? 前两个任务.map(t => `《${t.标题}》(优先级${t.优先级序号})`).join("、") : "无"
     const 后两个描述 = 后两个任务.length > 0 ? 后两个任务.map(t => `《${t.标题}》(优先级${t.优先级序号})`).join("、") : "无"
 
-    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id) as 任务Row | undefined
-    return { 成功: true, 消息: `已将任务「${标题trim}」的优先级从 ${原优先级序号} 改为 ${实际优先级序号}。当前位置：前两个任务[${前两个描述}] <- 本任务 -> 后两个任务[${后两个描述}]`, res任务: updated ? 解析任务行(updated) : undefined }
+    return { 成功: true, 消息: `已将任务「${标题trim}」的优先级从 ${原优先级序号} 改为 ${实际优先级序号}。当前位置：前两个任务[${前两个描述}] <- 本任务 -> 后两个任务[${后两个描述}]` }
   },
 
   标记为已完成(标题: string): 任务操作结果 {
@@ -836,8 +818,7 @@ export const 规划图 = {
     const 新动态: 动态记录 = { 时间UTC: new Date().toISOString(), 角色: 角色.trim(), 消息: 消息.trim() }
     现有动态.push(新动态)
     获取规划图Db().prepare("UPDATE 规划图 SET 动态 = ? WHERE id = ?").run(JSON.stringify(现有动态), existing.id)
-    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id) as 任务Row | undefined
-    return { 成功: true, 消息: `已为任务「${标题trim}」添加动态`, res任务: updated ? 解析任务行(updated) : undefined }
+    return { 成功: true, 消息: `已为任务「${标题trim}」添加动态` }
   },
 }
 
@@ -858,16 +839,14 @@ function _完成任务(标题: string): 任务操作结果 {
     }
     // 所有子任务都已完成，只标记父任务自身为完成（子任务已完成，无需重复更新）
     获取规划图Db().prepare("UPDATE 规划图 SET 是否完成 = 1 WHERE id = ?").run(existing.id)
-    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id) as 任务Row | undefined
-    return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成`, res任务: updated ? 解析任务行(updated) : undefined }
+    return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成` }
   }
 
   // 末端任务：标记为完成后，尝试向上自动完成父任务
   获取规划图Db().prepare("UPDATE 规划图 SET 是否完成 = 1 WHERE id = ?").run(existing.id)
   尝试向上自动完成(existing.id!)
 
-  const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id) as 任务Row | undefined
-  return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成`, res任务: updated ? 解析任务行(updated) : undefined }
+  return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成` }
 }
 
 function 构建时间过滤条件(从: string | undefined, 到: string | undefined): { sql: string, params: string[], 校验失败消息: string | null } {

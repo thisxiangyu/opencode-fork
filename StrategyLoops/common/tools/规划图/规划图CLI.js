@@ -406,12 +406,6 @@ const 规划图 = {
     return {
       成功: true,
       消息: `已添加${isRoot ? "根任务" : "子任务"}「${标题trim}」${父任务标题信息}（优先级：${实际优先级序号}，ID：${newTaskId}）${依赖提醒}`,
-      res任务: {
-        任务描述: 任务描述.trim(),
-        是否完成: false,
-        创建时间: 创建时间UTC,
-        优先级序号: 实际优先级序号
-      }
     };
   },
   删除任务(标题) {
@@ -581,7 +575,7 @@ const 规划图 = {
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` };
     获取规划图Db().prepare("UPDATE 规划图 SET 任务描述 = ? WHERE id = ?").run(新描述.trim(), existing.id);
     const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
-    return { 成功: true, 消息: `已更新任务「${标题trim}」的描述`, res任务: updated ? 解析任务行(updated) : void 0 };
+    return { 成功: true, 消息: `已更新任务「${标题trim}」的描述` };
   },
   改标题(旧标题, 新标题) {
     const 旧标题trim = 旧标题.trim();
@@ -594,7 +588,7 @@ const 规划图 = {
     if (duplicate) return { 成功: false, 消息: `新标题「${新标题trim}」在当前项目「${当前项目名}」已存在` };
     获取规划图Db().prepare("UPDATE 规划图 SET 标题 = ? WHERE id = ?").run(新标题trim, existing.id);
     const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
-    return { 成功: true, 消息: `已将任务「${旧标题trim}」更名为「${新标题trim}」（ID：${existing.id}不变，父子关系和依赖关系不受影响）`, res任务: updated ? 解析任务行(updated) : void 0 };
+    return { 成功: true, 消息: `已将任务「${旧标题trim}」更名为「${新标题trim}」（ID：${existing.id}不变，父子关系和依赖关系不受影响）` };
   },
   改依赖(标题, 新依赖) {
     const 标题trim = 标题.trim();
@@ -616,7 +610,7 @@ const 规划图 = {
     获取规划图Db().prepare("UPDATE 规划图 SET 依赖 = ? WHERE id = ?").run(JSON.stringify(新依赖), existing.id);
     const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
     const 依赖提醒 = 新依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，依赖链是极为重要的，不要忽视隐性依赖）" : "";
-    return { 成功: true, 消息: `已更新任务「${标题trim}」的依赖${依赖提醒}`, res任务: updated ? 解析任务行(updated) : void 0 };
+    return { 成功: true, 消息: `已更新任务「${标题trim}」的依赖${依赖提醒}` };
   },
   改优先级(标题, 新优先级序号) {
     const 标题trim = 标题.trim();
@@ -679,7 +673,7 @@ const 规划图 = {
     const 前两个描述 = 前两个任务.length > 0 ? 前两个任务.map((t) => `《${t.标题}》(优先级${t.优先级序号})`).join("、") : "无";
     const 后两个描述 = 后两个任务.length > 0 ? 后两个任务.map((t) => `《${t.标题}》(优先级${t.优先级序号})`).join("、") : "无";
     const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
-    return { 成功: true, 消息: `已将任务「${标题trim}」的优先级从 ${原优先级序号} 改为 ${实际优先级序号}。当前位置：前两个任务[${前两个描述}] <- 本任务 -> 后两个任务[${后两个描述}]`, res任务: updated ? 解析任务行(updated) : void 0 };
+    return { 成功: true, 消息: `已将任务「${标题trim}」的优先级从 ${原优先级序号} 改为 ${实际优先级序号}。当前位置：前两个任务[${前两个描述}] <- 本任务 -> 后两个任务[${后两个描述}]` };
   },
   标记为已完成(标题) {
     return _完成任务(标题);
@@ -699,7 +693,7 @@ const 规划图 = {
     现有动态.push(新动态);
     获取规划图Db().prepare("UPDATE 规划图 SET 动态 = ? WHERE id = ?").run(JSON.stringify(现有动态), existing.id);
     const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
-    return { 成功: true, 消息: `已为任务「${标题trim}」添加动态`, res任务: updated ? 解析任务行(updated) : void 0 };
+    return { 成功: true, 消息: `已为任务「${标题trim}」添加动态` };
   }
 };
 function _完成任务(标题) {
@@ -714,12 +708,12 @@ function _完成任务(标题) {
     }
     获取规划图Db().prepare("UPDATE 规划图 SET 是否完成 = 1 WHERE id = ?").run(existing.id);
     const updated2 = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
-    return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成`, res任务: updated2 ? 解析任务行(updated2) : void 0 };
+    return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成` };
   }
   获取规划图Db().prepare("UPDATE 规划图 SET 是否完成 = 1 WHERE id = ?").run(existing.id);
   尝试向上自动完成(existing.id);
   const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
-  return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成`, res任务: updated ? 解析任务行(updated) : void 0 };
+  return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成` };
 }
 function 构建时间过滤条件(从, 到) {
   const sqlParts = [];
