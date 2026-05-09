@@ -3,7 +3,7 @@
  * 适合需要开放式决策的较大型项目。
  */
 import { type IRole } from "../../common/role"
-import { 执行者 } from "./任务表驱动的PEE";
+import { 执行者 } from "./规划图驱动的PEE";
 
 
 const 执行者调度器: {

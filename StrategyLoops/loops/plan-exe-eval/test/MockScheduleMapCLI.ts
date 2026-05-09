@@ -1,5 +1,5 @@
 /**
- * Mock 任务表CLI - 用于测试环境，不依赖实际CLI
+ * Mock 规划图CLI - 用于测试环境，不依赖实际CLI
  */
 
 import { spawn, ChildProcess } from "child_process"
@@ -25,7 +25,7 @@ export interface MockDependencyChain {
   }[]
 }
 
-export class MockTaskTableCLI {
+export class MockScheduleMapCLI {
   private tasks: Map<string, MockTask> = new Map()
   private tasksById: Map<number, MockTask> = new Map()
   private nextId: number = 1
@@ -235,20 +235,20 @@ export class MockTaskTableCLI {
 }
 
 // 全局单例
-let globalMockCLI: MockTaskTableCLI | null = null
+let globalMockCLI: MockScheduleMapCLI | null = null
 
-export function getMockCLI(): MockTaskTableCLI {
+export function getMockCLI(): MockScheduleMapCLI {
   if (!globalMockCLI) {
-    globalMockCLI = new MockTaskTableCLI()
+    globalMockCLI = new MockScheduleMapCLI()
   }
   return globalMockCLI
 }
 
 export function resetMockCLI(): void {
-  globalMockCLI = new MockTaskTableCLI()
+  globalMockCLI = new MockScheduleMapCLI()
 }
 
-export function setMockCLI(cli: MockTaskTableCLI): void {
+export function setMockCLI(cli: MockScheduleMapCLI): void {
   globalMockCLI = cli
 }
 
@@ -256,7 +256,7 @@ export function setMockCLI(cli: MockTaskTableCLI): void {
  * 创建模拟 spawn 结果的工厂函数
  * 用于 stub spawn 让它返回预设的 MockCLI 结果
  */
-export function createSpawnStub(mockCLI: MockTaskTableCLI) {
+export function createSpawnStub(mockCLI: MockScheduleMapCLI) {
   return function stubSpawn(
     command: string,
     args: string[],

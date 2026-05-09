@@ -33,7 +33,7 @@ import {
   边缘质保员,
   压缩决策员,
   提交员,
-} from "../任务表驱动的PEE"
+} from "../规划图驱动的PEE"
 
 describe("PEE utils", () => {
   describe("extractJSON", () => {

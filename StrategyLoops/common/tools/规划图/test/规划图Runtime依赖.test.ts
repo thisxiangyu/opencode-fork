@@ -4,15 +4,15 @@ import { mkdtemp, mkdir, readFile, writeFile } from "fs/promises"
 import { join } from "path"
 import { tmpdir } from "os"
 import {
-  deployTaskTableRuntimeDependencies,
+  deployScheduleMapRuntimeDependencies,
   isMissingBetterSqlite3Error,
-  verifyTaskTableRuntimeDependencies,
-} from "../任务表Runtime依赖"
+  verifyScheduleMapRuntimeDependencies,
+} from "../规划图Runtime依赖"
 
 const tempDirs: string[] = []
 
 async function makeProjectDir() {
-  const dir = await mkdtemp(join(tmpdir(), "task-table-runtime-"))
+  const dir = await mkdtemp(join(tmpdir(), "schedule-map-runtime-"))
   tempDirs.push(dir)
   return dir
 }
@@ -23,16 +23,16 @@ afterEach(() => {
   }
 })
 
-describe("任务表Runtime依赖", () => {
+describe("规划图Runtime依赖", () => {
   test("首次部署会从 StrategyLoops node_modules 离线拷贝 better-sqlite3 及运行时依赖", async () => {
     const projectDir = await makeProjectDir()
 
-    await deployTaskTableRuntimeDependencies(projectDir)
+    await deployScheduleMapRuntimeDependencies(projectDir)
 
     expect(existsSync(join(projectDir, "node_modules", "better-sqlite3", "package.json"))).toBe(true)
     expect(existsSync(join(projectDir, "node_modules", "bindings", "package.json"))).toBe(true)
     expect(existsSync(join(projectDir, "node_modules", "file-uri-to-path", "package.json"))).toBe(true)
-    await expect(verifyTaskTableRuntimeDependencies(projectDir)).resolves.toBeUndefined()
+    await expect(verifyScheduleMapRuntimeDependencies(projectDir)).resolves.toBeUndefined()
   })
 
   test("目标 better-sqlite3 已存在且选择 n 时沿用旧目录", async () => {
@@ -41,7 +41,7 @@ describe("任务表Runtime依赖", () => {
     await mkdir(join(projectDir, "node_modules", "better-sqlite3"), { recursive: true })
     await writeFile(markerPath, "keep", "utf-8")
 
-    const decision = await deployTaskTableRuntimeDependencies(projectDir, { askUser: async () => "n" })
+    const decision = await deployScheduleMapRuntimeDependencies(projectDir, { askUser: async () => "n" })
 
     expect(decision).toBe("keep")
     await expect(readFile(markerPath, "utf-8")).resolves.toBe("keep")
@@ -53,11 +53,11 @@ describe("任务表Runtime依赖", () => {
     await mkdir(join(projectDir, "node_modules", "better-sqlite3"), { recursive: true })
     await writeFile(markerPath, "old", "utf-8")
 
-    const decision = await deployTaskTableRuntimeDependencies(projectDir, { askUser: async () => "y" })
+    const decision = await deployScheduleMapRuntimeDependencies(projectDir, { askUser: async () => "y" })
 
     expect(decision).toBe("overwrite")
     expect(existsSync(markerPath)).toBe(false)
-    await expect(verifyTaskTableRuntimeDependencies(projectDir)).resolves.toBeUndefined()
+    await expect(verifyScheduleMapRuntimeDependencies(projectDir)).resolves.toBeUndefined()
   })
 
   test("识别系统级 better-sqlite3 缺失错误", () => {

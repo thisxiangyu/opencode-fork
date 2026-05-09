@@ -1,11 +1,11 @@
 /**
- * 任务表CLI构建脚本
- * 将 任务表CLI.ts 编译为 任务表CLI.js
+ * 规划图CLI构建脚本
+ * 将 规划图CLI.ts 编译为 规划图CLI.js
  *
  * 用法:
- *   npx tsx 任务表Build.ts                    # 输出到同目录
- *   npx tsx 任务表Build.ts ./dist/           # 输出到指定目录
- *   npx tsx 任务表Build.ts /path/to/out.js   # 输出到指定文件
+ *   npx tsx 规划图Build.ts                    # 输出到同目录
+ *   npx tsx 规划图Build.ts ./dist/           # 输出到指定目录
+ *   npx tsx 规划图Build.ts /path/to/out.js   # 输出到指定文件
  */
 import { spawn } from "child_process"
 import { join, dirname } from "path"
@@ -15,8 +15,8 @@ import { mkdirSync, existsSync } from "fs"
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
-const sourceFile = join(__dirname, "任务表CLI.ts")
-const defaultOutFile = join(__dirname, "任务表CLI.js")
+const sourceFile = join(__dirname, "规划图CLI.ts")
+const defaultOutFile = join(__dirname, "规划图CLI.js")
 
 function getOutFile(args: string[]): string {
   if (args[0]) {
@@ -25,8 +25,8 @@ function getOutFile(args: string[]): string {
     if (target.endsWith(".js")) {
       return target
     }
-    // 目录：输出到该目录下的 任务表CLI.js
-    return join(target, "任务表CLI.js")
+    // 目录：输出到该目录下的 规划图CLI.js
+    return join(target, "规划图CLI.js")
   }
   return defaultOutFile
 }
@@ -50,7 +50,7 @@ const child = spawn("npx", [
   "--format=cjs",
   "--target=node18",
   "--charset=utf8",
-  "--banner:js=/* 基于 任务表CLI.ts 构建 */",
+  "--banner:js=/* 基于 规划图CLI.ts 构建 */",
 ], {
   cwd: __dirname,
   stdio: ["ignore", "pipe", "pipe"],

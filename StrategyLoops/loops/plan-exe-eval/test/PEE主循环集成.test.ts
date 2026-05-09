@@ -4,7 +4,7 @@ import { AbortError, INTERRUPTION_REASON, MSG_SOURCE, type InterruptedMsgContext
 import type { IRole } from "../../../common/role"
 import type { ISession } from "../../../common/session"
 import { LoopConfig } from "../../../common/loopConfig"
-import { main } from "../任务表驱动的PEE"
+import { main } from "../规划图驱动的PEE"
 
 class ScriptedSession implements ISession {
   id: string
@@ -106,7 +106,7 @@ describe("PEE main loop integration", () => {
         throw new Error("setup failed")
       }
       await mkdir(directory, { recursive: true })
-      await writeFile(`${directory}/任务表CLI.js`, "// test stub\n", "utf-8")
+      await writeFile(`${directory}/规划图CLI.js`, "// test stub\n", "utf-8")
     })
     const linkBackend = vi.fn().mockReturnValue("mock-backend")
     const selectOrCreateSession = vi.fn(async (role: IRole) => {
@@ -117,7 +117,7 @@ describe("PEE main loop integration", () => {
     const createSession = vi.fn(async (role: IRole) => makeSession(role))
     const relocateRole = vi.fn(options.relocateRole ?? (async (allRoles: IRole[]) => allRoles.find((role) => role.name === "edgeQA")!))
 
-    const runTaskTableCli = vi.fn(async (_projectDir: string, args: string[]) => {
+    const runScheduleMapCli = vi.fn(async (_projectDir: string, args: string[]) => {
       const action = args[0]
       const result = (() => {
         if (action === "query-by-title") {
@@ -161,7 +161,7 @@ describe("PEE main loop integration", () => {
       setupProjectEnvironment,
       loopConfig: new LoopConfig({ maxCycles: 1, startPrompt: "test-start" }),
       askUser: vi.fn(async () => options.askUserResponse ?? ""),
-      runTaskTableCli,
+      runScheduleMapCli,
     })
 
     if (options.interruptRoleName) {

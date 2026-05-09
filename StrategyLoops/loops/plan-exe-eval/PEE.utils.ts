@@ -208,7 +208,7 @@ export function buildCommonUpstream(
 }
 
 /**
- * 基于任务表 CLI 查询结果构建通用 upstream。
+ * 基于规划图 CLI 查询结果构建通用 upstream。
  *
  * 供真实主循环使用，也作为测试直接命中的格式化入口。
  */
@@ -353,7 +353,7 @@ export function getRejectionActivityToRecord(
 // ============== 角色名称映射 ==============
 
 /**
- * 获取"检查-修复-汇报"型角色在任务表中的标准名称。
+ * 获取"检查-修复-汇报"型角色在规划图中的标准名称。
  */
 export function normalizeRoleName(currentRoleName: string): string {
   if (currentRoleName === "ScissorHands") return "ScissorHands"
@@ -445,7 +445,7 @@ export interface ResumedValidationPlan {
  * 下游派发目标必须等验证通过、默认跳转角色算出后，再允许用户覆盖。
  *
  * 注意：这里故意不携带 fallbackRole / selectedNextRole。
- * 中断时收到的 resumedResponse 还没有经过角色自己的 validateOutput，规划者还没有经过任务表派发验证；
+ * 中断时收到的 resumedResponse 还没有经过角色自己的 validateOutput，规划者还没有经过规划图派发验证；
  * 提前记录下游角色会让“用户选择派发目标”发生在“确认消息合法”之前。
  */
 export function planResumedValidation(

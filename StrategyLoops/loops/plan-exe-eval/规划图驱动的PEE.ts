@@ -9,13 +9,13 @@ import { AbortError, INTERRUPTION_REASON, type InterruptedMsgContext, MSG_SOURCE
 import type { ISession } from "../../common/session"
 import { linkBackend,createSession, selectOrCreateSession } from "../../common/adapters/opencodeAdapter"
 import { formatDateTime, askUser } from "../../common/system"
-import { initDb } from "../../common/tools/任务表/任务表CLI"
+import { initDb } from "../../common/tools/规划图/规划图CLI"
 import {
-  deployTaskTableRuntimeDependencies,
+  deployScheduleMapRuntimeDependencies,
   isMissingBetterSqlite3Error,
-  repairTaskTableRuntimeDependencies,
-  verifyTaskTableRuntimeDependencies,
-} from "../../common/tools/任务表/任务表Runtime依赖"
+  repairScheduleMapRuntimeDependencies,
+  verifyScheduleMapRuntimeDependencies,
+} from "../../common/tools/规划图/规划图Runtime依赖"
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
 import { spawn } from "child_process"
@@ -178,7 +178,7 @@ export class 规划者 implements IRole {
     你不要亲自去执行，而是派发任务，以指挥驱动。
     具体来说，每一轮都要做的事：
     1.阅读一些信息；
-    2.理解当前任务表完成度；(这是统领全局的首要工具。通常而言，任务表的层次越厚实，末端任务越具体，证明对项目的理解越深入，规划质量越高。)
+    2.理解当前规划图完成度；(这是统领全局的首要工具。通常而言，规划图的层次越厚实，末端任务越具体，证明对项目的理解越深入，规划质量越高。)
     3.分析上一轮执行的情况和进度，深度思考，不妥的任务需要重新规划，合格的任务要标记为完成;
     4.判断执行者是否正确理解了上一轮规划，如果偏离，需要多花一轮沟通/澄清；
     5.检查项目状态一致性，什么意思？文档或注释旧了；文件或模块隐性冗余；测试用例没同步...都要让人去fix。
@@ -186,21 +186,21 @@ export class 规划者 implements IRole {
     可能还有别的事，发挥想象力去做一些有助于项目推进的事，干活慢慢思考着来，多头脑风暴。
     别对自己太自信，没有把握的业务多上网查资料，汲取一手经验。但网络信息良莠不齐，也不要被ai泔水浪费时间，结合项目实际情况判断。
 
-    任务表工具已就绪：
-    - ./任务表CLI.js
-    - ./任务表CLI使用说明书.md
+    规划图工具已就绪：
+    - ./规划图CLI.js
+    - ./规划图CLI使用说明书.md
     - 项目名即根目录名。
 
-    熟练使用任务表，它体现了产品路线图。从全局把控项目进度、节奏、质量、深度、创新、产品体验。
+    熟练使用规划图，它体现了产品路线图。从全局把控项目进度、节奏、质量、深度、创新、产品体验。
     对于高层次任务，你像一个CEO，理清依赖关系、不断问自己“先做这个、后做那个是否最优？能不能拆得更细？”、把控创新探索和实际落地的比例（探索可能失败，但也有可能带来巨大收益；循规蹈矩虽然稳妥，但可能错失创新机会）、决策创新探索的结果（可用、暂时不用、弃用）；
-    根据项目执行情况，动态调整任务表。
+    根据项目执行情况，动态调整规划图。
     末端是高层次任务的自然分解，对于这类任务，你像一个小队长，描述要具体、清晰、原子级、手把手、步骤化。
 
     末端任务应正好适合1次提交。
 
     【项目交付】轮次有上限。超过上限未完成有一次延期机会。如果延期: 先汇报进度，接着分析还要几轮才能全部做完、有哪些会简化或绝对不可能完成、哪些建议只先完成demo，往后迭代新版本再做完整版不迟。
     【完美主义】如果达到上限前完成（即，还有富余的轮次），继续探索创新或者优化已有实现。直到实在没有任何更优的做法了，允许通过发送${this.项目已提前完成sign}宣告提前完成。
-    【给团队成员的留言】可以是对本轮任务的补充说明，或者对目标的期望，切勿跟任务表中任务的描述重复（重复是极大的啰嗦），你应当始终以任务表描述传达信息优先。
+    【给团队成员的留言】可以是对本轮任务的补充说明，或者对目标的期望，切勿跟规划图中任务的描述重复（重复是极大的啰嗦），你应当始终以规划图描述传达信息优先。
     ` }
   systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
@@ -274,7 +274,7 @@ export class 执行者 implements IRole {
   name = "executor"
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个执行者，负责落实每一轮任务。你首先应阅读项目WIKI，了解项目要求。
-    如果你认为规划者的任务分配不合理，你需要先完成你觉得合理的部分，不合理的部分给出明确的理由和建议。通过在任务表CLI中添加动态的方式反驳规划者的决策。
+    如果你认为规划者的任务分配不合理，你需要先完成你觉得合理的部分，不合理的部分给出明确的理由和建议。通过在规划图CLI中添加动态的方式反驳规划者的决策。
     对于团队成员给出的修复建议，先理解，再分步执行。` }
   systemPrompt(upstreamMsg: string) { return `下面是一些信息：
 ---
@@ -369,7 +369,7 @@ export class 架构师 implements IRole {
 
 ${架构评审()}
 
-【全局视角】任务表工具请查看说明书。你只允许查询，不允许增删改动。
+【全局视角】规划图工具请查看说明书。你只允许查询，不允许增删改动。
 
 【局部整体性视角】多查看diff（关注暂存区、工作区以及整体变动），跳出来看跨文件关系，多问自己：
   文件是否放在了正确的文件夹？
@@ -382,7 +382,7 @@ ${架构评审()}
   是否有更高明的设计？
 
   逐行查找：过度设计（过度设计是原罪，简单清晰是最好的）
-  原则：任务表权威，你的重构不应该违背任务表的规划意图。这要求你必须小心谨慎，真实理解了任务表的路线图意图。` 
+  原则：规划图权威，你的重构不应该违背规划图的规划意图。这要求你必须小心谨慎，真实理解了规划图的路线图意图。` 
   }
   systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
@@ -500,7 +500,7 @@ ${Commit()}
   }
 }
 
-export const 策略描述 = "任务表驱动的PEE（plan-execute-eval）策略"
+export const 策略描述 = "规划图驱动的PEE（plan-execute-eval）策略"
 export const backendURL = "http://127.0.0.1:4096"
 
 export interface PEEMainDeps {
@@ -511,24 +511,24 @@ export interface PEEMainDeps {
   setupProjectEnvironment: (projectDir: string, startPrompt: string, askUserFn?: (prompt: string) => Promise<string>) => Promise<void>
   loopConfig: LoopConfig
   askUser?: (prompt: string) => Promise<string>
-  runTaskTableCli?: typeof runTaskTableCli
+  runScheduleMapCli?: typeof runScheduleMapCli
 }
 
 function isCycleCompleted(nextRole: IRole, theFirstRole: IRole): boolean {
   return nextRole.name === theFirstRole.name
 }
 
-async function runTaskTableCli(
+async function runScheduleMapCli(
   projectDir: string,
   args: string[],
   options: { repairOnMissingBetterSqlite3?: boolean } = {},
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
-  const cliPath = join(projectDir, "任务表CLI.js")
+  const cliPath = join(projectDir, "规划图CLI.js")
   const projectName = projectDir.split("/").pop() || "project"
   const execute = () => new Promise<{ stdout: string; stderr: string; exitCode: number | null }>((resolve, reject) => {
     const child = spawn("node", [cliPath, ...args], {
       cwd: projectDir,
-      env: { ...process.env, TASKTABLE_PROJECT_NAME: projectName },
+      env: { ...process.env, SCHEDULEMAP_PROJECT_NAME: projectName },
       stdio: ['ignore', 'pipe', 'pipe']
     })
 
@@ -542,7 +542,7 @@ async function runTaskTableCli(
 
   const result = await execute()
   if (options.repairOnMissingBetterSqlite3 && result.exitCode !== 0 && isMissingBetterSqlite3Error(result.stderr)) {
-    await repairTaskTableRuntimeDependencies(projectDir, (message) => logFile.info(message))
+    await repairScheduleMapRuntimeDependencies(projectDir, (message) => logFile.info(message))
     return execute()
   }
   return result
@@ -550,10 +550,10 @@ async function runTaskTableCli(
 
 async function setupProjectEnvironment(projectDir: string, startPrompt: string, askUserFn = askUser): Promise<void> {
   const projectName = projectDir.split("/").pop() || "project"
-  const toolsDir = join(__dirname, "../../common/tools/任务表")
-  const cliDestJs = join(projectDir, "任务表CLI.js")
+  const toolsDir = join(__dirname, "../../common/tools/规划图")
+  const cliDestJs = join(projectDir, "规划图CLI.js")
   const readmeSource = join(toolsDir, "README.md")
-  const readmeDest = join(projectDir, "任务表CLI使用说明书.md")
+  const readmeDest = join(projectDir, "规划图CLI使用说明书.md")
   const repoWikiPath = join(projectDir, "REPO_WIKI.ts")
 
   // REPO_WIKI.ts：已存在则跳过
@@ -564,12 +564,12 @@ async function setupProjectEnvironment(projectDir: string, startPrompt: string, 
     logFile.info(`[项目] 起始文档已创建 -> ${repoWikiPath}`)
   }
 
-  // 任务表CLI.js：已存在则询问用户
+  // 规划图CLI.js：已存在则询问用户
   if (existsSync(cliDestJs)) {
-    const answer = await askUserFn(`[初始环境] 任务表CLI.js 已存在，是否覆盖？(y/n): `)
+    const answer = await askUserFn(`[初始环境] 规划图CLI.js 已存在，是否覆盖？(y/n): `)
     if (answer.toLowerCase() !== "n") {
       await new Promise<void>((resolve, reject) => {
-        const child = spawn("npx", ["tsx", join(toolsDir, "任务表Build.ts"), cliDestJs], {
+        const child = spawn("npx", ["tsx", join(toolsDir, "规划图Build.ts"), cliDestJs], {
           cwd: toolsDir,
           stdio: ["ignore", "pipe", "pipe"],
         })
@@ -592,11 +592,11 @@ async function setupProjectEnvironment(projectDir: string, startPrompt: string, 
         })
       })
     } else {
-      consoleAndLogFile.info(`[初始环境] 跳过任务表CLI.js`)
+      consoleAndLogFile.info(`[初始环境] 跳过规划图CLI.js`)
     }
   } else {
     await new Promise<void>((resolve, reject) => {
-      const child = spawn("npx", ["tsx", join(toolsDir, "任务表Build.ts"), cliDestJs], {
+      const child = spawn("npx", ["tsx", join(toolsDir, "规划图Build.ts"), cliDestJs], {
         stdio: ["ignore", "pipe", "pipe"],
       })
       let stderr = ""
@@ -619,26 +619,26 @@ async function setupProjectEnvironment(projectDir: string, startPrompt: string, 
     })
   }
 
-  // 任务表CLI使用说明书.md：已存在则询问用户
+  // 规划图CLI使用说明书.md：已存在则询问用户
   if (existsSync(readmeDest)) {
-    const answer = await askUserFn(`[初始环境] 任务表CLI使用说明书.md 已存在，是否覆盖？(y/n): `)
+    const answer = await askUserFn(`[初始环境] 规划图CLI使用说明书.md 已存在，是否覆盖？(y/n): `)
     if (answer.toLowerCase() !== "n") {
       await copyFile(readmeSource, readmeDest)
       logFile.info(`[初始环境] 说明书已覆盖 -> ${readmeDest}`)
     } else {
-      consoleAndLogFile.info(`[初始环境] 跳过任务表CLI使用说明书.md`)
+      consoleAndLogFile.info(`[初始环境] 跳过规划图CLI使用说明书.md`)
     }
   } else {
     await copyFile(readmeSource, readmeDest)
     logFile.info(`[初始环境] 说明书已拷贝 -> ${readmeDest}`)
   }
 
-  const runtimeDependencyDecision = await deployTaskTableRuntimeDependencies(projectDir, { askUser: askUserFn, log: (message) => logFile.info(message) })
-  if (runtimeDependencyDecision === "overwrite") await verifyTaskTableRuntimeDependencies(projectDir)
+  const runtimeDependencyDecision = await deployScheduleMapRuntimeDependencies(projectDir, { askUser: askUserFn, log: (message) => logFile.info(message) })
+  if (runtimeDependencyDecision === "overwrite") await verifyScheduleMapRuntimeDependencies(projectDir)
 
-  // 任务表数据库：已存在则跳过，不覆盖；未存在则创建
-  const dbDir = join(projectDir, "data", `.taskTable.${projectName}`)
-  const dbPath = join(dbDir, `${projectName}TaskTable.db`)
+  // 规划图数据库：已存在则跳过，不覆盖；未存在则创建
+  const dbDir = join(projectDir, "data", `.scheduleMap.${projectName}`)
+  const dbPath = join(dbDir, `${projectName}ScheduleMap.db`)
   if (existsSync(dbPath)) {
     consoleAndLogFile.info(`[初始环境] 已存在数据库，跳过创建`)
     return
@@ -654,10 +654,10 @@ async function setupProjectEnvironment(projectDir: string, startPrompt: string, 
 }
 
 /**
- * 将评估者/架构师的打回事件合成为一条动态写入任务表。
+ * 将评估者/架构师的打回事件合成为一条动态写入规划图。
  *
  * 由主循环在 Role跳转策略 判定"打回"分支时自动调用，消息内容为系统生成的
- * `${roleName}打回${rejectionCount}次`，让规划者下轮能从任务表感知任务难度。
+ * `${roleName}打回${rejectionCount}次`，让规划者下轮能从规划图感知任务难度。
  *
  * 与 recordRoleActivity 的区别：此处的 activity message 由系统合成，角色自身
  * 的输出内容（问题列表、打回留言）不入库，仅通过 upstream 传给执行者。
@@ -669,40 +669,40 @@ async function recordRejectionActivity(
   taskTitle: string,
   roleName: string,
   rejectionCount: number,
-  runCli = runTaskTableCli,
+  runCli = runScheduleMapCli,
 ): Promise<void> {
-  const cliPath = join(projectDir, "任务表CLI.js")
+  const cliPath = join(projectDir, "规划图CLI.js")
 
   // 检查CLI是否存在，不存在则抛异常
   if (!existsSync(cliPath)) {
-    throw new Error(`任务表CLI脚本不存在: ${cliPath}，无法记录打回动态。请确保项目根目录存在任务表CLI。`)
+    throw new Error(`规划图CLI脚本不存在: ${cliPath}，无法记录打回动态。请确保项目根目录存在规划图CLI。`)
   }
 
   const message = `${roleName}打回${rejectionCount}次`
 
   const result = await runCli(projectDir, ["add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", message], { repairOnMissingBetterSqlite3: true })
   if (result.exitCode !== 0) {
-    const errMsg = `[任务表] 记录打回动态失败 (exit=${result.exitCode}): ${result.stderr.trim()}`
+    const errMsg = `[规划图] 记录打回动态失败 (exit=${result.exitCode}): ${result.stderr.trim()}`
     logFile.error(errMsg)
     throw new Error(errMsg)
   }
-  logFile.info(`[任务表] 已记录打回动态: ${taskTitle} - ${message}`)
+  logFile.info(`[规划图] 已记录打回动态: ${taskTitle} - ${message}`)
 }
 
 /**
- * 获取"检查-修复-汇报"型角色在任务表中的标准名称。
+ * 获取"检查-修复-汇报"型角色在规划图中的标准名称。
  *
- * 三个角色的 name 属性与任务表约定的 roleName 不一致，需要映射：
- * - 冗余枝剪者.name = "ScissorHands" → 任务表 roleName = "ScissorHands"
- * - 质保员.name = "QA" → 任务表 roleName = "QA"
- * - 边缘质保员.name = "EdgeQA" → 任务表 roleName = "EdgeQA"
+ * 三个角色的 name 属性与规划图约定的 roleName 不一致，需要映射：
+ * - 冗余枝剪者.name = "ScissorHands" → 规划图 roleName = "ScissorHands"
+ * - 质保员.name = "QA" → 规划图 roleName = "QA"
+ * - 边缘质保员.name = "EdgeQA" → 规划图 roleName = "EdgeQA"
  */
 export function getActivityRoleName(currentRole: IRole): string {
   return normalizeRoleName(currentRole.name)
 }
 
 /**
- * 将角色自述的"修复性动态"写入任务表。
+ * 将角色自述的"修复性动态"写入规划图。
  *
  * 适用于冗余枝剪者 / 质保员 / 边缘质保员 / 提交员——这四个"检查-修复-汇报"型角色的 outputSchema
  * 统一约束为 `修复性动态Schema`，主循环解析出 `一句话动态` 字段后调用此函数搬运入库。
@@ -717,22 +717,22 @@ async function recordRoleActivity(
   taskTitle: string,
   roleName: string,
   activityMessage: string,
-  runCli = runTaskTableCli,
+  runCli = runScheduleMapCli,
 ): Promise<void> {
-  const cliPath = join(projectDir, "任务表CLI.js")
+  const cliPath = join(projectDir, "规划图CLI.js")
 
   // 检查CLI是否存在，不存在则抛异常
   if (!existsSync(cliPath)) {
-    throw new Error(`任务表CLI脚本不存在: ${cliPath}，无法记录角色动态。请确保项目根目录存在任务表CLI。`)
+    throw new Error(`规划图CLI脚本不存在: ${cliPath}，无法记录角色动态。请确保项目根目录存在规划图CLI。`)
   }
 
   const result = await runCli(projectDir, ["add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", activityMessage], { repairOnMissingBetterSqlite3: true })
   if (result.exitCode !== 0) {
-    const errMsg = `[任务表] 记录角色动态失败 (exit=${result.exitCode}): ${result.stderr.trim()}`
+    const errMsg = `[规划图] 记录角色动态失败 (exit=${result.exitCode}): ${result.stderr.trim()}`
     logFile.error(errMsg)
     throw new Error(errMsg)
   }
-  logFile.info(`[任务表] 已记录角色动态: ${taskTitle} - ${roleName} - ${activityMessage}`)
+  logFile.info(`[规划图] 已记录角色动态: ${taskTitle} - ${roleName} - ${activityMessage}`)
 }
 
 /**
@@ -740,20 +740,20 @@ async function recordRoleActivity(
  *
  * CLI query-by-title 返回格式: { 成功: true, 数量: n, 任务: [...] }
  */
-async function queryTaskByTitleFull(projectDir: string, taskTitle: string, runCli = runTaskTableCli): Promise<Record<string, any> | null> {
-  const cliPath = join(projectDir, "任务表CLI.js")
+async function queryTaskByTitleFull(projectDir: string, taskTitle: string, runCli = runScheduleMapCli): Promise<Record<string, any> | null> {
+  const cliPath = join(projectDir, "规划图CLI.js")
   if (!existsSync(cliPath)) return null
   try {
     const result = await runCli(projectDir, ["query-by-title", "--标题", taskTitle], { repairOnMissingBetterSqlite3: true })
     if (result.exitCode !== 0) {
-      logFile.warn(`[任务表] 按标题查询任务失败: ${result.stderr.trim()}`)
+      logFile.warn(`[规划图] 按标题查询任务失败: ${result.stderr.trim()}`)
       return null
     }
     const parsed = JSON.parse(result.stdout)
     const tasks = parsed.成功 && Array.isArray(parsed.任务) ? parsed.任务 : []
     return tasks.length > 0 ? tasks[0] : null
   } catch (e) {
-    logFile.warn(`[任务表] 解析任务结果失败: ${e instanceof Error ? e.message : String(e)}`)
+    logFile.warn(`[规划图] 解析任务结果失败: ${e instanceof Error ? e.message : String(e)}`)
     return null
   }
 }
@@ -764,19 +764,19 @@ async function queryTaskByTitleFull(projectDir: string, taskTitle: string, runCl
  *
  * CLI query-by-id 返回格式: { 成功: true, 任务: {...} }
  */
-async function queryTaskByIdFull(projectDir: string, taskId: number, runCli = runTaskTableCli): Promise<Record<string, any> | null> {
-  const cliPath = join(projectDir, "任务表CLI.js")
+async function queryTaskByIdFull(projectDir: string, taskId: number, runCli = runScheduleMapCli): Promise<Record<string, any> | null> {
+  const cliPath = join(projectDir, "规划图CLI.js")
   if (!existsSync(cliPath)) return null
   try {
     const result = await runCli(projectDir, ["query-by-id", "--id", String(taskId)], { repairOnMissingBetterSqlite3: true })
     if (result.exitCode !== 0) {
-      logFile.warn(`[任务表] 按ID查询任务失败: ${result.stderr.trim()}`)
+      logFile.warn(`[规划图] 按ID查询任务失败: ${result.stderr.trim()}`)
       return null
     }
     const parsed = JSON.parse(result.stdout)
     return parsed.成功 && parsed.任务 ? parsed.任务 : null
   } catch (e) {
-    logFile.warn(`[任务表] 解析任务结果失败: ${e instanceof Error ? e.message : String(e)}`)
+    logFile.warn(`[规划图] 解析任务结果失败: ${e instanceof Error ? e.message : String(e)}`)
     return null
   }
 }
@@ -786,7 +786,7 @@ async function queryTaskByIdFull(projectDir: string, taskId: number, runCli = ru
  * 
  * 在 while 循环中反复要求规划者重新输出，直到同时满足：
  * 1. 输出通过规划者的完整 outputSchema 校验（前情点评、本轮任务标题、留言）
- * 2. 该任务存在于任务表中且未被删除
+ * 2. 该任务存在于规划图中且未被删除
  * 3. 该任务的所有直接依赖均已完成且未被删除（依赖 JSON 损坏或非数组结构视为不通过）
  * 
  * 重试上限：最多验证 10 次响应，超限时记录严重错误并抛出异常终止，
@@ -799,7 +799,7 @@ async function validatePlannerDispatch(
   session: ISession,
   validateOutput: (raw: string) => { valid: boolean; error?: string },
   initialResponse: string,
-  runCli = runTaskTableCli,
+  runCli = runScheduleMapCli,
 ): Promise<{ title: string; response: string }> {
   let response = initialResponse
   let retries = 0
@@ -808,7 +808,7 @@ async function validatePlannerDispatch(
     retries++
     if (retries > MAX_DISPATCH_RETRIES) {
       consoleAndLogFile.error(`[派发验证] 已达验证尝试上限${MAX_DISPATCH_RETRIES}次（含初响应），强制终止以避免无限阻塞`)
-      throw new Error(`派发验证尝试超过${MAX_DISPATCH_RETRIES}次，规划者持续输出不合规，请人工介入检查任务表数据完整性。`)
+      throw new Error(`派发验证尝试超过${MAX_DISPATCH_RETRIES}次，规划者持续输出不合规，请人工介入检查规划图数据完整性。`)
     }
 
     // 先校验完整 schema，不通过直接要求重输
@@ -838,10 +838,10 @@ async function validatePlannerDispatch(
     // 1. 检查任务是否存在且未被删除
     const task = await queryTaskByTitleFull(projectDir, title, runCli)
     if (!task) {
-      consoleAndLogFile.warn(`[派发验证] 任务"${title}"不存在于任务表中`)
+      consoleAndLogFile.warn(`[派发验证] 任务"${title}"不存在于规划图中`)
       response = await session.sendMsg({
         msgSource: MSG_SOURCE.system,
-        content: `你派发的任务标题"${title}"在任务表中不存在。请检查任务表，重新输出完整的派发 JSON。`,
+        content: `你派发的任务标题"${title}"在规划图中不存在。请检查规划图，重新输出完整的派发 JSON。`,
       }, false)
       continue
     }
@@ -849,7 +849,7 @@ async function validatePlannerDispatch(
       consoleAndLogFile.warn(`[派发验证] 任务"${title}"已被删除，阻止派发`)
       response = await session.sendMsg({
         msgSource: MSG_SOURCE.system,
-        content: `任务"${title}"已被删除，无法派发。请检查任务表，重新输出完整的派发 JSON，选择一个未被删除的任务。`,
+        content: `任务"${title}"已被删除，无法派发。请检查规划图，重新输出完整的派发 JSON，选择一个未被删除的任务。`,
       }, false)
       continue
     }
@@ -864,7 +864,7 @@ async function validatePlannerDispatch(
         consoleAndLogFile.warn(`[派发验证] 任务"${title}"的依赖JSON解析失败，阻止派发`)
         response = await session.sendMsg({
           msgSource: MSG_SOURCE.system,
-          content: `任务"${title}"的依赖数据格式异常（JSON 解析失败），可能是任务表数据损坏。请检查并修复该任务的依赖关系，或重新派发。`,
+          content: `任务"${title}"的依赖数据格式异常（JSON 解析失败），可能是规划图数据损坏。请检查并修复该任务的依赖关系，或重新派发。`,
         }, false)
         continue
       }
@@ -872,7 +872,7 @@ async function validatePlannerDispatch(
         consoleAndLogFile.warn(`[派发验证] 任务"${title}"的依赖数据非数组结构，阻止派发`)
         response = await session.sendMsg({
           msgSource: MSG_SOURCE.system,
-          content: `任务"${title}"的依赖数据格式异常（非数组结构），可能是任务表数据损坏。请检查并修复该任务的依赖关系，或重新派发。`,
+          content: `任务"${title}"的依赖数据格式异常（非数组结构），可能是规划图数据损坏。请检查并修复该任务的依赖关系，或重新派发。`,
         }, false)
         continue
       }
@@ -886,7 +886,7 @@ async function validatePlannerDispatch(
         consoleAndLogFile.warn(`[派发验证] 任务"${title}"的第${malformed + 1}条依赖缺少"依赖任务"或"依赖任务ID"，阻止派发`)
         response = await session.sendMsg({
           msgSource: MSG_SOURCE.system,
-          content: `任务"${title}"的第${malformed + 1}条依赖数据不完整（缺少"依赖任务"或"依赖任务ID"字段），可能是任务表数据损坏。请检查并修复，或重新派发。`,
+          content: `任务"${title}"的第${malformed + 1}条依赖数据不完整（缺少"依赖任务"或"依赖任务ID"字段），可能是规划图数据损坏。请检查并修复，或重新派发。`,
         }, false)
         continue
       }
@@ -936,8 +936,8 @@ async function validatePlannerDispatch(
  * （已完成了哪些前置工作、它们的动态是什么），才能充分理解上下文。
  *
  * 此函数：
- * 1. 调用任务表 CLI 的 query-dependency-chain 命令获取任务详情 + 依赖链
- * 2. 将规划者的输出与任务表信息合并为一条完整的 upstream 文本
+ * 1. 调用规划图 CLI 的 query-dependency-chain 命令获取任务详情 + 依赖链
+ * 2. 将规划者的输出与规划图信息合并为一条完整的 upstream 文本
  * 3. 只查询 1 层依赖（需求指定）
  * 4. 结构：前情 + 本轮任务标题 + 描述 + Tag + 上层依赖任务(标题+Tag+动态) + 当前任务动态 + 留言
  *
@@ -946,7 +946,7 @@ async function validatePlannerDispatch(
 async function buildTaskUpstream(
   projectDir: string,
   plannerOutput: Record<string, any>,
-  runCli = runTaskTableCli,
+  runCli = runScheduleMapCli,
 ): Promise<string> {
   const taskTitleRaw = plannerOutput.本轮任务标题
   const taskTitle = typeof taskTitleRaw === "string" ? taskTitleRaw.trim() : ""
@@ -959,7 +959,7 @@ async function buildTaskUpstream(
   if (前情点评) upstream += `前情点评: ${前情点评}\n\n`
   upstream += `本轮任务标题: ${taskTitle}\n`
 
-  // 从任务表查询任务描述、Tag、依赖链
+  // 从规划图查询任务描述、Tag、依赖链
   if (!taskTitle) {
     if (留言) upstream += `留言: ${留言}\n`
     return upstream
@@ -969,13 +969,13 @@ async function buildTaskUpstream(
     const cliResult = await runCli(projectDir, ["query-dependency-chain", "--标题", taskTitle, "--最大层数", String(maxDepth)], { repairOnMissingBetterSqlite3: true })
     const result = (() => {
       if (cliResult.exitCode !== 0) {
-        logFile.warn(`[任务表] 查询依赖链失败: ${cliResult.stderr.trim()}`)
+        logFile.warn(`[规划图] 查询依赖链失败: ${cliResult.stderr.trim()}`)
         return { 成功: false, 消息: cliResult.stderr.trim() }
       }
       try {
         return JSON.parse(cliResult.stdout) as { 成功: boolean; 任务?: any; 依赖链?: any[]; 消息?: string }
       } catch (e) {
-        logFile.warn(`[任务表] 解析依赖链结果失败: ${e instanceof Error ? e.message : String(e)}`)
+        logFile.warn(`[规划图] 解析依赖链结果失败: ${e instanceof Error ? e.message : String(e)}`)
         return { 成功: false, 消息: `解析失败: ${cliResult.stdout.substring(0, 200)}` }
       }
     })()
@@ -1007,7 +1007,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     setupProjectEnvironment,
     loopConfig: config,
     askUser,
-    runTaskTableCli,
+    runScheduleMapCli,
     ...deps,
   }
 
@@ -1428,7 +1428,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         
         // 【规划者派发验证 + 构建完整 upstream】（提前完成已确认则跳过）
         if (currentRole instanceof 规划者 && !提前完成已确认) {
-          const dispatch = await validatePlannerDispatch(projectDir, session, 规划者instance.validateOutput.bind(规划者instance), response, runtimeDeps.runTaskTableCli)
+          const dispatch = await validatePlannerDispatch(projectDir, session, 规划者instance.validateOutput.bind(规划者instance), response, runtimeDeps.runScheduleMapCli)
           // 保存旧任务标题（用于压缩决策员的"上轮任务标题"），再更新为新任务
           const 上轮任务标题 = currentTaskTitle
           currentTaskTitle = dispatch.title
@@ -1438,7 +1438,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
           // 只在非打回循环时更新——打回期间 upstream 冻结，避免重复查询污染上下文
           if (!rejectionState.inRejectionLoop && currentTaskTitle) {
             const latestOutput = extractJSON(response)
-            const fullUpstream = await buildTaskUpstream(projectDir, latestOutput || { 本轮任务标题: currentTaskTitle }, runtimeDeps.runTaskTableCli)
+            const fullUpstream = await buildTaskUpstream(projectDir, latestOutput || { 本轮任务标题: currentTaskTitle }, runtimeDeps.runScheduleMapCli)
             rejectionState.previousTaskTitle = 上轮任务标题
             rejectionState.frozenPlannerInfo = fullUpstream
             // 构建压缩决策员专用upstream（需传入上轮任务标题用于判断任务翻新度）
@@ -1472,7 +1472,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             const activityMessage = roleOutput.一句话动态
             const roleName = getActivityRoleName(currentRole)
 
-            await recordRoleActivity(projectDir, currentTaskTitle, roleName, activityMessage, runtimeDeps.runTaskTableCli)
+            await recordRoleActivity(projectDir, currentTaskTitle, roleName, activityMessage, runtimeDeps.runScheduleMapCli)
             consoleAndLogFile.info(`[${roleName}] 动态已记录: ${activityMessage}`)
           } else {
             // 解析失败（通用机制已重试 3 次），跳过记录
@@ -1533,7 +1533,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             currentTaskTitle,
             rejectionActivity.roleName,
             rejectionActivity.rejectionCount,
-            runtimeDeps.runTaskTableCli,
+            runtimeDeps.runScheduleMapCli,
           )
         }
 
@@ -1622,7 +1622,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
 }
 
 if (process.argv[1] === __filename) {
-  initDb(process.env.任务表项目 ?? "default")
+  initDb(process.env.规划图项目 ?? "default")
   main().catch((error) => {
     const err = error as any
     consoleAndLogFile.error("主函数错误:", err?.stack ?? err?.message ?? JSON.stringify(error))

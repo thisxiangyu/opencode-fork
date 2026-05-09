@@ -1,4 +1,4 @@
-/* 基于 任务表CLI.ts 构建 */
+/* 基于 规划图CLI.ts 构建 */
 "use strict";
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -38,14 +38,14 @@ __export(CLI_exports, {
   任务: () => 任务,
   任务Tag: () => 任务Tag,
   任务依赖: () => 任务依赖,
-  任务表: () => 任务表,
-  任务表dbPath: () => 任务表dbPath,
+  规划图: () => 规划图,
+  规划图dbPath: () => 规划图dbPath,
   加载根任务: () => 加载根任务,
   动态记录: () => 动态记录,
   当前表中全部任务数: () => 当前表中全部任务数,
   当前表中总任务数_仅末端: () => 当前表中总任务数_仅末端,
   当前项目名: () => 当前项目名,
-  查询任务表_返回视图: () => 查询任务表_返回视图,
+  查询规划图_返回视图: () => 查询规划图_返回视图,
   检查环境完整性: () => 检查环境完整性,
   解析任务行: () => 解析任务行
 });
@@ -145,8 +145,8 @@ class 动态记录 {
 }
 function 校验同级依赖规则(任务标题, 父任务ID, 优先级序号, 依赖) {
   if (依赖.length === 0 || 父任务ID === null) return null;
-  const 同级任务 = 获取任务表Db().prepare(
-    "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID = ?"
+  const 同级任务 = 获取规划图Db().prepare(
+    "SELECT * FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID = ?"
   ).all(父任务ID);
   for (const dep of 依赖) {
     const 依赖任务 = 同级任务.find((t) => t.id === dep.依赖任务ID);
@@ -160,8 +160,8 @@ function 校验同级依赖规则(任务标题, 父任务ID, 优先级序号, �
   return null;
 }
 function 统计子任务数(父任务ID) {
-  const children = 获取任务表Db().prepare(
-    "SELECT id FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID = ?"
+  const children = 获取规划图Db().prepare(
+    "SELECT id FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID = ?"
   ).all(父任务ID);
   let count = children.length;
   for (const child of children) {
@@ -170,8 +170,8 @@ function 统计子任务数(父任务ID) {
   return count;
 }
 function 检查所有子任务是否已完成(父任务ID) {
-  const children = 获取任务表Db().prepare(
-    "SELECT id, 是否完成 FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID = ?"
+  const children = 获取规划图Db().prepare(
+    "SELECT id, 是否完成 FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID = ?"
   ).all(父任务ID);
   for (const child of children) {
     if (!child.是否完成) return false;
@@ -180,50 +180,50 @@ function 检查所有子任务是否已完成(父任务ID) {
   return true;
 }
 function 尝试向上自动完成(刚完成的任务ID) {
-  const 刚完成的任务 = 获取任务表Db().prepare(
-    "SELECT 父任务ID FROM 任务表 WHERE id = ? AND 是否删除 = 0"
+  const 刚完成的任务 = 获取规划图Db().prepare(
+    "SELECT 父任务ID FROM 规划图 WHERE id = ? AND 是否删除 = 0"
   ).get(刚完成的任务ID);
   if (!刚完成的任务 || 刚完成的任务.父任务ID === null) {
     return;
   }
   const 父任务ID = 刚完成的任务.父任务ID;
-  const 同级任务 = 获取任务表Db().prepare(
-    "SELECT 是否完成 FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID = ?"
+  const 同级任务 = 获取规划图Db().prepare(
+    "SELECT 是否完成 FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID = ?"
   ).all(父任务ID);
   const allSiblingsDone = 同级任务.every((s) => s.是否完成);
   if (allSiblingsDone) {
-    获取任务表Db().prepare(
-      "UPDATE 任务表 SET 是否完成 = 1 WHERE id = ?"
+    获取规划图Db().prepare(
+      "UPDATE 规划图 SET 是否完成 = 1 WHERE id = ?"
     ).run(父任务ID);
     尝试向上自动完成(父任务ID);
   }
 }
 function 级联更新字段(父任务ID, 字段, 值) {
-  const children = 获取任务表Db().prepare(
-    "SELECT id FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID = ?"
+  const children = 获取规划图Db().prepare(
+    "SELECT id FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID = ?"
   ).all(父任务ID);
   for (const child of children) {
     级联更新字段(child.id, 字段, 值);
   }
-  获取任务表Db().prepare(`UPDATE 任务表 SET ${字段} = ? WHERE id = ?`).run(值, 父任务ID);
+  获取规划图Db().prepare(`UPDATE 规划图 SET ${字段} = ? WHERE id = ?`).run(值, 父任务ID);
 }
 let db;
-let 任务表dbPath;
+let 规划图dbPath;
 let 当前项目名;
-function 获取任务表Db() {
-  if (!db) throw new Error("任务表数据库未初始化，请先调用 initDb()");
+function 获取规划图Db() {
+  if (!db) throw new Error("规划图数据库未初始化，请先调用 initDb()");
   return db;
 }
 function initDb(项目名, 数据库目录) {
   当前项目名 = 项目名;
-  const 项目目录 = (0, import_path.join)(数据库目录 ?? scriptDir, "data", `.taskTable.${项目名}`);
+  const 项目目录 = (0, import_path.join)(数据库目录 ?? scriptDir, "data", `.scheduleMap.${项目名}`);
   if (!(0, import_fs.existsSync)(项目目录)) {
     (0, import_fs.mkdirSync)(项目目录, { recursive: true });
   }
-  任务表dbPath = (0, import_path.join)(项目目录, `${项目名}TaskTable.db`);
-  db = new import_better_sqlite3.default(任务表dbPath);
+  规划图dbPath = (0, import_path.join)(项目目录, `${项目名}ScheduleMap.db`);
+  db = new import_better_sqlite3.default(规划图dbPath);
   db.exec(`
-    CREATE TABLE IF NOT EXISTS 任务表 (
+    CREATE TABLE IF NOT EXISTS 规划图 (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       标题 TEXT UNIQUE NOT NULL,
       父任务ID INTEGER,
@@ -240,49 +240,49 @@ function initDb(项目名, 数据库目录) {
   return db;
 }
 function initDbStrict(项目名) {
-  const 项目目录 = (0, import_path.join)(scriptDir, "data", `.taskTable.${项目名}`);
+  const 项目目录 = (0, import_path.join)(scriptDir, "data", `.scheduleMap.${项目名}`);
   if ((0, import_fs.existsSync)(项目目录)) {
     throw new Error(`项目目录已存在: ${项目目录}`);
   }
   return initDb(项目名);
 }
 function 检查环境完整性(项目名) {
-  const 项目目录 = (0, import_path.join)(scriptDir, "data", `.taskTable.${项目名}`);
+  const 项目目录 = (0, import_path.join)(scriptDir, "data", `.scheduleMap.${项目名}`);
   if (!(0, import_fs.existsSync)(项目目录)) {
     return { 成功: false, 消息: `项目目录不存在: ${项目目录}` };
   }
-  const dbPath = (0, import_path.join)(项目目录, `${项目名}TaskTable.db`);
+  const dbPath = (0, import_path.join)(项目目录, `${项目名}ScheduleMap.db`);
   if (!(0, import_fs.existsSync)(dbPath)) {
     return { 成功: false, 消息: `数据库丢失: ${dbPath}，项目目录存在但数据库文件不存在` };
   }
   return { 成功: true, 消息: "环境检查通过" };
 }
 function getDb() {
-  return 获取任务表Db();
+  return 获取规划图Db();
 }
 function 当前表中全部任务数() {
-  const result = 获取任务表Db().prepare("SELECT COUNT(*) as count FROM 任务表 WHERE 是否删除 = 0").get();
+  const result = 获取规划图Db().prepare("SELECT COUNT(*) as count FROM 规划图 WHERE 是否删除 = 0").get();
   return result?.count ?? 0;
 }
 function 当前表中总任务数_仅末端() {
-  const result = 获取任务表Db().prepare("SELECT COUNT(*) as count FROM 任务表 WHERE 是否删除 = 0 AND id NOT IN (SELECT DISTINCT 父任务ID FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID IS NOT NULL)").get();
+  const result = 获取规划图Db().prepare("SELECT COUNT(*) as count FROM 规划图 WHERE 是否删除 = 0 AND id NOT IN (SELECT DISTINCT 父任务ID FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID IS NOT NULL)").get();
   return result?.count ?? 0;
 }
 function 加载根任务() {
-  const rows = 获取任务表Db().prepare(
-    "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID IS NULL ORDER BY 优先级序号 ASC"
+  const rows = 获取规划图Db().prepare(
+    "SELECT * FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID IS NULL ORDER BY 优先级序号 ASC"
   ).all();
   return rows.map(解析任务行);
 }
 function 计算移动目标优先级(父任务ID, 新任务优先级序号) {
   let maxResult;
   if (父任务ID === null) {
-    maxResult = 获取任务表Db().prepare(
-      "SELECT COALESCE(MAX(优先级序号), 0) as maxPri FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID IS NULL"
+    maxResult = 获取规划图Db().prepare(
+      "SELECT COALESCE(MAX(优先级序号), 0) as maxPri FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID IS NULL"
     ).get();
   } else {
-    maxResult = 获取任务表Db().prepare(
-      "SELECT COALESCE(MAX(优先级序号), 0) as maxPri FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID = ?"
+    maxResult = 获取规划图Db().prepare(
+      "SELECT COALESCE(MAX(优先级序号), 0) as maxPri FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID = ?"
     ).get(父任务ID);
   }
   if (新任务优先级序号 < 0) return 0;
@@ -291,12 +291,12 @@ function 计算移动目标优先级(父任务ID, 新任务优先级序号) {
 function 计算实际优先级序号(父任务ID, 新任务优先级序号) {
   let maxResult;
   if (父任务ID === null) {
-    maxResult = 获取任务表Db().prepare(
-      "SELECT COALESCE(MAX(优先级序号), -1) as maxPri FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID IS NULL"
+    maxResult = 获取规划图Db().prepare(
+      "SELECT COALESCE(MAX(优先级序号), -1) as maxPri FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID IS NULL"
     ).get();
   } else {
-    maxResult = 获取任务表Db().prepare(
-      "SELECT COALESCE(MAX(优先级序号), -1) as maxPri FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID = ?"
+    maxResult = 获取规划图Db().prepare(
+      "SELECT COALESCE(MAX(优先级序号), -1) as maxPri FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID = ?"
     ).get(父任务ID);
   }
   const clamped = 新任务优先级序号 < 0 ? 0 : 新任务优先级序号;
@@ -305,19 +305,19 @@ function 计算实际优先级序号(父任务ID, 新任务优先级序号) {
 function 插入任务并更新同级优先级(父任务ID, 新任务优先级序号) {
   const 实际优先级序号 = 计算实际优先级序号(父任务ID, 新任务优先级序号);
   if (父任务ID === null) {
-    获取任务表Db().prepare(
-      "UPDATE 任务表 SET 优先级序号 = 优先级序号 + 1 WHERE 是否删除 = 0 AND 父任务ID IS NULL AND 优先级序号 >= ?"
+    获取规划图Db().prepare(
+      "UPDATE 规划图 SET 优先级序号 = 优先级序号 + 1 WHERE 是否删除 = 0 AND 父任务ID IS NULL AND 优先级序号 >= ?"
     ).run(实际优先级序号);
     return 实际优先级序号;
   }
-  获取任务表Db().prepare(
-    "UPDATE 任务表 SET 优先级序号 = 优先级序号 + 1 WHERE 是否删除 = 0 AND 父任务ID = ? AND 优先级序号 >= ?"
+  获取规划图Db().prepare(
+    "UPDATE 规划图 SET 优先级序号 = 优先级序号 + 1 WHERE 是否删除 = 0 AND 父任务ID = ? AND 优先级序号 >= ?"
   ).run(父任务ID, 实际优先级序号);
   return 实际优先级序号;
 }
 function 检测里程碑(父任务ID) {
   if (父任务ID === null) return null;
-  const parent = 获取任务表Db().prepare("SELECT 父任务ID FROM 任务表 WHERE id = ? AND 是否删除 = 0").get(父任务ID);
+  const parent = 获取规划图Db().prepare("SELECT 父任务ID FROM 规划图 WHERE id = ? AND 是否删除 = 0").get(父任务ID);
   if (parent?.父任务ID === null) {
     return 任务Tag.MILESTONE;
   }
@@ -356,18 +356,18 @@ function 解析任务行(raw) {
     动态
   };
 }
-const 任务表 = {
+const 规划图 = {
   添加任务(添加到哪个父任务之下, 任务描述, 标题, 优先级序号, 任务类型Tag, 依赖 = [], 其它Tag = []) {
     const 标题trim = 标题.trim();
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" };
     if (!任务描述 || !任务描述.trim()) return { 成功: false, 消息: "任务描述不能为空" };
     let 父任务ID = null;
     if (添加到哪个父任务之下 !== null) {
-      const parent = 获取任务表Db().prepare("SELECT id FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(添加到哪个父任务之下);
+      const parent = 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(添加到哪个父任务之下);
       if (!parent) return { 成功: false, 消息: `父任务「${添加到哪个父任务之下}」不存在` };
       父任务ID = parent.id;
     }
-    const existing = 获取任务表Db().prepare("SELECT id FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
+    const existing = 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
     if (existing) return { 成功: false, 消息: `标题「${标题trim}」在当前项目「${当前项目名}」已存在` };
     const 任务类型Tag校验 = 校验所有Tag([任务类型Tag]);
     if (任务类型Tag校验) return { 成功: false, 消息: 任务类型Tag校验 };
@@ -375,15 +375,15 @@ const 任务表 = {
       const 其它Tag校验 = 校验所有Tag(其它Tag);
       if (其它Tag校验) return { 成功: false, 消息: 其它Tag校验 };
     }
-    const softDeleted = 获取任务表Db().prepare("SELECT id FROM 任务表 WHERE 标题 = ? AND 是否删除 = 1").get(标题trim);
+    const softDeleted = 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE 标题 = ? AND 是否删除 = 1").get(标题trim);
     if (softDeleted) {
-      获取任务表Db().prepare("DELETE FROM 任务表 WHERE 标题 = ? AND 是否删除 = 1").run(标题trim);
+      获取规划图Db().prepare("DELETE FROM 规划图 WHERE 标题 = ? AND 是否删除 = 1").run(标题trim);
     }
     for (const dep of 依赖) {
       if (typeof dep.依赖任务 !== "string") return { 成功: false, 消息: "依赖任务不能为空" };
       const depTitle = dep.依赖任务.trim();
       if (!depTitle) return { 成功: false, 消息: "依赖任务不能为空" };
-      const depTask = 获取任务表Db().prepare("SELECT id, 标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(depTitle);
+      const depTask = 获取规划图Db().prepare("SELECT id, 标题 FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(depTitle);
       if (!depTask) return { 成功: false, 消息: `依赖任务「${depTitle}」不存在` };
       dep.依赖任务ID = depTask.id;
       dep.依赖任务 = depTask.标题;
@@ -396,8 +396,8 @@ const 任务表 = {
     if (所有Tag.length === 0) return { 成功: false, 消息: "至少需要一个Tag" };
     插入任务并更新同级优先级(父任务ID, 优先级序号);
     const 创建时间UTC = (/* @__PURE__ */ new Date()).toISOString();
-    const insertResult = 获取任务表Db().prepare(
-      "INSERT INTO 任务表 (标题, 父任务ID, Tag, 任务描述, 是否完成, 创建时间UTC, 优先级序号, 依赖, 是否删除, 动态) VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, ?)"
+    const insertResult = 获取规划图Db().prepare(
+      "INSERT INTO 规划图 (标题, 父任务ID, Tag, 任务描述, 是否完成, 创建时间UTC, 优先级序号, 依赖, 是否删除, 动态) VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, ?)"
     ).run(标题trim, 父任务ID, JSON.stringify(所有Tag), 任务描述.trim(), 创建时间UTC, 实际优先级序号, JSON.stringify(依赖), JSON.stringify([]));
     const newTaskId = insertResult.lastInsertRowid;
     const isRoot = 父任务ID === null;
@@ -417,7 +417,7 @@ const 任务表 = {
   删除任务(标题) {
     const 标题trim = 标题.trim();
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" };
-    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
+    const existing = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` };
     const 子任务总数 = 统计子任务数(existing.id);
     if (子任务总数 > 0) {
@@ -429,13 +429,13 @@ const 任务表 = {
   确认删除(标题) {
     const 标题trim = 标题.trim();
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" };
-    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
+    const existing = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` };
     级联更新字段(existing.id, "是否删除", 1);
     return { 成功: true, 消息: `已删除任务「${标题trim}」及其所有子任务` };
   },
   查询已删除任务(数量, 从, 到, 描述字数阈值, 动态字数阈值) {
-    const taskDb = 获取任务表Db();
+    const taskDb = 获取规划图Db();
     if (数量 <= 0) {
       return `错误Found: 数量必须大于0，当前值: ${数量}`;
     }
@@ -444,7 +444,7 @@ const 任务表 = {
       return `错误Found: ${校验失败消息}`;
     }
     const deletedTasks = taskDb.prepare(
-      `SELECT * FROM 任务表 WHERE 是否删除 = 1${时间过滤} ORDER BY 创建时间UTC DESC LIMIT ?`
+      `SELECT * FROM 规划图 WHERE 是否删除 = 1${时间过滤} ORDER BY 创建时间UTC DESC LIMIT ?`
     ).all(...时间参数, 数量);
     const parsedTasks = deletedTasks.map(解析任务行);
     const lines = [];
@@ -500,19 +500,19 @@ const 任务表 = {
   },
   按标题查(标题, 模糊 = false) {
     if (模糊) {
-      const rows = 获取任务表Db().prepare(
-        "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 标题 LIKE ? ORDER BY 优先级序号 ASC"
+      const rows = 获取规划图Db().prepare(
+        "SELECT * FROM 规划图 WHERE 是否删除 = 0 AND 标题 LIKE ? ORDER BY 优先级序号 ASC"
       ).all(`%${标题}%`);
       return rows.map(解析任务行);
     }
-    const row = 获取任务表Db().prepare(
-      "SELECT * FROM 任务表 WHERE 标题 = ?"
+    const row = 获取规划图Db().prepare(
+      "SELECT * FROM 规划图 WHERE 标题 = ?"
     ).get(标题);
     return row ? [解析任务行(row)] : [];
   },
   按ID查(id) {
-    const row = 获取任务表Db().prepare(
-      "SELECT * FROM 任务表 WHERE id = ? AND 是否删除 = 0"
+    const row = 获取规划图Db().prepare(
+      "SELECT * FROM 规划图 WHERE id = ? AND 是否删除 = 0"
     ).get(id);
     return row ? 解析任务行(row) : null;
   },
@@ -524,8 +524,8 @@ const 任务表 = {
    * @returns 任务详情 + 分层的依赖链，每层包含【标题、依赖原因、动态】
    */
   查询依赖链(标题, 最大层数 = 3) {
-    const taskRow = 获取任务表Db().prepare(
-      "SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0"
+    const taskRow = 获取规划图Db().prepare(
+      "SELECT * FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0"
     ).get(标题);
     if (!taskRow) return { 成功: false, 消息: `任务"${标题}"不存在` };
     const task = 解析任务行(taskRow);
@@ -546,8 +546,8 @@ const 任务表 = {
       for (const dep of depInfos) {
         if (visited.has(dep.依赖任务ID)) continue;
         visited.add(dep.依赖任务ID);
-        const depRow = 获取任务表Db().prepare(
-          "SELECT * FROM 任务表 WHERE id = ? AND 是否删除 = 0"
+        const depRow = 获取规划图Db().prepare(
+          "SELECT * FROM 规划图 WHERE id = ? AND 是否删除 = 0"
         ).get(dep.依赖任务ID);
         if (!depRow) continue;
         const depTask = 解析任务行(depRow);
@@ -568,8 +568,8 @@ const 任务表 = {
     };
   },
   按Tag查询(Tag) {
-    const rows = 获取任务表Db().prepare(
-      "SELECT * FROM 任务表 WHERE 是否删除 = 0"
+    const rows = 获取规划图Db().prepare(
+      "SELECT * FROM 规划图 WHERE 是否删除 = 0"
     ).all();
     return rows.map(解析任务行).filter((task) => task.Tag?.includes(Tag));
   },
@@ -577,10 +577,10 @@ const 任务表 = {
     const 标题trim = 标题.trim();
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" };
     if (!新描述 || !新描述.trim()) return { 成功: false, 消息: "新描述不能为空" };
-    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
+    const existing = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` };
-    获取任务表Db().prepare("UPDATE 任务表 SET 任务描述 = ? WHERE id = ?").run(新描述.trim(), existing.id);
-    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE id = ?").get(existing.id);
+    获取规划图Db().prepare("UPDATE 规划图 SET 任务描述 = ? WHERE id = ?").run(新描述.trim(), existing.id);
+    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
     return { 成功: true, 消息: `已更新任务「${标题trim}」的描述`, res任务: updated ? 解析任务行(updated) : void 0 };
   },
   改标题(旧标题, 新标题) {
@@ -588,47 +588,47 @@ const 任务表 = {
     const 新标题trim = 新标题.trim();
     if (!旧标题trim) return { 成功: false, 消息: "旧标题不能为空" };
     if (!新标题trim) return { 成功: false, 消息: "新标题不能为空" };
-    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(旧标题trim);
+    const existing = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(旧标题trim);
     if (!existing) return { 成功: false, 消息: `任务「${旧标题trim}」不存在` };
-    const duplicate = 获取任务表Db().prepare("SELECT id FROM 任务表 WHERE 标题 = ?").get(新标题trim);
+    const duplicate = 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE 标题 = ?").get(新标题trim);
     if (duplicate) return { 成功: false, 消息: `新标题「${新标题trim}」在当前项目「${当前项目名}」已存在` };
-    获取任务表Db().prepare("UPDATE 任务表 SET 标题 = ? WHERE id = ?").run(新标题trim, existing.id);
-    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE id = ?").get(existing.id);
+    获取规划图Db().prepare("UPDATE 规划图 SET 标题 = ? WHERE id = ?").run(新标题trim, existing.id);
+    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
     return { 成功: true, 消息: `已将任务「${旧标题trim}」更名为「${新标题trim}」（ID：${existing.id}不变，父子关系和依赖关系不受影响）`, res任务: updated ? 解析任务行(updated) : void 0 };
   },
   改依赖(标题, 新依赖) {
     const 标题trim = 标题.trim();
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" };
-    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
+    const existing = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` };
     const existingTask = 解析任务行(existing);
     for (const dep of 新依赖) {
       if (typeof dep.依赖任务 !== "string") return { 成功: false, 消息: "依赖任务不能为空" };
       const depTitle = dep.依赖任务.trim();
       if (!depTitle) return { 成功: false, 消息: "依赖任务不能为空" };
-      const depTask = 获取任务表Db().prepare("SELECT id, 标题 FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(depTitle);
+      const depTask = 获取规划图Db().prepare("SELECT id, 标题 FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(depTitle);
       if (!depTask) return { 成功: false, 消息: `依赖任务「${depTitle}」不存在` };
       dep.依赖任务ID = depTask.id;
       dep.依赖任务 = depTask.标题;
     }
     const 依赖校验结果 = 校验同级依赖规则(标题trim, existingTask.父任务ID ?? null, existingTask.优先级序号 ?? 0, 新依赖);
     if (依赖校验结果) return 依赖校验结果;
-    获取任务表Db().prepare("UPDATE 任务表 SET 依赖 = ? WHERE id = ?").run(JSON.stringify(新依赖), existing.id);
-    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE id = ?").get(existing.id);
+    获取规划图Db().prepare("UPDATE 规划图 SET 依赖 = ? WHERE id = ?").run(JSON.stringify(新依赖), existing.id);
+    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
     const 依赖提醒 = 新依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，依赖链是极为重要的，不要忽视隐性依赖）" : "";
     return { 成功: true, 消息: `已更新任务「${标题trim}」的依赖${依赖提醒}`, res任务: updated ? 解析任务行(updated) : void 0 };
   },
   改优先级(标题, 新优先级序号) {
     const 标题trim = 标题.trim();
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" };
-    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
+    const existing = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` };
     const existingTask = 解析任务行(existing);
     const 原优先级序号 = existingTask.优先级序号 ?? 0;
     const 父任务ID = existingTask.父任务ID ?? null;
     const 实际优先级序号 = 计算移动目标优先级(父任务ID, 新优先级序号);
-    const 同级任务 = 获取任务表Db().prepare(
-      "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID IS ?"
+    const 同级任务 = 获取规划图Db().prepare(
+      "SELECT * FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID IS ?"
     ).all(父任务ID);
     for (const other of 同级任务) {
       const otherTask = 解析任务行(other);
@@ -656,29 +656,29 @@ const 任务表 = {
       } catch {
       }
     }
-    const taskDb = 获取任务表Db();
+    const taskDb = 获取规划图Db();
     taskDb.exec("BEGIN TRANSACTION");
     try {
       if (原优先级序号 < 实际优先级序号) {
-        taskDb.prepare("UPDATE 任务表 SET 优先级序号 = 优先级序号 - 1 WHERE 是否删除 = 0 AND 父任务ID IS ? AND 优先级序号 > ? AND 优先级序号 <= ? AND id != ?").run(父任务ID, 原优先级序号, 实际优先级序号, existing.id);
+        taskDb.prepare("UPDATE 规划图 SET 优先级序号 = 优先级序号 - 1 WHERE 是否删除 = 0 AND 父任务ID IS ? AND 优先级序号 > ? AND 优先级序号 <= ? AND id != ?").run(父任务ID, 原优先级序号, 实际优先级序号, existing.id);
       } else if (原优先级序号 > 实际优先级序号) {
-        taskDb.prepare("UPDATE 任务表 SET 优先级序号 = 优先级序号 + 1 WHERE 是否删除 = 0 AND 父任务ID IS ? AND 优先级序号 >= ? AND 优先级序号 < ? AND id != ?").run(父任务ID, 实际优先级序号, 原优先级序号, existing.id);
+        taskDb.prepare("UPDATE 规划图 SET 优先级序号 = 优先级序号 + 1 WHERE 是否删除 = 0 AND 父任务ID IS ? AND 优先级序号 >= ? AND 优先级序号 < ? AND id != ?").run(父任务ID, 实际优先级序号, 原优先级序号, existing.id);
       }
-      taskDb.prepare("UPDATE 任务表 SET 优先级序号 = ? WHERE id = ?").run(实际优先级序号, existing.id);
+      taskDb.prepare("UPDATE 规划图 SET 优先级序号 = ? WHERE id = ?").run(实际优先级序号, existing.id);
       taskDb.exec("COMMIT");
     } catch (e) {
       taskDb.exec("ROLLBACK");
       return { 成功: false, 消息: `更新优先级失败: ${e instanceof Error ? e.message : String(e)}` };
     }
-    const 更新后同级 = 获取任务表Db().prepare(
-      "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID IS ? ORDER BY 优先级序号 ASC"
+    const 更新后同级 = 获取规划图Db().prepare(
+      "SELECT * FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID IS ? ORDER BY 优先级序号 ASC"
     ).all(父任务ID);
     const 当前任务索引 = 更新后同级.findIndex((t) => t.id === existing.id);
     const 前两个任务 = 更新后同级.slice(Math.max(0, 当前任务索引 - 2), 当前任务索引).map((t) => 解析任务行(t));
     const 后两个任务 = 更新后同级.slice(当前任务索引 + 1, 当前任务索引 + 3).map((t) => 解析任务行(t));
     const 前两个描述 = 前两个任务.length > 0 ? 前两个任务.map((t) => `《${t.标题}》(优先级${t.优先级序号})`).join("、") : "无";
     const 后两个描述 = 后两个任务.length > 0 ? 后两个任务.map((t) => `《${t.标题}》(优先级${t.优先级序号})`).join("、") : "无";
-    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE id = ?").get(existing.id);
+    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
     return { 成功: true, 消息: `已将任务「${标题trim}」的优先级从 ${原优先级序号} 改为 ${实际优先级序号}。当前位置：前两个任务[${前两个描述}] <- 本任务 -> 后两个任务[${后两个描述}]`, res任务: updated ? 解析任务行(updated) : void 0 };
   },
   标记为已完成(标题) {
@@ -692,33 +692,33 @@ const 任务表 = {
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" };
     if (!角色 || !角色.trim()) return { 成功: false, 消息: "角色不能为空" };
     if (!消息 || !消息.trim()) return { 成功: false, 消息: "消息不能为空" };
-    const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
+    const existing = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` };
     const 现有动态 = existing.动态 ? JSON.parse(existing.动态) : [];
     const 新动态 = { 时间UTC: (/* @__PURE__ */ new Date()).toISOString(), 角色: 角色.trim(), 消息: 消息.trim() };
     现有动态.push(新动态);
-    获取任务表Db().prepare("UPDATE 任务表 SET 动态 = ? WHERE id = ?").run(JSON.stringify(现有动态), existing.id);
-    const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE id = ?").get(existing.id);
+    获取规划图Db().prepare("UPDATE 规划图 SET 动态 = ? WHERE id = ?").run(JSON.stringify(现有动态), existing.id);
+    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
     return { 成功: true, 消息: `已为任务「${标题trim}」添加动态`, res任务: updated ? 解析任务行(updated) : void 0 };
   }
 };
 function _完成任务(标题) {
   const 标题trim = 标题.trim();
   if (!标题trim) return { 成功: false, 消息: "标题不能为空" };
-  const existing = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
+  const existing = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
   if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` };
   const 子任务总数 = 统计子任务数(existing.id);
   if (子任务总数 > 0) {
     if (!检查所有子任务是否已完成(existing.id)) {
       return { 成功: false, 消息: `不允许直接将父任务标记为完成，请先确保所有子任务完成` };
     }
-    获取任务表Db().prepare("UPDATE 任务表 SET 是否完成 = 1 WHERE id = ?").run(existing.id);
-    const updated2 = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE id = ?").get(existing.id);
+    获取规划图Db().prepare("UPDATE 规划图 SET 是否完成 = 1 WHERE id = ?").run(existing.id);
+    const updated2 = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
     return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成`, res任务: updated2 ? 解析任务行(updated2) : void 0 };
   }
-  获取任务表Db().prepare("UPDATE 任务表 SET 是否完成 = 1 WHERE id = ?").run(existing.id);
+  获取规划图Db().prepare("UPDATE 规划图 SET 是否完成 = 1 WHERE id = ?").run(existing.id);
   尝试向上自动完成(existing.id);
-  const updated = 获取任务表Db().prepare("SELECT * FROM 任务表 WHERE id = ?").get(existing.id);
+  const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
   return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成`, res任务: updated ? 解析任务行(updated) : void 0 };
 }
 function 构建时间过滤条件(从, 到) {
@@ -746,8 +746,8 @@ function 构建时间过滤条件(从, 到) {
     校验失败消息: null
   };
 }
-function 查询任务表_返回视图(一次性聚焦数量上限, 从, 到, 描述字数展示阈值, 任务动态字数展示阈值) {
-  const taskDb = 获取任务表Db();
+function 查询规划图_返回视图(一次性聚焦数量上限, 从, 到, 描述字数展示阈值, 任务动态字数展示阈值) {
+  const taskDb = 获取规划图Db();
   if (一次性聚焦数量上限 <= 0) {
     return `错误Found: 一次性聚焦数量上限必须大于0，当前值: ${一次性聚焦数量上限}`;
   }
@@ -761,7 +761,7 @@ function 查询任务表_返回视图(一次性聚焦数量上限, 从, 到, 描
   function 计算任务树层数() {
     function 获取子任务层级(父任务ID, currentDepth) {
       const children = taskDb.prepare(
-        "SELECT id FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID = ?"
+        "SELECT id FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID = ?"
       ).all(父任务ID);
       if (children.length === 0) return currentDepth;
       let maxDepth2 = currentDepth;
@@ -782,16 +782,16 @@ function 查询任务表_返回视图(一次性聚焦数量上限, 从, 到, 描
   }
   const 任务树最深处层数 = 计算任务树层数();
   const 根任务列表 = 时间过滤 ? taskDb.prepare(
-    `SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID IS NULL${时间过滤} ORDER BY 优先级序号 ASC`
+    `SELECT * FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID IS NULL${时间过滤} ORDER BY 优先级序号 ASC`
   ).all(...时间参数) : 加载根任务();
   const recentTasks = taskDb.prepare(
-    `SELECT * FROM 任务表 WHERE 是否删除 = 0 AND 父任务ID IS NOT NULL${时间过滤} ORDER BY 创建时间UTC DESC LIMIT ?`
+    `SELECT * FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID IS NOT NULL${时间过滤} ORDER BY 创建时间UTC DESC LIMIT ?`
   ).all(...时间参数, n);
   function 追溯父任务链(任务ID, visited) {
     if (任务ID === null) return [];
     if (visited.has(任务ID)) return [];
     const parent = taskDb.prepare(
-      "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND id = ?"
+      "SELECT * FROM 规划图 WHERE 是否删除 = 0 AND id = ?"
     ).get(任务ID);
     if (!parent) return [];
     if (parent.父任务ID === null) return [解析任务行(parent)];
@@ -824,7 +824,7 @@ function 查询任务表_返回视图(一次性聚焦数量上限, 从, 到, 描
       if (current.父任务ID === null || current.父任务ID === void 0) break;
       current = allTasksMap.get(current.父任务ID) ?? (() => {
         const parent = taskDb.prepare(
-          "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND id = ?"
+          "SELECT * FROM 规划图 WHERE 是否删除 = 0 AND id = ?"
         ).get(current.父任务ID);
         return parent ? 解析任务行(parent) : void 0;
       })();
@@ -845,7 +845,7 @@ function 查询任务表_返回视图(一次性聚焦数量上限, 从, 到, 描
       if (current.父任务ID === null || current.父任务ID === void 0) break;
       current = allTasksMap.get(current.父任务ID) ?? (() => {
         const parent = taskDb.prepare(
-          "SELECT * FROM 任务表 WHERE 是否删除 = 0 AND id = ?"
+          "SELECT * FROM 规划图 WHERE 是否删除 = 0 AND id = ?"
         ).get(current.父任务ID);
         return parent ? 解析任务行(parent) : void 0;
       })();
@@ -871,12 +871,12 @@ function 查询任务表_返回视图(一次性聚焦数量上限, 从, 到, 描
   });
   const lines = [];
   lines.push(``);
-  lines.push(`【任务表统计】`);
+  lines.push(`【规划图统计】`);
   lines.push(`- 末端任务数（小颗粒度任务）: ${末端任务数}`);
   lines.push(`- 总任务数（含所有父任务）: ${总任务数}`);
   lines.push(`- 任务树最深处层数: ${任务树最深处层数}`);
   lines.push(``);
-  lines.push(`【任务表视图】（优先级序号从0到n排序，靠前=优先；✅ =已完成，☕️ =未完成）`);
+  lines.push(`【规划图视图】（优先级序号从0到n排序，靠前=优先；✅ =已完成，☕️ =未完成）`);
   lines.push(`- 当前展示数量: ${sortedTasks.length}`);
   lines.push(``);
   for (const task of sortedTasks) {
@@ -933,7 +933,7 @@ const CLI_COMMANDS = {
   add: "添加任务 --标题 <标题> --描述 <描述> [--父任务 <父任务>] [--优先级 <序号>] [--Tag <Tag>] [--依赖 <JSON>] [--其它Tag <JSON>]",
   delete: "删除任务 --标题 <标题>",
   "query-deleted": "查询已删除任务 --数量 <n> --描述字数阈值 <字数> --动态字数阈值 <字数> [--从 <ISO>] [--到 <ISO>]",
-  query: "查询任务表视图 --数量 <n> --描述字数阈值 <字数> --动态字数阈值 <字数> [--从 <ISO>] [--到 <ISO>]",
+  query: "查询规划图视图 --数量 <n> --描述字数阈值 <字数> --动态字数阈值 <字数> [--从 <ISO>] [--到 <ISO>]",
   "query-by-title": "按标题查询 --标题 <标题> [--模糊 <true|false>]",
   "query-by-id": "按ID查询 --id <ID>",
   "query-by-tag": "按Tag查询 --Tag <Tag>",
@@ -961,7 +961,7 @@ function outputResult(data) {
   console.log(JSON.stringify(data, null, 2));
 }
 function printHelp() {
-  const lines = ["任务表CLI - 任务管理工具", "", "用法: npx tsx 任务表CLI.ts <命令> [选项]", ""];
+  const lines = ["规划图CLI - 任务管理工具", "", "用法: npx tsx 规划图CLI.ts <命令> [选项]", ""];
   for (const [cmd, desc] of Object.entries(CLI_COMMANDS)) {
     lines.push(`  ${cmd.padEnd(22)} ${desc}`);
   }
@@ -987,18 +987,18 @@ async function runCli() {
     }
     try {
       initDbStrict(flags.项目);
-      outputResult({ 成功: true, 消息: `任务表数据库已初始化 (项目: ${flags.项目})，可以使用任务表啦！`, 路径: 任务表dbPath });
+      outputResult({ 成功: true, 消息: `规划图数据库已初始化 (项目: ${flags.项目})，可以使用规划图啦！`, 路径: 规划图dbPath });
       process.exit(0);
     } catch (e) {
       outputResult({ 成功: false, 消息: e instanceof Error ? e.message : String(e) });
       process.exit(1);
     }
   }
-  if (!process.env.TASKTABLE_PROJECT_NAME) {
-    outputResult({ 成功: false, 消息: "未指定项目，请设置环境变量 TASKTABLE_PROJECT_NAME 或在 init 命令中指定 --项目" });
+  if (!process.env.SCHEDULEMAP_PROJECT_NAME) {
+    outputResult({ 成功: false, 消息: "未指定项目，请设置环境变量 SCHEDULEMAP_PROJECT_NAME 或在 init 命令中指定 --项目" });
     process.exit(1);
   }
-  const 项目名 = process.env.TASKTABLE_PROJECT_NAME;
+  const 项目名 = process.env.SCHEDULEMAP_PROJECT_NAME;
   const 环境检查 = 检查环境完整性(项目名);
   if (!环境检查.成功) {
     const readline = await import("readline");
@@ -1028,7 +1028,7 @@ async function runCli() {
       process.exit(1);
     }
     try {
-      const result = 任务表.添加任务(
+      const result = 规划图.添加任务(
         flags.父任务 ?? null,
         flags.描述,
         flags.标题,
@@ -1049,7 +1049,7 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题" });
       process.exit(1);
     }
-    const result = 任务表.删除任务(flags.标题);
+    const result = 规划图.删除任务(flags.标题);
     if (result.需要确认) {
       const readline = await import("readline");
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -1058,7 +1058,7 @@ async function runCli() {
       });
       rl.close();
       if (answer.toLowerCase() === "y") {
-        const confirmResult = 任务表.确认删除(flags.标题);
+        const confirmResult = 规划图.确认删除(flags.标题);
         outputResult(confirmResult);
         process.exit(confirmResult.成功 ? 0 : 1);
       } else {
@@ -1075,7 +1075,7 @@ async function runCli() {
       process.exit(1);
     }
     const 模糊 = flags.模糊 === "true";
-    const result = 任务表.按标题查(flags.标题, 模糊);
+    const result = 规划图.按标题查(flags.标题, 模糊);
     outputResult({ 成功: true, 数量: result.length, 任务: result });
     process.exit(0);
   }
@@ -1089,7 +1089,7 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "id必须是有效的整数" });
       process.exit(1);
     }
-    const result = 任务表.按ID查(id);
+    const result = 规划图.按ID查(id);
     if (result) {
       outputResult({ 成功: true, 任务: result });
     } else {
@@ -1103,7 +1103,7 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --Tag" });
       process.exit(1);
     }
-    const result = 任务表.按Tag查询(flags.Tag);
+    const result = 规划图.按Tag查询(flags.Tag);
     outputResult({ 成功: true, 数量: result.length, 任务: result });
     process.exit(0);
   }
@@ -1117,7 +1117,7 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "最大层数必须为正整数" });
       process.exit(1);
     }
-    const result = 任务表.查询依赖链(flags.标题, 最大层数);
+    const result = 规划图.查询依赖链(flags.标题, 最大层数);
     outputResult(result);
     process.exit(result.成功 ? 0 : 1);
   }
@@ -1126,7 +1126,7 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --数量, --描述字数阈值, --动态字数阈值" });
       process.exit(1);
     }
-    const result = 任务表.查询已删除任务(
+    const result = 规划图.查询已删除任务(
       parseInt(flags.数量),
       flags.从 || void 0,
       flags.到 || void 0,
@@ -1145,7 +1145,7 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --新描述" });
       process.exit(1);
     }
-    const result = 任务表.改描述(flags.标题, flags.新描述);
+    const result = 规划图.改描述(flags.标题, flags.新描述);
     outputResult(result);
     process.exit(result.成功 ? 0 : 1);
   }
@@ -1154,7 +1154,7 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --新标题" });
       process.exit(1);
     }
-    const result = 任务表.改标题(flags.标题, flags.新标题);
+    const result = 规划图.改标题(flags.标题, flags.新标题);
     outputResult(result);
     process.exit(result.成功 ? 0 : 1);
   }
@@ -1170,7 +1170,7 @@ async function runCli() {
       outputResult({ 成功: false, 消息: `JSON参数解析失败: ${e instanceof Error ? e.message : String(e)}` });
       process.exit(1);
     }
-    const result = 任务表.改依赖(flags.标题, 新依赖);
+    const result = 规划图.改依赖(flags.标题, 新依赖);
     outputResult(result);
     process.exit(result.成功 ? 0 : 1);
   }
@@ -1179,7 +1179,7 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --新优先级" });
       process.exit(1);
     }
-    const result = 任务表.改优先级(flags.标题, parseInt(flags.新优先级));
+    const result = 规划图.改优先级(flags.标题, parseInt(flags.新优先级));
     outputResult(result);
     process.exit(result.成功 ? 0 : 1);
   }
@@ -1188,7 +1188,7 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题" });
       process.exit(1);
     }
-    const result = 任务表.标记为已完成(flags.标题);
+    const result = 规划图.标记为已完成(flags.标题);
     if (result.需要确认) {
       const readline = await import("readline");
       const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -1197,7 +1197,7 @@ async function runCli() {
       });
       rl.close();
       if (answer.toLowerCase() === "y") {
-        const confirmResult = 任务表.确认完成(flags.标题);
+        const confirmResult = 规划图.确认完成(flags.标题);
         outputResult(confirmResult);
         process.exit(confirmResult.成功 ? 0 : 1);
       } else {
@@ -1213,7 +1213,7 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --角色, --消息" });
       process.exit(1);
     }
-    const result = 任务表.添加动态(flags.标题, flags.角色, flags.消息);
+    const result = 规划图.添加动态(flags.标题, flags.角色, flags.消息);
     outputResult(result);
     process.exit(result.成功 ? 0 : 1);
   }
@@ -1222,7 +1222,7 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --数量, --描述字数阈值, --动态字数阈值" });
       process.exit(1);
     }
-    const result = 查询任务表_返回视图(
+    const result = 查询规划图_返回视图(
       parseInt(flags.数量),
       flags.从 || void 0,
       flags.到 || void 0,
@@ -1256,14 +1256,14 @@ if (process.argv[1] === __filename) {
   任务,
   任务Tag,
   任务依赖,
-  任务表,
-  任务表dbPath,
+  规划图,
+  规划图dbPath,
   加载根任务,
   动态记录,
   当前表中全部任务数,
   当前表中总任务数_仅末端,
   当前项目名,
-  查询任务表_返回视图,
+  查询规划图_返回视图,
   检查环境完整性,
   解析任务行
 });

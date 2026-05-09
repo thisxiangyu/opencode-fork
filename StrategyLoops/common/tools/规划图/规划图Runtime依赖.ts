@@ -7,11 +7,11 @@ import { fileURLToPath } from "url"
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const strategyLoopsDir = join(__dirname, "../../..")
 
-export const TASK_TABLE_RUNTIME_DEPENDENCIES = ["better-sqlite3", "bindings", "file-uri-to-path"] as const
+export const SCHEDULE_MAP_RUNTIME_DEPENDENCIES = ["better-sqlite3", "bindings", "file-uri-to-path"] as const
 
 export type RuntimeDependencyDecision = "overwrite" | "keep"
 
-export interface DeployTaskTableRuntimeDependenciesOptions {
+export interface DeployScheduleMapRuntimeDependenciesOptions {
   askUser?: (prompt: string) => Promise<string>
   log?: (message: string) => void
   force?: boolean
@@ -19,7 +19,7 @@ export interface DeployTaskTableRuntimeDependenciesOptions {
 
 async function copyDirRecursive(src: string, dest: string): Promise<void> {
   if (!existsSync(src)) {
-    throw new Error(`任务表运行时依赖源不存在: ${src}。请先在 StrategyLoops 目录执行 npm install。`)
+    throw new Error(`规划图运行时依赖源不存在: ${src}。请先在 StrategyLoops 目录执行 npm install。`)
   }
   await mkdir(dest, { recursive: true })
   const entries = await readdir(src, { withFileTypes: true })
@@ -38,9 +38,9 @@ export function isMissingBetterSqlite3Error(stderr: string): boolean {
   return stderr.includes("Cannot find module 'better-sqlite3'") || stderr.includes('Cannot find module "better-sqlite3"')
 }
 
-export async function deployTaskTableRuntimeDependencies(
+export async function deployScheduleMapRuntimeDependencies(
   projectDir: string,
-  options: DeployTaskTableRuntimeDependenciesOptions = {},
+  options: DeployScheduleMapRuntimeDependenciesOptions = {},
 ): Promise<RuntimeDependencyDecision> {
   const nodeModulesDir = join(projectDir, "node_modules")
   const betterSqliteDest = join(nodeModulesDir, "better-sqlite3")
@@ -54,16 +54,16 @@ export async function deployTaskTableRuntimeDependencies(
   }
 
   await mkdir(nodeModulesDir, { recursive: true })
-  await Promise.all(TASK_TABLE_RUNTIME_DEPENDENCIES.map(async (dependency) => {
+  await Promise.all(SCHEDULE_MAP_RUNTIME_DEPENDENCIES.map(async (dependency) => {
     const dest = join(nodeModulesDir, dependency)
     if (existsSync(dest)) await rm(dest, { recursive: true, force: true })
     await copyDirRecursive(join(strategyLoopsDir, "node_modules", dependency), dest)
   }))
-  options.log?.(`${options.force ? "[任务表]" : "[初始环境]"} better-sqlite3 + bindings + file-uri-to-path 已拷贝 -> ${nodeModulesDir}`)
+  options.log?.(`${options.force ? "[规划图]" : "[初始环境]"} better-sqlite3 + bindings + file-uri-to-path 已拷贝 -> ${nodeModulesDir}`)
   return "overwrite"
 }
 
-export async function verifyTaskTableRuntimeDependencies(projectDir: string): Promise<void> {
+export async function verifyScheduleMapRuntimeDependencies(projectDir: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn("node", ["-e", "require('better-sqlite3'); require('bindings'); require('file-uri-to-path');"], {
       cwd: projectDir,
@@ -76,15 +76,15 @@ export async function verifyTaskTableRuntimeDependencies(projectDir: string): Pr
         resolve()
         return
       }
-      reject(new Error(`[任务表] 运行时依赖验证失败 (exit=${code}): ${stderr.trim()}`))
+      reject(new Error(`[规划图] 运行时依赖验证失败 (exit=${code}): ${stderr.trim()}`))
     })
-    child.on("error", (err) => reject(new Error(`[任务表] 运行时依赖验证失败: ${err.message}`)))
+    child.on("error", (err) => reject(new Error(`[规划图] 运行时依赖验证失败: ${err.message}`)))
   })
 }
 
-export async function repairTaskTableRuntimeDependencies(projectDir: string, log?: (message: string) => void): Promise<void> {
-  log?.("[任务表] 检测到 better-sqlite3 缺失，开始自动修复运行时依赖")
-  await deployTaskTableRuntimeDependencies(projectDir, { force: true, log })
-  await verifyTaskTableRuntimeDependencies(projectDir)
-  log?.("[任务表] better-sqlite3 自动修复与验证完成")
+export async function repairScheduleMapRuntimeDependencies(projectDir: string, log?: (message: string) => void): Promise<void> {
+  log?.("[规划图] 检测到 better-sqlite3 缺失，开始自动修复运行时依赖")
+  await deployScheduleMapRuntimeDependencies(projectDir, { force: true, log })
+  await verifyScheduleMapRuntimeDependencies(projectDir)
+  log?.("[规划图] better-sqlite3 自动修复与验证完成")
 }

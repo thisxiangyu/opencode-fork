@@ -3,7 +3,7 @@ import { existsSync, rmSync } from "fs"
 import { mkdir, mkdtemp, readFile, writeFile } from "fs/promises"
 import { join } from "path"
 import { tmpdir } from "os"
-import { main } from "../任务表驱动的PEE"
+import { main } from "../规划图驱动的PEE"
 import { LoopConfig } from "../../../common/loopConfig"
 import type { IRole } from "../../../common/role"
 import type { ISession } from "../../../common/session"
@@ -52,11 +52,11 @@ describe("PEE 环境初始化", () => {
     const projectDir = await makeProjectDir()
     const projectName = projectDir.split("/").pop() || "project"
     const repoWikiPath = join(projectDir, "REPO_WIKI.ts")
-    const readmePath = join(projectDir, "任务表CLI使用说明书.md")
-    const dbPath = join(projectDir, "data", `.taskTable.${projectName}`, `${projectName}TaskTable.db`)
+    const readmePath = join(projectDir, "规划图CLI使用说明书.md")
+    const dbPath = join(projectDir, "data", `.scheduleMap.${projectName}`, `${projectName}ScheduleMap.db`)
     const markerPath = join(projectDir, "node_modules", "better-sqlite3", "marker.txt")
 
-    await mkdir(join(projectDir, "data", `.taskTable.${projectName}`), { recursive: true })
+    await mkdir(join(projectDir, "data", `.scheduleMap.${projectName}`), { recursive: true })
     await mkdir(join(projectDir, "node_modules", "better-sqlite3"), { recursive: true })
     await writeFile(repoWikiPath, "old wiki", "utf-8")
     await writeFile(readmePath, "old readme", "utf-8")
@@ -92,7 +92,7 @@ describe("PEE 环境初始化", () => {
 
     const projectName = projectDir.split("/").pop() || "project"
     expect(existsSync(join(projectDir, "REPO_WIKI.ts"))).toBe(true)
-    expect(existsSync(join(projectDir, "data", `.taskTable.${projectName}`, `${projectName}TaskTable.db`))).toBe(true)
+    expect(existsSync(join(projectDir, "data", `.scheduleMap.${projectName}`, `${projectName}ScheduleMap.db`))).toBe(true)
     expect(existsSync(join(projectDir, "node_modules", "better-sqlite3", "package.json"))).toBe(true)
     expect(existsSync(join(projectDir, "node_modules", "bindings", "package.json"))).toBe(true)
     expect(existsSync(join(projectDir, "node_modules", "file-uri-to-path", "package.json"))).toBe(true)
