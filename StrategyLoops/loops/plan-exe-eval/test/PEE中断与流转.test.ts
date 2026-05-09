@@ -47,7 +47,7 @@ describe("PEE interruption and flow semantics", () => {
     expect(buildUpstreamForRole("executor", rejectionState, "ignored")).toBe("本轮任务标题: 任务A\n留言: 正常推进\n")
   })
 
-  it("keeps evaluator and architect on fixed collaboration upstream during rejection loop", () => {
+  it("includes executor feedback in evaluator and architect upstream during rejection loop", () => {
     const rejectionState: RejectionState = {
       evaluatorRejections: 2,
       architectRejections: 1,
@@ -55,10 +55,12 @@ describe("PEE interruption and flow semantics", () => {
       totalRejectionLoops: 3,
       inRejectionLoop: true,
       rejectionSource: "architect",
+      executorFeedback: "已按领域边界拆分模块，测试仍待质保员补充。",
     }
 
     expect(buildUpstreamForRole("evaluator", rejectionState, "ignored")).toContain("评估者第2次打回")
     expect(buildUpstreamForRole("architect", rejectionState, "ignored")).toContain("架构师第1次打回")
+    expect(buildUpstreamForRole("architect", rejectionState, "ignored")).toContain("执行反馈: 已按领域边界拆分模块，测试仍待质保员补充。")
     expect(buildUpstreamForRole("ScissorHands", rejectionState, "ignored")).toContain("执行者第3次实践")
   })
 

@@ -251,7 +251,7 @@ describe("PEE main loop integration", () => {
       ],
       executorResponses: [
         async () => "第一次实现",
-        async () => "已按评估者意见修复",
+        async () => "已按评估者意见补充边缘测试，暂无已知遗留风险。",
       ],
       evaluatorResponses: [
         async () => JSON.stringify({ 检查结果: "打回", 问题列表: ["缺测试"], 打回留言: "请补边缘测试" }),
@@ -268,6 +268,7 @@ describe("PEE main loop integration", () => {
     const evaluatorMessages = await evaluatorSession!.getMessages()
     expect(executorMessages.some((message) => message.content.includes("请补边缘测试"))).toBe(true)
     expect(evaluatorMessages.some((message) => message.content.includes("评估者第1次打回"))).toBe(true)
+    expect(evaluatorMessages.some((message) => message.content.includes("执行反馈: 已按评估者意见补充边缘测试，暂无已知遗留风险。"))).toBe(true)
     expect(activities.some((activity) => activity.角色 === "evaluator" && activity.消息 === "evaluator打回1次")).toBe(true)
   })
 
@@ -295,7 +296,7 @@ describe("PEE main loop integration", () => {
       ],
       executorResponses: [
         async () => "第一次实现",
-        async () => "已按架构建议重构",
+        async () => "已按架构建议重新分层，暂无已知遗留风险。",
       ],
       evaluatorResponses: [
         async () => JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" }),
@@ -325,6 +326,7 @@ describe("PEE main loop integration", () => {
     const scissorMessages = await scissorSession!.getMessages()
     const architectMessages = await architectSession!.getMessages()
     expect(executorMessages.some((message) => message.content.includes("请按领域重新分层"))).toBe(true)
+    expect(evaluatorMessages.some((message) => message.content.includes("执行反馈: 已按架构建议重新分层，暂无已知遗留风险。"))).toBe(true)
     expect(evaluatorMessages.length).toBeGreaterThanOrEqual(2)
     expect(scissorMessages.length).toBeGreaterThanOrEqual(2)
     expect(architectMessages.length).toBeGreaterThanOrEqual(2)

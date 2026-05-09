@@ -74,6 +74,7 @@ describe("PEE utils", () => {
       state.rejectionSource = "architect"
       state.frozenPlannerInfo = "frozen"
       state.compactorUpstream = "compact"
+      state.executorFeedback = "已修复命名问题"
       state.previousTaskTitle = "旧任务"
 
       resetRejectionState(state)
@@ -84,6 +85,7 @@ describe("PEE utils", () => {
         totalRejectionLoops: 0,
         inRejectionLoop: false,
         rejectionSource: undefined,
+        executorFeedback: undefined,
         frozenPlannerInfo: undefined,
         compactorUpstream: undefined,
         previousTaskTitle: undefined,
@@ -97,8 +99,9 @@ describe("PEE utils", () => {
         executorPractices: 5,
         totalRejectionLoops: 3,
         inRejectionLoop: true,
+        executorFeedback: "已补齐边缘测试，暂无已知遗留风险。",
       }
-      expect(buildRejectionUpstream(state)).toBe("正在协作优化中  评估者第2次打回  架构师第1次打回  执行者第5次实践")
+      expect(buildRejectionUpstream(state)).toBe("正在协作优化中  执行反馈: 已补齐边缘测试，暂无已知遗留风险。  评估者第2次打回  架构师第1次打回  执行者第5次实践")
     })
 
     it("builds compactor upstream with previous title, context and current title only", () => {
@@ -230,12 +233,14 @@ describe("PEE utils", () => {
         totalRejectionLoops: 1,
         inRejectionLoop: true,
         rejectionSource: "evaluator",
+        executorFeedback: "已按评估者意见修复变量命名",
         frozenPlannerInfo: "本轮任务标题: 任务A\nTag: FEAT\n",
         compactorUpstream: "上轮任务标题: 任务Z\n本轮任务标题: 任务A\n",
       }
 
       expect(buildUpstreamForRole("executor", state, "请修复变量命名")).toBe("请修复变量命名")
       expect(buildUpstreamForRole("evaluator", state, "ignored")).toContain("评估者第1次打回")
+      expect(buildUpstreamForRole("evaluator", state, "ignored")).toContain("执行反馈: 已按评估者意见修复变量命名")
 
       state.inRejectionLoop = false
       expect(buildUpstreamForRole("planner", state, "ignored")).toBe("")

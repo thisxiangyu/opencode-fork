@@ -90,7 +90,7 @@ const config = new LoopConfig({ maxCycles: 30 , startPrompt: makeAI网站开发S
 
 /** 输出格式校验最大重试次数 */
 const OUTPUT_MAX_FORMAT_RETRIES = 3
-const EXECUTOR_REJECTION_ROUNDINFO_SUFFIX = "检查是的确存在的问题还是瞎说。\n\n"
+const EXECUTOR_REJECTION_ROUNDINFO_SUFFIX = "检查是的确存在的问题还是瞎说。完成打回实践后，请输出5句话以内的执行反馈，说明你实际处理了什么、是否仍有遗留风险。\n\n"
 
 /** 单个角色打回上限（第5次打回会触发） */
 const MAX_REJECTIONS_PER_ROLE = 4
@@ -176,7 +176,7 @@ export class 规划者 implements IRole {
 
   knowledgeDomainPrompt() { return `你是一个规划者，负责理解目标、分析当前局面、制定规划图。
 
-    你尽量不要亲自去执行。
+    你尽量不要亲自去执行。但是你必须亲自理解、亲自规划。
 
     你每一轮都要做的事：
     1.阅读一些信息；
@@ -1500,6 +1500,9 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         }
         // 执行者完成后：记录本次是否压缩，供跟随角色同步；复位标记避免影响压缩决策员自身
         if (currentRole === 执行者instance) {
+          if (rejectionState.inRejectionLoop) {
+            rejectionState.executorFeedback = response.trim()
+          }
           executorDidCompact = compactBeforeSend
           compactBeforeSend = false
         }

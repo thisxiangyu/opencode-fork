@@ -56,6 +56,7 @@ export interface RejectionState {
   totalRejectionLoops: number
   inRejectionLoop: boolean
   rejectionSource?: "evaluator" | "architect"
+  executorFeedback?: string
   frozenPlannerInfo?: string
   compactorUpstream?: string
   /** 上一轮任务标题（用于压缩决策员比较任务翻新度） */
@@ -79,6 +80,7 @@ export function resetRejectionState(state: RejectionState): void {
   state.totalRejectionLoops = 0
   state.inRejectionLoop = false
   state.rejectionSource = undefined
+  state.executorFeedback = undefined
   state.frozenPlannerInfo = undefined
   state.compactorUpstream = undefined
   state.previousTaskTitle = undefined
@@ -91,6 +93,9 @@ export function resetRejectionState(state: RejectionState): void {
  */
 export function buildRejectionUpstream(state: RejectionState): string {
   const parts: string[] = ["正在协作优化中"]
+  if (state.executorFeedback?.trim()) {
+    parts.push(`执行反馈: ${state.executorFeedback.trim()}`)
+  }
   if (state.evaluatorRejections > 0) {
     parts.push(`评估者第${state.evaluatorRejections}次打回`)
   }
