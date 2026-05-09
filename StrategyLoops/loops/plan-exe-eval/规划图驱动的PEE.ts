@@ -187,6 +187,7 @@ export class 规划者 implements IRole {
     
     不要在规划图或任务留言中让别人去规划，不要让别人动你的规划图。
 
+    你的规划应当“远远跑在执行前面”，将你的头脑风暴得出的想法也写入规划图。
 
     你每一轮都要做的事：
     1.阅读一些信息；
@@ -382,6 +383,8 @@ export class 架构师 implements IRole {
 ${架构评审()}
 
 【全局视角】规划图工具请查看说明书。你只允许查询，不允许增删改动。
+
+【确保架构完美】架构不好，果断要求重构。
 
 【局部整体性视角】多查看diff（关注暂存区、工作区以及整体变动），跳出来看跨文件关系，多问自己：
   文件是否放在了正确的文件夹？
@@ -1589,7 +1592,8 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         } catch (waitError) {
           const err = waitError as Error
           logFile.info(`[暂停] 等待恢复结束: ${err.message}`)
-          break
+          consoleAndLogFile.warn(`[暂停] 中断恢复失败(${err.message})，终止循环。不会触发"轮次耗尽"伪退出`)
+          break outer
         }
       }
     } // end while (轮次循环)
