@@ -287,7 +287,7 @@ ${upstreamMsg}
 }
 
 export class 冗余枝剪者 implements IRole {
-  name = "ScissorHands"
+  name = "scissorHands"
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个冗余枝剪者，负责寻找当前这次未提交的变更中：
     因前后逻辑覆盖、项目推进太快造成的不必要的冗余/误导性路径（代码、逻辑、文件、文件夹、资产等）
@@ -389,7 +389,7 @@ ${upstreamMsg}
 }
 
 export class 边缘质保员 implements IRole {
-  name = "EdgeQA"
+  name = "edgeQA"
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个边缘质保员，负责写测试、寻找质保员测试时未覆盖到的边缘情况。
 
@@ -425,8 +425,8 @@ export class 压缩决策员 implements IRole {
 压缩的含义：将旧的对话历史总结为摘要，仅保留最近的关键上下文。好的压缩让执行者更聪明（释放无关历史，聚焦当前任务），坏的压缩因思维链断裂导致状态不一致。
 
 你的判断依据：
-1. 任务翻新度：如果本轮任务跟上一轮比是"高翻新"（7-10分：切换功能模块、不同文件、同文件中度或大型重构、思维链不需延续）→ 建议压缩
-             如果本轮任务跟上一轮比是"低翻新"（1-6分：必须复用上一个任务思维链）→ 不压缩
+1. 翻新度：如果本轮任务跟上一轮比是"高翻新"（7-10分：不同任务类型、同任务的不同层次、切换功能模块、不同文件、同文件中度或大型重构、思维链不需延续）→ 建议压缩
+          如果本轮任务跟上一轮比是"低翻新"（1-6分：必须严格复用上一个任务思维链）→ 不压缩
 2. Context Rot 迹象：如果会话过长或模型频繁"忘记"前文 → 建议压缩
 3. 关键记忆点：如果有必须跨轮保留的关键信息（设计决策、重要思维链、未闭合的bug），请注明。只在需要压缩时注明，如果不需要压缩，则关键记忆点也应同样视作不需要。` }
   systemPrompt(upstreamMsg: string) { return `本轮的任务：
@@ -455,7 +455,7 @@ ${upstreamMsg}
 }
 
 export class 提交员 implements IRole {
-  name = "Commitman"
+  name = "commitman"
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() {
     return `你是一个提交员，负责提交仓库。包括git仓库（如有）、svn仓库（如有）等等。
