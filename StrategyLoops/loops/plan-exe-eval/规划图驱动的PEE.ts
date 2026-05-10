@@ -444,7 +444,7 @@ ${upstreamMsg}
     if (!Array.isArray(json.架构问题)) return { valid: false, error: "架构问题必须是数组" }
     if (typeof json.重构建议 !== "string") return { valid: false, error: "重构建议必须是字符串" }
     if (typeof json.打回留言 !== "string") return { valid: false, error: "打回留言必须是字符串" }
-    if (json.检查结果 === "通过" && (json.架构问题.length > 0 || json.打回留言.trim())) return { valid: false, error: "问题列表不为空，或存在打回留言，检查结果却未通过，这是矛盾的，请重试" }
+    if (json.检查结果 === "通过" && (json.架构问题.length > 0 || json.重构建议.trim() || json.打回留言.trim())) return { valid: false, error: "架构问题不为空，或存在重构建议/打回留言，检查结果却为通过，这是矛盾的，请重试" }
     return { valid: true }
   }
 }

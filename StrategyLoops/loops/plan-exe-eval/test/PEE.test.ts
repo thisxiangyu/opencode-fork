@@ -311,13 +311,14 @@ describe("PEE utils", () => {
     it("validates architect schema", () => {
       const role = new 架构师()
       expect(
-        role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "无需重构", 打回留言: "" })),
+        role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "", 打回留言: "" })),
       ).toEqual({ valid: true })
       expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: "bad", 重构建议: "x", 打回留言: "" })).valid).toBe(false)
       expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: ["分层不清"], 重构建议: "", 打回留言: "" }))).toEqual({
         valid: false,
-        error: "问题列表不为空，或存在打回留言，检查结果却未通过，这是矛盾的，请重试",
+        error: "架构问题不为空，或存在重构建议/打回留言，检查结果却为通过，这是矛盾的，请重试",
       })
+      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "建议分层", 打回留言: "" })).valid).toBe(false)
       expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "", 打回留言: "请重构" })).valid).toBe(false)
     })
 
