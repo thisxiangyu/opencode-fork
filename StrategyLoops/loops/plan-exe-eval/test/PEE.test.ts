@@ -75,7 +75,7 @@ describe("PEE utils", () => {
       state.frozenPlannerInfo = "frozen"
       state.compactorUpstream = "compact"
       state.executorFeedback = "已修复命名问题"
-      state.previousTaskTitle = "旧任务"
+      state.previousPlannerInfo = "本轮任务标题: 旧任务\nTag: ARCH\n描述: 旧任务描述\n"
 
       resetRejectionState(state)
       expect(state).toEqual({
@@ -88,7 +88,7 @@ describe("PEE utils", () => {
         executorFeedback: undefined,
         frozenPlannerInfo: undefined,
         compactorUpstream: undefined,
-        previousTaskTitle: undefined,
+        previousPlannerInfo: undefined,
       })
     })
 
@@ -104,20 +104,26 @@ describe("PEE utils", () => {
       expect(buildRejectionUpstream(state)).toBe("正在协作优化中  执行反馈: 已补齐边缘测试，暂无已知遗留风险。  评估者第2次打回  架构师第1次打回  执行者第5次实践")
     })
 
-    it("builds compactor upstream with previous title and current title only", () => {
+    it("builds compactor upstream with previous and current task snapshots", () => {
       const upstream = buildCompactorUpstream(
         [
           "本轮任务标题: 实现登录功能",
-          "描述: 登录描述",
-          "Tag: FEAT",
+          "描述: 登录描述，补充更多上下文以验证长度截断逻辑不会影响短描述",
+          "Tag: FEAT, AUTH",
         ].join("\n"),
-        "数据库设计",
+        [
+          "本轮任务标题: 数据库设计",
+          "描述: 设计用户表和会话表，保证登录链路可落地",
+          "Tag: ARCH, DB",
+        ].join("\n"),
       )
 
       expect(upstream).toContain("上轮任务标题: 数据库设计")
+      expect(upstream).toContain("上轮任务Tag: ARCH, DB")
+      expect(upstream).toContain("上轮任务任务描述前60字: 设计用户表和会话表，保证登录链路可落地")
       expect(upstream).toContain("本轮任务标题: 实现登录功能")
-      expect(upstream).not.toContain("描述:")
-      expect(upstream).not.toContain("Tag:")
+      expect(upstream).toContain("本轮任务Tag: FEAT, AUTH")
+      expect(upstream).toContain("本轮任务任务描述前60字: 登录描述，补充更多上下文以验证长度截断逻辑不会影响短描述")
     })
 
     it("builds common upstream from real task query shape with all first-layer dependencies only", () => {
@@ -228,7 +234,7 @@ describe("PEE utils", () => {
         rejectionSource: "evaluator",
         executorFeedback: "已按评估者意见修复变量命名",
         frozenPlannerInfo: "本轮任务标题: 任务A\nTag: FEAT\n",
-        compactorUpstream: "上轮任务标题: 任务Z\n本轮任务标题: 任务A\n",
+        compactorUpstream: "上轮任务标题: 任务Z\n上轮任务Tag: OLD\n本轮任务标题: 任务A\n本轮任务Tag: FEAT\n",
       }
 
       expect(buildUpstreamForRole("executor", state, "请修复变量命名")).toBe("请修复变量命名")

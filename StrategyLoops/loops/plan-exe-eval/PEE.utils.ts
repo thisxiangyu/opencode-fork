@@ -59,8 +59,8 @@ export interface RejectionState {
   executorFeedback?: string
   frozenPlannerInfo?: string
   compactorUpstream?: string
-  /** 上一轮任务标题（用于压缩决策员比较任务翻新度） */
-  previousTaskTitle?: string
+  /** 上一轮完整任务视图（用于压缩决策员比较任务翻新度） */
+  previousPlannerInfo?: string
 }
 
 export function createRejectionState(): RejectionState {
@@ -83,7 +83,7 @@ export function resetRejectionState(state: RejectionState): void {
   state.executorFeedback = undefined
   state.frozenPlannerInfo = undefined
   state.compactorUpstream = undefined
-  state.previousTaskTitle = undefined
+  state.previousPlannerInfo = undefined
 }
 
 // ============== upstream 构建 ==============
@@ -110,28 +110,32 @@ export function buildRejectionUpstream(state: RejectionState): string {
 
 /**
  * 构建压缩决策员专用 upstreamMsg。
- * 格式：上轮任务标题 + 本轮任务标题
+ * 格式：上轮任务视图 + 本轮任务视图
  *
- * @param frozenPlannerInfo - 规划者输出的完整 upstream（包含本轮任务标题）
- * @param previousTaskTitle - 上一轮任务标题（用于判断任务翻新度）
+ * @param frozenPlannerInfo - 规划者输出的完整 upstream（包含本轮任务标题、描述、Tag）
+ * @param previousPlannerInfo - 上一轮完整任务视图（用于判断任务翻新度）
  */
 export function buildCompactorUpstream(
   frozenPlannerInfo: string | undefined,
-  previousTaskTitle?: string
+  previousPlannerInfo?: string
 ): string {
   if (!frozenPlannerInfo) return ""
 
+  const buildTaskSnapshot = (label: string, plannerInfo: string) => {
+    const 标题 = plannerInfo.match(/本轮任务标题[：:]\s*(.+?)(?:\n|$)/)?.[1]?.trim() ?? ""
+    const 描述 = plannerInfo.match(/描述[：:]\s*(.+?)(?:\n|$)/)?.[1]?.trim() ?? ""
+    const tag = plannerInfo.match(/Tag[：:]\s*(.+?)(?:\n|$)/)?.[1]?.trim() ?? ""
+    const 描述摘要 = 描述 ? 描述.slice(0, 60) : ""
+
+    let snapshot = `${label}标题: ${标题}\n`
+    if (tag) snapshot += `${label}Tag: ${tag}\n`
+    if (描述摘要) snapshot += `${label}任务描述前60字: ${描述摘要}\n`
+    return snapshot
+  }
+
   let upstream = ""
-
-  // 提取本轮任务标题
-  const 标题Match = frozenPlannerInfo.match(/本轮任务标题[：:]\s*(.+?)(?:\n|$)/)
-  const 本轮任务标题 = 标题Match ? 标题Match[1].trim() : ""
-
-  // 上轮任务标题（用于压缩决策员判断任务翻新度）
-  if (previousTaskTitle) upstream += `上轮任务标题: ${previousTaskTitle}\n`
-  // 本轮任务标题
-  upstream += `本轮任务标题: ${本轮任务标题}\n`
-
+  if (previousPlannerInfo) upstream += buildTaskSnapshot("上轮任务", previousPlannerInfo)
+  upstream += buildTaskSnapshot("本轮任务", frozenPlannerInfo)
   return upstream
 }
 

@@ -1698,7 +1698,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         // 【规划者派发验证 + 构建完整 upstream】（提前完成已确认则跳过）
         if (currentRole instanceof 规划者 && !提前完成已确认) {
           const dispatch = await validatePlannerDispatch(projectDir, session, 规划者instance.validateOutput.bind(规划者instance), response, runtimeDeps.runScheduleMapCli)
-          // 保存旧任务标题（用于压缩决策员的"上轮任务标题"），再更新为新任务
+          // 保存旧任务标题，仅供主循环其它逻辑使用；压缩决策员改为使用完整的上一轮任务视图
           const 上轮任务标题 = currentTaskTitle
           currentTaskTitle = dispatch.title
           response = dispatch.response
@@ -1708,10 +1708,11 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
           if (!rejectionState.inRejectionLoop && currentTaskTitle) {
             const latestOutput = extractJSON(response)
             const fullUpstream = await buildTaskUpstream(projectDir, latestOutput || { 本轮任务标题: currentTaskTitle }, runtimeDeps.runScheduleMapCli)
-            rejectionState.previousTaskTitle = 上轮任务标题
+            const previousPlannerInfo = rejectionState.frozenPlannerInfo
             rejectionState.frozenPlannerInfo = fullUpstream
-            // 构建压缩决策员专用upstream（需传入上轮任务标题用于判断任务翻新度）
-            rejectionState.compactorUpstream = buildCompactorUpstream(fullUpstream, rejectionState.previousTaskTitle)
+            rejectionState.previousPlannerInfo = previousPlannerInfo
+            // 构建压缩决策员专用upstream（上一轮与本轮的任务视图）
+            rejectionState.compactorUpstream = buildCompactorUpstream(fullUpstream, rejectionState.previousPlannerInfo)
             consoleAndLogFile.info(`[upstream] 已构建完整上游信息（含依赖链），${fullUpstream.length} 字符`)
             consoleAndLogFile.info(`[upstream] 已构建压缩决策员专用信息，${rejectionState.compactorUpstream.length} 字符`)
           }
