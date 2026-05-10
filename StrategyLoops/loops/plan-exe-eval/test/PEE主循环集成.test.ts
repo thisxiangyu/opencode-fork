@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from "vitest"
-import { mkdir, writeFile } from "fs/promises"
+import { mkdir, writeFile, copyFile } from "fs/promises"
+import { join } from "path"
 import { AbortError, INTERRUPTION_REASON, MSG_SOURCE, type InterruptedMsgContext, type SessionMessage } from "../../../common/types"
 import type { IRole } from "../../../common/role"
 import type { ISession } from "../../../common/session"
 import { LoopConfig } from "../../../common/loopConfig"
 import { main } from "../规划图驱动的PEE"
+
+const 静态检查模版Path = join(__dirname, "../../../common/CICD/Node静态检查模版.js")
 
 class ScriptedSession implements ISession {
   id: string
@@ -108,7 +111,7 @@ describe("PEE main loop integration", () => {
       }
       await mkdir(directory, { recursive: true })
       await writeFile(`${directory}/规划图CLI.js`, "// test stub\n", "utf-8")
-      await writeFile(`${directory}/静态检查脚本.js`, "process.exit(0)\n", "utf-8")
+      await copyFile(静态检查模版Path, `${directory}/静态检查脚本.js`)
     })
     const linkBackend = vi.fn().mockReturnValue("mock-backend")
     const selectOrCreateSession = vi.fn(async (role: IRole) => {
@@ -298,11 +301,16 @@ describe("PEE main loop integration", () => {
       ],
       executorResponses: [
         async () => {
-          await writeFile(`${projectDir}/静态检查脚本.js`, "process.stderr.write('lint failed')\nprocess.exit(1)\n", "utf-8")
+          await writeFile(
+            join(projectDir, "tsconfig.json"),
+            JSON.stringify({ compilerOptions: { strict: true, noEmit: true, skipLibCheck: true }, include: ["*.ts"] }),
+            "utf-8",
+          )
+          await writeFile(join(projectDir, "main.ts"), "const x: number = 'wrong type'\n", "utf-8")
           return "第一次实现"
         },
         async () => {
-          await writeFile(`${projectDir}/静态检查脚本.js`, "process.exit(0)\n", "utf-8")
+          await writeFile(join(projectDir, "main.ts"), "const x: number = 42\n", "utf-8")
           return "已修复静态检查问题"
         },
       ],
@@ -314,8 +322,11 @@ describe("PEE main loop integration", () => {
     expect(executorSession).toBeDefined()
     expect(evaluatorSession).toBeDefined()
     const executorMessages = await executorSession!.getMessages()
-    expect(executorMessages.some((message) => message.content.includes("静态检查未通过"))).toBe(true)
-    expect(evaluatorSession).toBeDefined()
+    const staticCheckMessages = executorMessages.filter((message) => message.content.includes("静态检查未通过"))
+    expect(staticCheckMessages.length).toBeGreaterThanOrEqual(1)
+    // 验证消息中包含了 tsc 输出的具体类型错误信息
+    expect(staticCheckMessages[0]!.content).toContain("error TS2322")
+    expect(staticCheckMessages[0]!.content).toContain("Type 'string' is not assignable to type 'number'")
   })
 
   it("stops after configured static check retry limit", async () => {

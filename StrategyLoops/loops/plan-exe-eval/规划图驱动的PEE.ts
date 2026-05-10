@@ -25,7 +25,7 @@ import { copyFile, writeFile } from "fs/promises"
 import { existsSync } from "fs"
 import { 代码评审, 架构评审, Commit, 预备Commit } from "./metaPrompts/评审相关"
 import { 基于ReactNative和Electron技术栈, 强引用的基于TS代码的文档和注释原则} from "./metaPrompts/立项相关"
-import { 静态检查脚本健康检查标记 } from "../../common/CICD/Node静态检查模版"
+import { 静态检查脚本健康检查标记 } from "../../common/CICD/staticCheckConstants"
 
 // 导入工具函数
 import {
@@ -568,7 +568,7 @@ async function runScheduleMapCli(
   return result
 }
 
-async function runNodeScript(
+export async function runNodeScript(
   cwd: string,
   args: string[],
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
@@ -587,7 +587,7 @@ async function runNodeScript(
   })
 }
 
-async function verifyStaticCheckTemplate(): Promise<void> {
+export async function verifyStaticCheckTemplate(): Promise<void> {
   const result = await runNodeScript(dirname(静态检查模版Path), ["--check", 静态检查模版Path])
   if (result.exitCode === 0) return
 
@@ -596,7 +596,7 @@ async function verifyStaticCheckTemplate(): Promise<void> {
   throw new Error(message)
 }
 
-async function runStaticCheckScript(projectDir: string): Promise<{ ok: boolean; output: string }> {
+export async function runStaticCheckScript(projectDir: string): Promise<{ ok: boolean; output: string }> {
   const 静态检查脚本Path = join(projectDir, 静态检查脚本名)
   if (!existsSync(静态检查脚本Path)) {
     const message = `[静态检查] 脚本不存在: ${静态检查脚本Path}`
@@ -614,7 +614,7 @@ async function runStaticCheckScript(projectDir: string): Promise<{ ok: boolean; 
   return { ok: false, output: output || `静态检查脚本退出码: ${result.exitCode}` }
 }
 
-async function verifyExistingStaticCheckScript(projectDir: string): Promise<void> {
+export async function verifyExistingStaticCheckScript(projectDir: string): Promise<void> {
   const 静态检查脚本Path = join(projectDir, 静态检查脚本名)
   const result = await runNodeScript(projectDir, [静态检查脚本Path, 静态检查脚本健康检查标记])
   if (result.exitCode === 0) return
@@ -1509,7 +1509,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             }
 
             静态检查失败次数++
-            validation = { valid: false, error: `静态检查未通过：\n${checkResult.output}` }
+            validation = { valid: false, error: checkResult.output }
             静态检查最终未通过 = true
             上次失败为静态检查 = true
             consoleAndLogFile.warn(`[静态检查] 未通过，要求执行者修复`)

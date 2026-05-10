@@ -8,6 +8,7 @@ import { LoopConfig } from "../../../common/loopConfig"
 import type { IRole } from "../../../common/role"
 import type { ISession } from "../../../common/session"
 import type { SessionMessage } from "../../../common/types"
+import { 静态检查脚本健康检查标记 } from "../../../common/CICD/staticCheckConstants"
 
 class SetupOnlySession implements ISession {
   id: string
@@ -61,7 +62,7 @@ describe("PEE 环境初始化", () => {
     await mkdir(join(projectDir, "node_modules", "better-sqlite3"), { recursive: true })
     await writeFile(repoWikiPath, "old wiki", "utf-8")
     await writeFile(readmePath, "old readme", "utf-8")
-    await writeFile(staticCheckPath, "if (process.argv.includes('__STATIC_CHECK_HEALTHCHECK__')) process.exit(0)\n// old static check", "utf-8")
+    await writeFile(staticCheckPath, `if (process.argv.includes('${静态检查脚本健康检查标记}')) process.exit(0)\n// old static check`, "utf-8")
     await writeFile(dbPath, "old db", "utf-8")
     await writeFile(markerPath, "old better sqlite", "utf-8")
 

@@ -40,10 +40,13 @@ const checkableDirs = dirs.filter(dir => {
 
 Promise.all(checkableDirs.map(dir => new Promise((resolve) => {
   const proc = spawn("npx", ["tsc", "--noEmit", "-p", dir])
+  let out = ""
   let err = ""
+  proc.stdout.on("data", d => out += d)
   proc.stderr.on("data", d => err += d)
   proc.on("close", code => {
-    console.log(code === 0 ? `✓ ${dir}` : `✗ ${dir}\n${err}`)
+    const output = [out.trim(), err.trim()].filter(Boolean).join("\n")
+    console.log(code === 0 ? `✓ ${dir}` : `✗ ${dir}\n${output}`)
     resolve(code)
   })
 }))).then(codes => {
