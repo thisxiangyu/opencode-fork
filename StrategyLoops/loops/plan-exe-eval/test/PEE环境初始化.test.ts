@@ -73,6 +73,7 @@ describe("PEE 环境初始化", () => {
       relocateRole: vi.fn(async (roles: IRole[]) => roles[0]),
       loopConfig: new LoopConfig({ maxCycles: 0, startPrompt: "new wiki" }),
       askUser: vi.fn(async () => "n"),
+      getGitHead: vi.fn(async () => "test-head"),
     })
 
     await expect(readFile(repoWikiPath, "utf-8")).resolves.toBe("old wiki")
@@ -92,6 +93,7 @@ describe("PEE 环境初始化", () => {
       relocateRole: vi.fn(async (roles: IRole[]) => roles[0]),
       loopConfig: new LoopConfig({ maxCycles: 0, startPrompt: "fresh wiki" }),
       askUser: vi.fn(async () => "n"),
+      getGitHead: vi.fn(async () => "test-head"),
     })
 
     const projectName = projectDir.split("/").pop() || "project"
@@ -115,6 +117,7 @@ describe("PEE 环境初始化", () => {
       relocateRole: vi.fn(async (roles: IRole[]) => roles[0]),
       loopConfig: new LoopConfig({ maxCycles: 0, startPrompt: "fresh wiki" }),
       askUser: vi.fn(async () => "y"),
+      getGitHead: vi.fn(async () => "test-head"),
     })
 
     const cli = await readFile(cliPath, "utf-8")
@@ -138,6 +141,7 @@ describe("PEE 环境初始化", () => {
       relocateRole: vi.fn(async (roles: IRole[]) => roles[0]),
       loopConfig: new LoopConfig({ maxCycles: 0, startPrompt: "fresh wiki" }),
       askUser: vi.fn(async () => "n"),
+      getGitHead: vi.fn(async () => "test-head"),
     })
 
     await expect(readFile(cliPath, "utf-8")).resolves.toBe(oldCli)
@@ -154,6 +158,7 @@ describe("PEE 环境初始化", () => {
       relocateRole: vi.fn(async (roles: IRole[]) => roles[0]),
       loopConfig: new LoopConfig({ maxCycles: 0, startPrompt: "fresh wiki" }),
       askUser: vi.fn(async () => "n"),
+      getGitHead: vi.fn(async () => "test-head"),
     })).rejects.toThrow("静态检查脚本已存在但运行不在预期")
   })
 })

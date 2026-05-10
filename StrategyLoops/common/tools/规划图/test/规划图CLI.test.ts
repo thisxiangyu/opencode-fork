@@ -1513,6 +1513,33 @@ describe("CLI命令集成测试", () => {
 describe("CLI写入Key验证", () => {
   const cliEnv = { SCHEDULEMAP_PROJECT_NAME: "test" }
 
+  test("add命令缺少写入Key应失败", async () => {
+    const { stdout } = await runCli([
+      "add",
+      "--标题", "缺少写入Key测试任务",
+      "--描述", "测试描述",
+      "--优先级", "0",
+      "--Tag", "feat",
+    ], cliEnv)
+    const result = JSON.parse(stdout)
+    expect(result.成功).toBe(false)
+    expect(result.消息).toBe("写入Key错误")
+  })
+
+  test("旧WRITEIN_PASSWORD参数不再授予写入权限", async () => {
+    const { stdout } = await runCli([
+      "add",
+      "--标题", "旧参数测试任务",
+      "--描述", "测试描述",
+      "--优先级", "0",
+      "--Tag", "feat",
+      "--WRITEIN_PASSWORD", 写入Key,
+    ], cliEnv)
+    const result = JSON.parse(stdout)
+    expect(result.成功).toBe(false)
+    expect(result.消息).toBe("写入Key错误")
+  })
+
   test("add命令写入Key错误应失败", async () => {
     const { stdout } = await runCli([
       "add",
