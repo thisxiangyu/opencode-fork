@@ -19,7 +19,7 @@ import {
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
 import { spawn } from "child_process"
-import { copyFile, writeFile, readFile } from "fs/promises"
+import { copyFile, writeFile } from "fs/promises"
 import { existsSync } from "fs"
 import { 代码评审, 架构评审, Commit, 预备Commit } from "./metaPrompts/评审相关"
 import { 基于ReactNative和Electron技术栈, 强引用的基于TS代码的文档和注释原则} from "./metaPrompts/立项相关"
@@ -189,6 +189,7 @@ export class 规划者 implements IRole {
 
     你的规划应当“跑在执行前面”，将你的头脑风暴得出的想法也写入规划图。
 
+   【一步步来，慢思考】
     你每一轮都要做的事：
     1.视察项目现状，发现的历史遗留问题应优先纳入解决；
     2.理解当前规划图完成度；(这是统领全局的首要工具。通常而言，规划图的层次越厚实，末端任务越具体，证明对项目的理解越深入，规划质量越高。)
@@ -218,7 +219,7 @@ export class 规划者 implements IRole {
 
     // 规划者不需要upstream，因为他应自己探索仓库
   systemPrompt(upstreamMsg: string) { return `
-【一步步来，慢思考】查看任务动态，根据当前仓库情况，派发新一轮任务。仅派发末端任务，不派发高层次任务。
+  查看任务动态，根据当前仓库情况，派发新一轮任务。仅派发末端任务，不派发高层次任务。
 ` }
   accessMode: "readonly" | "writable" = "writable"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
@@ -518,6 +519,10 @@ ${Commit()}
 export const 策略描述 = "规划图驱动的PEE（plan-execute-eval）策略"
 export const backendURL = "http://127.0.0.1:4096"
 
+const 静态检查脚本名= "静态检查脚本.js"
+const 静态检查模版Path = join(__dirname, "../../common/CICD/Node静态检查模版.js")
+const 静态检查脚本健康检查标记 = "__PEE_STATIC_CHECK_HEALTHCHECK__"
+
 export interface PEEMainDeps {
   linkBackend: typeof linkBackend
   selectOrCreateSession: typeof selectOrCreateSession
@@ -561,6 +566,63 @@ async function runScheduleMapCli(
     return execute()
   }
   return result
+}
+
+async function runNodeScript(
+  cwd: string,
+  args: string[],
+): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn("node", args, {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+
+    let stdout = ""
+    let stderr = ""
+    child.stdout?.on("data", (data) => { stdout += data.toString() })
+    child.stderr?.on("data", (data) => { stderr += data.toString() })
+    child.on("close", (exitCode) => resolve({ stdout, stderr, exitCode }))
+    child.on("error", (err) => reject(err))
+  })
+}
+
+async function verifyStaticCheckTemplate(): Promise<void> {
+  const result = await runNodeScript(dirname(静态检查模版Path), ["--check", 静态检查模版Path])
+  if (result.exitCode === 0) return
+
+  const message = `[初始环境] 静态检查模版无效 (exit=${result.exitCode}): ${(result.stderr || result.stdout).trim()}`
+  consoleAndLogFile.error(message)
+  throw new Error(message)
+}
+
+async function runStaticCheckScript(projectDir: string): Promise<{ ok: boolean; output: string }> {
+  const 静态检查脚本Path = join(projectDir, 静态检查脚本名)
+  if (!existsSync(静态检查脚本Path)) {
+    const message = `[静态检查] 脚本不存在: ${静态检查脚本Path}`
+    consoleAndLogFile.warn(message)
+    return { ok: false, output: message }
+  }
+
+  const result = await runNodeScript(projectDir, [静态检查脚本Path])
+  const output = [
+    result.stdout.trim(),
+    result.stderr.trim(),
+  ].filter(Boolean).join("\n")
+  if (result.exitCode === 0) return { ok: true, output }
+
+  return { ok: false, output: output || `静态检查脚本退出码: ${result.exitCode}` }
+}
+
+async function verifyExistingStaticCheckScript(projectDir: string): Promise<void> {
+  const 静态检查脚本Path = join(projectDir, 静态检查脚本名)
+  const result = await runNodeScript(projectDir, [静态检查脚本Path, 静态检查脚本健康检查标记])
+  if (result.exitCode === 0) return
+
+  const output = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join("\n")
+  const message = `[初始环境] 静态检查脚本已存在但运行不在预期，停止策略循环。${output ? `\n${output}` : `退出码: ${result.exitCode}`}`
+  consoleAndLogFile.error(message)
+  throw new Error(message)
 }
 
 async function setupProjectEnvironment(projectDir: string, startPrompt: string, askUserFn = askUser): Promise<void> {
@@ -656,15 +718,27 @@ async function setupProjectEnvironment(projectDir: string, startPrompt: string, 
   const dbPath = join(dbDir, `${projectName}ScheduleMap.db`)
   if (existsSync(dbPath)) {
     consoleAndLogFile.info(`[初始环境] 已存在数据库，跳过创建`)
-    return
+  } else {
+    try {
+      initDb(projectName, projectDir)
+      logFile.info(`[初始环境] 数据库初始化成功`)
+      consoleAndLogFile.info(`[初始环境] 数据库初始化成功`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      consoleAndLogFile.error(`[初始环境] 数据库初始化失败: ${message}`)
+    }
   }
-  try {
-    initDb(projectName, projectDir)
-    logFile.info(`[初始环境] 数据库初始化成功`)
-    consoleAndLogFile.info(`[初始环境] 数据库初始化成功`)
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    consoleAndLogFile.error(`[初始环境] 数据库初始化失败: ${message}`)
+
+  await verifyStaticCheckTemplate()
+
+  // 静态检查脚本.js：已存在则跳过，不覆盖
+  const 静态检查脚本Path = join(projectDir, 静态检查脚本名)
+  if (existsSync(静态检查脚本Path)) {
+    await verifyExistingStaticCheckScript(projectDir)
+    consoleAndLogFile.info(`[初始环境] 静态检查脚本存在，已跳过。`)
+  } else {
+    await copyFile(静态检查模版Path, 静态检查脚本Path)
+    logFile.info(`[初始环境] 静态检查脚本已从模版拷贝 -> ${静态检查脚本Path}`)
   }
 }
 
@@ -1374,18 +1448,24 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         let validation: { valid: boolean; error?: string } = { valid: false, error: "未发送" }
         let 提前完成确认中 = false // 防止重复确认
         let 提前完成已确认 = false // 确认后跳过派发验证
+        let 静态检查失败次数 = 0
+        let 静态检查最终未通过 = false
+        let 上次失败为静态检查 = false
         const injectedResponse = resumedRoleName === currentRole.name ? resumedResponse : undefined
         if (injectedResponse !== undefined) {
           resumedRoleName = undefined
           resumedResponse = undefined
         }
 
-        for (let retry = 0; retry <= OUTPUT_MAX_FORMAT_RETRIES; retry++) {
-          if (retry > 0) {
-            msgToBeSent = `上一次输出格式不符合要求：${validation.error}\n\n请严格按照格式要求，重新组织输出。`
+        let outputFormatRetryCount = 0
+        for (let attempt = 0; ; attempt++) {
+          if (attempt > 0) {
+            msgToBeSent = 上次失败为静态检查
+              ? `静态检查未通过：\n${validation.error}\n\n请根据上述报错修改项目代码或静态检查脚本配置，然后重新汇报执行结果。`
+              : `上一次输出格式不符合要求：${validation.error}\n\n请严格按照格式要求，重新组织输出。`
           }
 
-          if (retry === 0 && injectedResponse !== undefined) {
+          if (attempt === 0 && injectedResponse !== undefined) {
             response = injectedResponse
             consoleAndLogFile.info(`\x1b[32m[恢复复用]<<]\x1b[0m "${response.substring(0, 80)}..."`)
           } else {
@@ -1393,7 +1473,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             response = await session.sendMsg({
               msgSource: MSG_SOURCE.system,
               content: msgToBeSent,
-            }, retry === 0 ? compactBeforeSend : false) // 仅首次压缩，重试不重复压缩
+            }, attempt === 0 ? compactBeforeSend : false) // 仅首次压缩，重试不重复压缩
           }
 
           consoleAndLogFile.info(`\x1b[32m[<<收到]\x1b[0m "${response.substring(0, 80)}..."`)
@@ -1421,15 +1501,38 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
           }
 
           validation = currentRole.validateOutput(response)
+          静态检查最终未通过 = false
+          上次失败为静态检查 = false
+          if (validation.valid && currentRole instanceof 执行者) {
+            const checkResult = await runStaticCheckScript(projectDir)
+            if (checkResult.ok) {
+              consoleAndLogFile.info(`[静态检查] 通过`)
+              break
+            }
+
+            静态检查失败次数++
+            validation = { valid: false, error: `静态检查未通过：\n${checkResult.output}` }
+            静态检查最终未通过 = true
+            上次失败为静态检查 = true
+            consoleAndLogFile.warn(`[静态检查] 未通过，要求执行者修复`)
+            logFile.info(`[静态检查] 未通过，${静态检查失败次数}/${runtimeDeps.loopConfig.staticCheckMaxRetries}次: ${checkResult.output}`)
+            if (静态检查失败次数 >= runtimeDeps.loopConfig.staticCheckMaxRetries) break
+          }
           if (validation.valid) break
 
-          if (retry < OUTPUT_MAX_FORMAT_RETRIES) {
-            logFile.info(`[校验] 格式不符，${retry + 1}/${OUTPUT_MAX_FORMAT_RETRIES}次重试: ${validation.error}`)
-            consoleAndLogFile.warn(`[${currentRole.name}] 格式不符: ${validation.error}`)
+          if (!上次失败为静态检查) outputFormatRetryCount++
+          if (!上次失败为静态检查 && outputFormatRetryCount >= OUTPUT_MAX_FORMAT_RETRIES) break
+
+          if (!上次失败为静态检查) {
+            logFile.info(`[校验] 格式不符，${outputFormatRetryCount}/${OUTPUT_MAX_FORMAT_RETRIES}次重试: ${validation.error}`)
+            if (!上次失败为静态检查) consoleAndLogFile.warn(`[${currentRole.name}] 格式不符: ${validation.error}`)
           }
         }
 
         if (!validation.valid) {
+          if (静态检查最终未通过) {
+            throw new Error(`[静态检查] 执行者连续${runtimeDeps.loopConfig.staticCheckMaxRetries}次未通过，停止策略循环。${validation.error ? `\n${validation.error}` : ""}`)
+          }
           consoleAndLogFile.warn(`[${currentRole.name}] 重试${OUTPUT_MAX_FORMAT_RETRIES}次后仍未通过格式校验，系统接受原始输出。误差: ${validation.error}`)
         }
 

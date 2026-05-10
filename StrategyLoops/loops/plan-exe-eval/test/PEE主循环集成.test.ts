@@ -79,6 +79,7 @@ describe("PEE main loop integration", () => {
     askUserResponse?: string
     failSetup?: boolean
     failQueryByTitle?: boolean
+    staticCheckMaxRetries?: number
   }) {
     const sessions = new Map<string, ScriptedSession>()
     const activities: Array<{ 标题: string; 角色: string; 消息: string }> = []
@@ -107,6 +108,7 @@ describe("PEE main loop integration", () => {
       }
       await mkdir(directory, { recursive: true })
       await writeFile(`${directory}/规划图CLI.js`, "// test stub\n", "utf-8")
+      await writeFile(`${directory}/静态检查脚本.js`, "process.exit(0)\n", "utf-8")
     })
     const linkBackend = vi.fn().mockReturnValue("mock-backend")
     const selectOrCreateSession = vi.fn(async (role: IRole) => {
@@ -159,7 +161,7 @@ describe("PEE main loop integration", () => {
       createSession,
       relocateRole,
       setupProjectEnvironment,
-      loopConfig: new LoopConfig({ maxCycles: 1, startPrompt: "test-start" }),
+      loopConfig: new LoopConfig({ maxCycles: 1, startPrompt: "test-start", staticCheckMaxRetries: options.staticCheckMaxRetries }),
       askUser: vi.fn(async () => options.askUserResponse ?? ""),
       runScheduleMapCli,
     })
@@ -270,6 +272,77 @@ describe("PEE main loop integration", () => {
     expect(evaluatorMessages.some((message) => message.content.includes("评估者第1次打回"))).toBe(true)
     expect(evaluatorMessages.some((message) => message.content.includes("执行反馈: 已按评估者意见补充边缘测试，暂无已知遗留风险。"))).toBe(true)
     expect(activities.some((activity) => activity.角色 === "evaluator" && activity.消息 === "evaluator打回1次")).toBe(true)
+  })
+
+  it("asks executor to fix static check failures before moving to evaluator", async () => {
+    const projectDir = "/tmp/pee-static-check-failure"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证静态检查失败会打回执行者",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    const { sessions } = await runMainWithScript({
+      projectDir,
+      plannerResponses: [
+        async () => JSON.stringify({ 前情点评: "暂无", 本轮任务标题: "测试任务", 留言: "先修静态检查" }),
+        async () => "<整个项目已全部提前完成>",
+        async () => "是的",
+      ],
+      executorResponses: [
+        async () => {
+          await writeFile(`${projectDir}/静态检查脚本.js`, "process.stderr.write('lint failed')\nprocess.exit(1)\n", "utf-8")
+          return "第一次实现"
+        },
+        async () => {
+          await writeFile(`${projectDir}/静态检查脚本.js`, "process.exit(0)\n", "utf-8")
+          return "已修复静态检查问题"
+        },
+      ],
+      taskMap,
+    })
+
+    const executorSession = sessions.get("executor")
+    const evaluatorSession = sessions.get("evaluator")
+    expect(executorSession).toBeDefined()
+    expect(evaluatorSession).toBeDefined()
+    const executorMessages = await executorSession!.getMessages()
+    expect(executorMessages.some((message) => message.content.includes("静态检查未通过"))).toBe(true)
+    expect(evaluatorSession).toBeDefined()
+  })
+
+  it("stops after configured static check retry limit", async () => {
+    const projectDir = "/tmp/pee-static-check-limit"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证静态检查重试上限",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    await expect(runMainWithScript({
+      projectDir,
+      plannerResponses: [async () => JSON.stringify({ 前情点评: "暂无", 本轮任务标题: "测试任务", 留言: "触发静态检查上限" })],
+      executorResponses: Array.from({ length: 3 }, () => async () => {
+        await writeFile(`${projectDir}/静态检查脚本.js`, "process.stderr.write('still failed')\nprocess.exit(1)\n", "utf-8")
+        return "仍未修复"
+      }),
+      taskMap,
+      staticCheckMaxRetries: 3,
+    })).rejects.toThrow("执行者连续3次未通过")
   })
 
   it("records architect rejection and walks full sub-loop evaluator -> scissor -> architect", async () => {

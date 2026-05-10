@@ -4,12 +4,17 @@ export class LoopConfig {
 
   public maxCycles: number = 3
 
-  constructor(params?: { maxCycles?: number, startPrompt: string }) {
+  public staticCheckMaxRetries: number = 10
+
+  constructor(params?: { maxCycles?: number, startPrompt: string, staticCheckMaxRetries?: number }) {
     if (params?.maxCycles !== undefined) {
       this.maxCycles = params.maxCycles
     }
     if (params?.startPrompt !== undefined) {
       this.startPrompt = params.startPrompt
+    }
+    if (params?.staticCheckMaxRetries !== undefined) {
+      this.staticCheckMaxRetries = params.staticCheckMaxRetries
     }
   }
 }
