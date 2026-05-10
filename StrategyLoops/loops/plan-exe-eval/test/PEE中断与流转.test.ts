@@ -97,7 +97,7 @@ describe("PEE interruption and flow semantics", () => {
   })
 
   it("plans resumed interruption by returning to the interrupted role for validation", () => {
-    const resumedPlannerResponse = JSON.stringify({ 前情点评: "初始化阶段", 本轮任务标题: "任务A", 留言: "继续推进" })
+    const resumedPlannerResponse = JSON.stringify({ 本轮任务标题: "任务A", 留言: "继续推进" })
     const plan = planResumedValidation("planner", resumedPlannerResponse)
 
     expect(plan).toEqual({

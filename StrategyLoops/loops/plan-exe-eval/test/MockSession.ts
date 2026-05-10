@@ -174,7 +174,6 @@ export class PresetMockSession extends MockSession {
     // 根据角色类型返回默认响应
     if (this.role.name === "planner") {
       return JSON.stringify({
-        前情点评: "暂无",
         本轮任务标题: "测试任务",
         留言: "请执行测试任务"
       })

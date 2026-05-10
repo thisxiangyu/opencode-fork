@@ -198,7 +198,7 @@ describe("PEE main loop integration", () => {
     const { activities, sessions, setupProjectEnvironment, relocateRole } = await runMainWithScript({
       projectDir,
       plannerResponses: [
-        async () => JSON.stringify({ 前情点评: "暂无", 本轮任务标题: "测试任务", 留言: "请执行并补测试" }),
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "请执行并补测试" }),
         async () => "<整个项目已全部提前完成>",
         async () => "是的",
       ],
@@ -247,7 +247,7 @@ describe("PEE main loop integration", () => {
     const { activities, sessions } = await runMainWithScript({
       projectDir,
       plannerResponses: [
-        async () => JSON.stringify({ 前情点评: "暂无", 本轮任务标题: "测试任务", 留言: "先修评估问题" }),
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "先修评估问题" }),
         async () => "<整个项目已全部提前完成>",
         async () => "是的",
       ],
@@ -292,7 +292,7 @@ describe("PEE main loop integration", () => {
     const { sessions } = await runMainWithScript({
       projectDir,
       plannerResponses: [
-        async () => JSON.stringify({ 前情点评: "暂无", 本轮任务标题: "测试任务", 留言: "先修静态检查" }),
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "先修静态检查" }),
         async () => "<整个项目已全部提前完成>",
         async () => "是的",
       ],
@@ -335,7 +335,7 @@ describe("PEE main loop integration", () => {
 
     await expect(runMainWithScript({
       projectDir,
-      plannerResponses: [async () => JSON.stringify({ 前情点评: "暂无", 本轮任务标题: "测试任务", 留言: "触发静态检查上限" })],
+      plannerResponses: [async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "触发静态检查上限" })],
       executorResponses: Array.from({ length: 3 }, () => async () => {
         await writeFile(`${projectDir}/静态检查脚本.js`, "process.stderr.write('still failed')\nprocess.exit(1)\n", "utf-8")
         return "仍未修复"
@@ -363,7 +363,7 @@ describe("PEE main loop integration", () => {
     const { activities, sessions } = await runMainWithScript({
       projectDir,
       plannerResponses: [
-        async () => JSON.stringify({ 前情点评: "暂无", 本轮任务标题: "测试任务", 留言: "关注架构一致性" }),
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "关注架构一致性" }),
         async () => "<整个项目已全部提前完成>",
         async () => "是的",
       ],
@@ -430,7 +430,7 @@ describe("PEE main loop integration", () => {
       taskMap,
       interruptRoleName: "planner",
       interruptReason: INTERRUPTION_REASON.rollback,
-      interruptMessage: JSON.stringify({ 前情点评: "恢复后重派", 本轮任务标题: "测试任务", 留言: "先验证任务合法性" }),
+      interruptMessage: JSON.stringify({ 本轮任务标题: "测试任务", 留言: "先验证任务合法性" }),
     })
 
     const plannerSession = sessions.get("planner")
@@ -457,7 +457,7 @@ describe("PEE main loop integration", () => {
     await expect(runMainWithScript({
       projectDir,
       plannerResponses: [
-        async () => JSON.stringify({ 前情点评: "暂无", 本轮任务标题: "测试任务", 留言: "触发QA动态落库失败" }),
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "触发QA动态落库失败" }),
       ],
       taskMap,
       failOnActivityRole: "QA",
@@ -481,7 +481,7 @@ describe("PEE main loop integration", () => {
 
     await expect(runMainWithScript({
       projectDir,
-      plannerResponses: [async () => JSON.stringify({ 前情点评: "暂无", 本轮任务标题: "测试任务", 留言: "不会执行到这里" })],
+      plannerResponses: [async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "不会执行到这里" })],
       taskMap,
       failSetup: true,
     })).rejects.toThrow("setup failed")
@@ -504,7 +504,7 @@ describe("PEE main loop integration", () => {
 
     await expect(runMainWithScript({
       projectDir,
-      plannerResponses: Array.from({ length: 12 }, () => async () => JSON.stringify({ 前情点评: "暂无", 本轮任务标题: "测试任务", 留言: "查询会失败" })),
+      plannerResponses: Array.from({ length: 12 }, () => async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "查询会失败" })),
       taskMap,
       failQueryByTitle: true,
     })).rejects.toThrow("派发验证尝试超过10次")
@@ -528,8 +528,8 @@ describe("PEE main loop integration", () => {
     const { sessions, setupProjectEnvironment } = await runMainWithScript({
       projectDir,
       plannerResponses: [
-        async () => JSON.stringify({ 前情点评: "暂无", 本轮任务标题: "测试任务", 留言: "执行测试" }),
-        async () => JSON.stringify({ 前情点评: "收到通知", 本轮任务标题: "测试任务", 留言: "已了解" }), // exhaustion通知的响应
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "执行测试" }),
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "已了解" }), // exhaustion通知的响应
       ],
       taskMap,
       askUserResponse: "", // 空输入 = 回车退出
@@ -572,9 +572,9 @@ describe("PEE main loop integration", () => {
     const { sessions } = await runMainWithScript({
       projectDir,
       plannerResponses: [
-        async () => JSON.stringify({ 前情点评: "暂无", 本轮任务标题: "测试任务", 留言: "第1轮" }),
-        async () => JSON.stringify({ 前情点评: "收到", 本轮任务标题: "测试任务", 留言: "exhaustion通知" }), // notification cycle response
-        async () => JSON.stringify({ 前情点评: "继续", 本轮任务标题: "测试任务", 留言: "第3轮" }),
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "第1轮" }),
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "exhaustion通知" }), // notification cycle response
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "第3轮" }),
         async () => "<整个项目已全部提前完成>",
         async () => "是的",
       ],

@@ -103,3 +103,7 @@ export async function AskTo重新定位角色(
   }
   throw new Error("未找到可派发的角色")
 }
+
+
+export const  MiniMax27HS = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
+export const  GPT55 = { providerID: "openai", modelID: "gpt-5.5" }

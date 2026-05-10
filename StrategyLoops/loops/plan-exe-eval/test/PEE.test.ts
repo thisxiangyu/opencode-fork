@@ -104,11 +104,9 @@ describe("PEE utils", () => {
       expect(buildRejectionUpstream(state)).toBe("正在协作优化中  执行反馈: 已补齐边缘测试，暂无已知遗留风险。  评估者第2次打回  架构师第1次打回  执行者第5次实践")
     })
 
-    it("builds compactor upstream with previous title, context and current title only", () => {
+    it("builds compactor upstream with previous title and current title only", () => {
       const upstream = buildCompactorUpstream(
         [
-          "前情点评: 上轮进展顺利",
-          "",
           "本轮任务标题: 实现登录功能",
           "描述: 登录描述",
           "Tag: FEAT",
@@ -117,7 +115,6 @@ describe("PEE utils", () => {
       )
 
       expect(upstream).toContain("上轮任务标题: 数据库设计")
-      expect(upstream).toContain("上轮前情: 上轮进展顺利")
       expect(upstream).toContain("本轮任务标题: 实现登录功能")
       expect(upstream).not.toContain("描述:")
       expect(upstream).not.toContain("Tag:")
@@ -126,7 +123,6 @@ describe("PEE utils", () => {
     it("builds common upstream from real task query shape with all first-layer dependencies only", () => {
       const upstream = buildCommonUpstreamFromTaskQuery(
         {
-          前情点评: "上轮完成良好",
           本轮任务标题: "实现登录功能",
           留言: "请注意测试覆盖",
         },
@@ -167,7 +163,6 @@ describe("PEE utils", () => {
         ],
       )
 
-      expect(upstream).toContain("前情点评: 上轮完成良好")
       expect(upstream).toContain("本轮任务标题: 实现登录功能")
       expect(upstream).toContain("描述: 实现用户名密码登录")
       expect(upstream).toContain("Tag: FEAT, 核心功能")
@@ -199,8 +194,6 @@ describe("PEE utils", () => {
     it("builds commitman upstream from current task section only", () => {
       const upstream = buildCommitmanUpstream(
         [
-          "前情点评: 上轮完成良好",
-          "",
           "本轮任务标题: 实现登录功能",
           "描述: 实现用户名密码登录",
           "Tag: FEAT, 核心功能",
@@ -294,8 +287,8 @@ describe("PEE utils", () => {
   describe("role schemas", () => {
     it("validates planner schema", () => {
       const role = new 规划者()
-      expect(role.validateOutput(JSON.stringify({ 前情点评: "a", 本轮任务标题: "b", 留言: "c" }))).toEqual({ valid: true })
-      expect(role.validateOutput(JSON.stringify({ 前情点评: "a", 留言: "c" })).valid).toBe(false)
+      expect(role.validateOutput(JSON.stringify({ 本轮任务标题: "b", 留言: "c" }))).toEqual({ valid: true })
+      expect(role.validateOutput(JSON.stringify({ 留言: "c" })).valid).toBe(false)
     })
 
     it("validates executor as non-empty text", () => {

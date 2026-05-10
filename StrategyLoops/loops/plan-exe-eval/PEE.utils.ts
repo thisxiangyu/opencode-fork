@@ -110,9 +110,9 @@ export function buildRejectionUpstream(state: RejectionState): string {
 
 /**
  * 构建压缩决策员专用 upstreamMsg。
- * 格式：上轮任务标题 + 前情点评 + 本轮任务标题
+ * 格式：上轮任务标题 + 本轮任务标题
  *
- * @param frozenPlannerInfo - 规划者输出的完整 upstream（包含本轮任务标题和前情点评）
+ * @param frozenPlannerInfo - 规划者输出的完整 upstream（包含本轮任务标题）
  * @param previousTaskTitle - 上一轮任务标题（用于判断任务翻新度）
  */
 export function buildCompactorUpstream(
@@ -123,18 +123,12 @@ export function buildCompactorUpstream(
 
   let upstream = ""
 
-  // 提取前情点评
-  const 前情Match = frozenPlannerInfo.match(/前情点评[：:]\s*(.+?)(?:\n|$)/)
-  const 前情 = 前情Match ? 前情Match[1].trim() : ""
-
   // 提取本轮任务标题
   const 标题Match = frozenPlannerInfo.match(/本轮任务标题[：:]\s*(.+?)(?:\n|$)/)
   const 本轮任务标题 = 标题Match ? 标题Match[1].trim() : ""
 
   // 上轮任务标题（用于压缩决策员判断任务翻新度）
   if (previousTaskTitle) upstream += `上轮任务标题: ${previousTaskTitle}\n`
-  // 前情点评
-  if (前情) upstream += `上轮前情: ${前情}\n`
   // 本轮任务标题
   upstream += `本轮任务标题: ${本轮任务标题}\n`
 
@@ -160,14 +154,10 @@ export function buildCommonUpstream(
     依赖任务动态?: { 角色: string; 消息: string }[]
   }>
 ): string {
-  const 前情点评 = typeof plannerOutput.前情点评 === "string" ? plannerOutput.前情点评 : ""
   const 本轮任务标题 = typeof plannerOutput.本轮任务标题 === "string" ? plannerOutput.本轮任务标题.trim() : ""
   const 留言 = typeof plannerOutput.留言 === "string" ? plannerOutput.留言 : ""
 
   let upstream = ""
-
-  // 前情点评
-  if (前情点评) upstream += `前情点评: ${前情点评}\n\n`
 
   // 本轮任务标题
   upstream += `本轮任务标题: ${本轮任务标题}\n`

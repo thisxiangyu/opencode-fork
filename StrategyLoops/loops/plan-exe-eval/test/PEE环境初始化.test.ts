@@ -61,7 +61,7 @@ describe("PEE 环境初始化", () => {
     await mkdir(join(projectDir, "node_modules", "better-sqlite3"), { recursive: true })
     await writeFile(repoWikiPath, "old wiki", "utf-8")
     await writeFile(readmePath, "old readme", "utf-8")
-    await writeFile(staticCheckPath, "if (process.argv.includes('__PEE_STATIC_CHECK_HEALTHCHECK__')) process.exit(0)\n// old static check", "utf-8")
+    await writeFile(staticCheckPath, "if (process.argv.includes('__STATIC_CHECK_HEALTHCHECK__')) process.exit(0)\n// old static check", "utf-8")
     await writeFile(dbPath, "old db", "utf-8")
     await writeFile(markerPath, "old better sqlite", "utf-8")
 

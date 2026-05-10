@@ -3,7 +3,9 @@
  * 适合不需要开放式决策、以封闭式决策为主的项目。
  */
 import { consoleAndLogFile, LOG_DIR, logFile, LOG_COLOR, RESET } from "../../common/logger"
-import { AskTo重新定位角色, 检查names重复, type IRole } from "../../common/role"
+import { AskTo重新定位角色, 检查names重复, type IRole,
+  MiniMax27HS,
+  GPT55} from "../../common/role"
 import { LoopConfig } from "../../common/loopConfig"
 import { AbortError, INTERRUPTION_REASON, type InterruptedMsgContext, MSG_SOURCE } from "../../common/types"
 import type { ISession } from "../../common/session"
@@ -23,6 +25,7 @@ import { copyFile, writeFile } from "fs/promises"
 import { existsSync } from "fs"
 import { 代码评审, 架构评审, Commit, 预备Commit } from "./metaPrompts/评审相关"
 import { 基于ReactNative和Electron技术栈, 强引用的基于TS代码的文档和注释原则} from "./metaPrompts/立项相关"
+import { 静态检查脚本健康检查标记 } from "../../common/CICD/Node静态检查模版"
 
 // 导入工具函数
 import {
@@ -222,13 +225,12 @@ export class 规划者 implements IRole {
   查看任务动态，根据当前仓库情况，派发新一轮任务。仅派发末端任务，不派发高层次任务。
 ` }
   accessMode: "readonly" | "writable" = "writable"
-  model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
+  model = GPT55
 
   outputSchema = {
     type: "object",
-    required: ["前情点评", "本轮任务标题", "留言"],
+    required: ["本轮任务标题", "留言"],
     properties: {
-      前情点评: { type: "string" },
       本轮任务标题: { type: "string" },
       留言: { type: "string" },
     },
@@ -239,7 +241,6 @@ export class 规划者 implements IRole {
     for (const field of this.outputSchema.required as string[]) {
       if (!(field in json)) return { valid: false, error: `JSON 缺少必填字段: ${field}` }
     }
-    if (typeof json.前情点评 !== "string") return { valid: false, error: "前情点评 必须为字符串" }
     if (typeof json.本轮任务标题 !== "string") return { valid: false, error: "本轮任务标题 必须为字符串" }
     if (typeof json.留言 !== "string") return { valid: false, error: "留言 必须为字符串" }
     return { valid: true }
@@ -264,7 +265,7 @@ ${upstreamMsg}
 ---
 请判断本轮是否需要压缩执行者的会话。` } 
   accessMode: "readonly" | "writable" = "readonly"
-  model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
+  model = MiniMax27HS
 
   outputSchema = {
     type: "object",
@@ -305,7 +306,7 @@ ${upstreamMsg}
     return `检查规划者的add任务是否合理（1.检查是否和已有功能冲突；2.检查是否并不优雅实现；3.其它各方面检查），你需要给出明确的理由和建议，反驳规划者的决策。`
   }
   accessMode: "readonly" | "writable" = "writable"
-  model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
+  model = MiniMax27HS
 
   outputSchema = { type: "text" }
   validateOutput(raw: string): { valid: boolean; error?: string } {
@@ -328,7 +329,7 @@ ${upstreamMsg}
 ---
 请查阅本轮的仓库变更，进行检查和评估。` }
   accessMode: "readonly" | "writable" = "readonly"
-  model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
+  model = MiniMax27HS
 
   outputSchema = {
     type: "object",
@@ -367,7 +368,7 @@ ${upstreamMsg}
 
 请查阅本轮的仓库变更，进行冗余枝剪。` }
   accessMode: "readonly" | "writable" = "writable"
-  model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
+  model = MiniMax27HS
 
   outputSchema = 修复性动态Schema
   validateOutput(raw: string): { valid: boolean; error?: string } {
@@ -407,7 +408,7 @@ ${upstreamMsg}
 
 请查阅本轮的仓库变更，执行架构评估。` }
   accessMode: "readonly" | "writable" = "readonly"
-  model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
+  model = MiniMax27HS
 
   outputSchema = {
     type: "object",
@@ -450,7 +451,7 @@ ${upstreamMsg}
 
 请查阅本轮仓库变更，检查测试覆盖率，排查bug。` }
   accessMode: "readonly" | "writable" = "writable"
-  model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
+  model = MiniMax27HS
 
   outputSchema = 修复性动态Schema
   validateOutput(raw: string): { valid: boolean; error?: string } {
@@ -483,7 +484,7 @@ ${upstreamMsg}
 
 请查阅仓库变更和测试文件，找出未覆盖的边缘情况。` }
   accessMode: "readonly" | "writable" = "writable"
-  model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
+  model = MiniMax27HS
 
   outputSchema = 修复性动态Schema
   validateOutput(raw: string): { valid: boolean; error?: string } {
@@ -508,7 +509,7 @@ ${Commit()}
 【重要】哈希必须从实际提交后的输出中获取，只提交了一个仓库就只写一个哈希，多个仓库都提交了必须分别写。` }
   systemPrompt(upstreamMsg: string) { return `根据现在仓库的情况决定是否提交、如何提交。\n\n输出要求：按【一句话动态要求】输出JSON对象。` }
   accessMode: "readonly" | "writable" = "writable"
-  model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
+  model = MiniMax27HS
 
   outputSchema = 提交员动态Schema
   validateOutput(raw: string): { valid: boolean; error?: string } {
@@ -521,7 +522,6 @@ export const backendURL = "http://127.0.0.1:4096"
 
 const 静态检查脚本名= "静态检查脚本.js"
 const 静态检查模版Path = join(__dirname, "../../common/CICD/Node静态检查模版.js")
-const 静态检查脚本健康检查标记 = "__PEE_STATIC_CHECK_HEALTHCHECK__"
 
 export interface PEEMainDeps {
   linkBackend: typeof linkBackend
@@ -738,7 +738,7 @@ async function setupProjectEnvironment(projectDir: string, startPrompt: string, 
     consoleAndLogFile.info(`[初始环境] 静态检查脚本存在，已跳过。`)
   } else {
     await copyFile(静态检查模版Path, 静态检查脚本Path)
-    logFile.info(`[初始环境] 静态检查脚本已从模版拷贝 -> ${静态检查脚本Path}`)
+    consoleAndLogFile.info(`[初始环境] 静态检查脚本已从模版拷贝 -> ${静态检查脚本Path}`)
   }
 }
 
@@ -874,7 +874,7 @@ async function queryTaskByIdFull(projectDir: string, taskId: number, runCli = ru
  * 验证规划者派发的任务是否可执行。
  * 
  * 在 while 循环中反复要求规划者重新输出，直到同时满足：
- * 1. 输出通过规划者的完整 outputSchema 校验（前情点评、本轮任务标题、留言）
+ * 1. 输出通过规划者的完整 outputSchema 校验（本轮任务标题、留言）
  * 2. 该任务存在于规划图中且未被删除
  * 3. 该任务的所有直接依赖均已完成且未被删除（依赖 JSON 损坏或非数组结构视为不通过）
  * 
@@ -906,7 +906,7 @@ async function validatePlannerDispatch(
       consoleAndLogFile.warn(`[派发验证] 输出格式不符: ${schemaCheck.error}`)
       response = await session.sendMsg({
         msgSource: MSG_SOURCE.system,
-        content: `你的输出格式不符合要求：${schemaCheck.error}\n\n请严格按照 JSON Schema 输出完整的 {前情点评, 本轮任务标题, 留言} 对象。`,
+        content: `你的输出格式不符合要求：${schemaCheck.error}\n\n请严格按照 JSON Schema 输出完整的 {本轮任务标题, 留言} 对象。`,
       }, false)
       continue
     }
@@ -1020,7 +1020,7 @@ async function validatePlannerDispatch(
 /**
  * 为下游角色构建完整的 upstream 信息。
  *
- * 规划者的 JSON 输出只含 {前情点评, 本轮任务标题, 留言}，
+ * 规划者的 JSON 输出只含 {本轮任务标题, 留言}，
  * 但下游角色执行时还需要知道任务的描述、Tag 以及该任务依赖的前置任务链
  * （已完成了哪些前置工作、它们的动态是什么），才能充分理解上下文。
  *
@@ -1039,13 +1039,11 @@ async function buildTaskUpstream(
 ): Promise<string> {
   const taskTitleRaw = plannerOutput.本轮任务标题
   const taskTitle = typeof taskTitleRaw === "string" ? taskTitleRaw.trim() : ""
-  const 前情点评 = typeof plannerOutput.前情点评 === "string" ? plannerOutput.前情点评 : ""
   const 留言 = typeof plannerOutput.留言 === "string" ? plannerOutput.留言 : ""
   const maxDepth = 1  // 只查询一层依赖（设计意图指定）
 
   // 基础信息（规划者输出）
   let upstream = ""
-  if (前情点评) upstream += `前情点评: ${前情点评}\n\n`
   upstream += `本轮任务标题: ${taskTitle}\n`
 
   // 从规划图查询任务描述、Tag、依赖链

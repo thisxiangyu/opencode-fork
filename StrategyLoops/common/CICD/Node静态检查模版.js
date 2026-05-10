@@ -2,8 +2,16 @@ const { spawn } = require("node:child_process")
 const { existsSync } = require("node:fs")
 const { join } = require("node:path")
 
+const 静态检查脚本健康检查标记 = "__STATIC_CHECK_HEALTHCHECK__"
+
+// 作为模块被 require/import 时仅导出常量，不执行检查
+if (require.main !== module) {
+  module.exports = { 静态检查脚本健康检查标记 }
+  return
+}
+
 // 初始化时用于确认已有脚本仍是PEE可识别的静态检查脚本，不执行真实检查。
-if (process.argv.includes("__PEE_STATIC_CHECK_HEALTHCHECK__")) {
+if (process.argv.includes(静态检查脚本健康检查标记)) {
   process.exit(0)
 }
 
