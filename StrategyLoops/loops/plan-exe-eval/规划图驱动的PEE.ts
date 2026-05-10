@@ -5,7 +5,9 @@
 import { consoleAndLogFile, LOG_DIR, logFile, LOG_COLOR, RESET } from "../../common/logger"
 import { AskTo重新定位角色, 检查names重复, type IRole,
   MiniMax27HS,
-  GPT55} from "../../common/role"
+  GPT54,
+  GPT55,
+  Opus47} from "../../common/role"
 import { LoopConfig } from "../../common/loopConfig"
 import { AbortError, INTERRUPTION_REASON, type InterruptedMsgContext, MSG_SOURCE } from "../../common/types"
 import type { ISession } from "../../common/session"
@@ -225,7 +227,7 @@ export class 规划者 implements IRole {
   查看任务动态，根据当前仓库情况，派发新一轮任务。仅派发末端任务，不派发高层次任务。
 ` }
   accessMode: "readonly" | "writable" = "writable"
-  model = GPT55
+  model = Opus47
 
   outputSchema = {
     type: "object",

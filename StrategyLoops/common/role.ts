@@ -107,3 +107,5 @@ export async function AskTo重新定位角色(
 
 export const  MiniMax27HS = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 export const  GPT55 = { providerID: "openai", modelID: "gpt-5.5" }
+export const  GPT54 = { providerID: "openai", modelID: "gpt-5.4" }
+export const  Opus47 = { providerID: "anthropic", modelID: "claude-opus-4-7" }
