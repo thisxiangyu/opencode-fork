@@ -25,6 +25,7 @@ import {
 } from "../规划图CLI"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+const 写入Key = "ONLY_YOU_CAN_WRITE"
 const TEST_PROJECT_DIR = join(__dirname, "data", ".scheduleMap.test")
 const TEST_DB_PATH = join(TEST_PROJECT_DIR, "testScheduleMap.db")
 
@@ -1220,7 +1221,7 @@ describe("CLI命令集成测试", () => {
 
   test("CLI init命令", async () => {
     const uniqueProject = `clitest_${Date.now()}`
-    const { stdout } = await runCli(["init", "--项目", uniqueProject], cliEnv)
+    const { stdout } = await runCli(["init", "--项目", uniqueProject, "--WRITE_KEY", 写入Key], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
     expect(result.消息).toContain(uniqueProject)
@@ -1234,7 +1235,7 @@ describe("CLI命令集成测试", () => {
   })
 
   test("CLI add命令", async () => {
-    await runCli(["delete", "--标题", "CLI测试任务"], cliEnv)
+    await runCli(["delete", "--标题", "CLI测试任务", "--WRITE_KEY", 写入Key], cliEnv)
 
     const { stdout } = await runCli([
       "add",
@@ -1242,6 +1243,7 @@ describe("CLI命令集成测试", () => {
       "--描述", "这是一个通过CLI添加的任务",
       "--优先级", "0",
       "--Tag", "feat",
+      "--WRITE_KEY", 写入Key,
     ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
@@ -1255,7 +1257,7 @@ describe("CLI命令集成测试", () => {
   })
 
   test("CLI mark-complete命令", async () => {
-    const { stdout } = await runCli(["mark-complete", "--标题", "CLI测试任务"], cliEnv)
+    const { stdout } = await runCli(["mark-complete", "--标题", "CLI测试任务", "--WRITE_KEY", 写入Key], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
   })
@@ -1267,9 +1269,10 @@ describe("CLI命令集成测试", () => {
       "--描述", "用于测试删除",
       "--优先级", "0",
       "--Tag", "feat",
+      "--WRITE_KEY", 写入Key,
     ], cliEnv)
 
-    const { stdout } = await runCli(["delete", "--标题", "CLI删除测试任务"], cliEnv)
+    const { stdout } = await runCli(["delete", "--标题", "CLI删除测试任务", "--WRITE_KEY", 写入Key], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
   })
@@ -1282,6 +1285,7 @@ describe("CLI命令集成测试", () => {
       "--描述", "用于测试交互删除",
       "--优先级", "0",
       "--Tag", "milestone",
+      "--WRITE_KEY", 写入Key,
     ], cliEnv)
     await runCli([
       "add",
@@ -1290,6 +1294,7 @@ describe("CLI命令集成测试", () => {
       "--优先级", "0",
       "--Tag", "feat",
       "--父任务", "CLI待删除父任务",
+      "--WRITE_KEY", 写入Key,
     ], cliEnv)
 
     // 确认任务存在
@@ -1299,7 +1304,7 @@ describe("CLI命令集成测试", () => {
     expect(queryResult.任务[0].已删除).toBe(false)
 
     // 输入 y 确认删除
-    const { jsonOutput } = await runCliWithInput(["delete", "--标题", "CLI待删除父任务"], "y\n", cliEnv)
+    const { jsonOutput } = await runCliWithInput(["delete", "--标题", "CLI待删除父任务", "--WRITE_KEY", 写入Key], "y\n", cliEnv)
     expect(jsonOutput).toBeDefined()
     expect((jsonOutput as any).成功).toBe(true)
     expect((jsonOutput as any).消息).toContain("已删除任务")
@@ -1319,6 +1324,7 @@ describe("CLI命令集成测试", () => {
       "--描述", "用于测试取消删除",
       "--优先级", "0",
       "--Tag", "milestone",
+      "--WRITE_KEY", 写入Key,
     ], cliEnv)
     await runCli([
       "add",
@@ -1327,6 +1333,7 @@ describe("CLI命令集成测试", () => {
       "--优先级", "0",
       "--Tag", "feat",
       "--父任务", "CLI取消删除父任务",
+      "--WRITE_KEY", 写入Key,
     ], cliEnv)
 
     // 确认任务存在
@@ -1336,7 +1343,7 @@ describe("CLI命令集成测试", () => {
     expect(queryResult.任务[0].已删除).toBe(false)
 
     // 输入 n 取消删除
-    const { jsonOutput } = await runCliWithInput(["delete", "--标题", "CLI取消删除父任务"], "n\n", cliEnv)
+    const { jsonOutput } = await runCliWithInput(["delete", "--标题", "CLI取消删除父任务", "--WRITE_KEY", 写入Key], "n\n", cliEnv)
     expect(jsonOutput).toBeDefined()
     expect((jsonOutput as any).成功).toBe(false)
     expect((jsonOutput as any).消息).toBe("已取消删除")
@@ -1371,7 +1378,7 @@ describe("CLI命令集成测试", () => {
   })
 
   test("CLI 缺少必需参数应失败", async () => {
-    const { stdout } = await runCli(["add", "--标题", "缺少描述的任务"], cliEnv)
+    const { stdout } = await runCli(["add", "--标题", "缺少描述的任务", "--WRITE_KEY", 写入Key], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("缺少必需参数")
@@ -1383,6 +1390,7 @@ describe("CLI命令集成测试", () => {
       "--标题", "缺少优先级任务",
       "--描述", "测试描述",
       "--Tag", "feat",
+      "--WRITE_KEY", 写入Key,
     ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
@@ -1390,7 +1398,7 @@ describe("CLI命令集成测试", () => {
   })
 
   test("CLI 任务不存在错误应返回JSON", async () => {
-    const { stdout } = await runCli(["delete", "--标题", "不存在的任务XYZ"], cliEnv)
+    const { stdout } = await runCli(["delete", "--标题", "不存在的任务XYZ", "--WRITE_KEY", 写入Key], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("不存在")
@@ -1401,6 +1409,7 @@ describe("CLI命令集成测试", () => {
       "update-dependency",
       "--标题", "某任务",
       "--新依赖", "not-valid-json",
+      "--WRITE_KEY", 写入Key,
     ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
@@ -1421,6 +1430,7 @@ describe("CLI命令集成测试", () => {
       "--描述", "重新添加用于动态测试",
       "--优先级", "0",
       "--Tag", "feat",
+      "--WRITE_KEY", 写入Key,
     ], cliEnv)
 
     const { stdout } = await runCli([
@@ -1428,6 +1438,7 @@ describe("CLI命令集成测试", () => {
       "--标题", "CLI测试任务",
       "--角色", "planner",
       "--消息", "CLI动态测试消息",
+      "--WRITE_KEY", 写入Key,
     ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
@@ -1438,6 +1449,7 @@ describe("CLI命令集成测试", () => {
       "add-activity",
       "--标题", "CLI测试任务",
       "--角色", "planner",
+      "--WRITE_KEY", 写入Key,
     ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
@@ -1451,12 +1463,14 @@ describe("CLI命令集成测试", () => {
       "--描述", "用于测试优先级变更",
       "--优先级", "0",
       "--Tag", "feat",
+      "--WRITE_KEY", 写入Key,
     ], cliEnv)
 
     const { stdout } = await runCli([
       "update-priority",
       "--标题", "优先级测试任务",
       "--新优先级", "5",
+      "--WRITE_KEY", 写入Key,
     ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
@@ -1467,6 +1481,7 @@ describe("CLI命令集成测试", () => {
     const { stdout } = await runCli([
       "update-priority",
       "--标题", "优先级测试任务",
+      "--WRITE_KEY", 写入Key,
     ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
@@ -1492,5 +1507,142 @@ describe("CLI命令集成测试", () => {
     ], cliEnv)
     expect(stdout).toContain("规划图视图")
     expect(stdout).not.toContain("成功")
+  })
+})
+
+describe("CLI写入Key验证", () => {
+  const cliEnv = { SCHEDULEMAP_PROJECT_NAME: "test" }
+
+  test("add命令写入Key错误应失败", async () => {
+    const { stdout } = await runCli([
+      "add",
+      "--标题", "密码测试任务",
+      "--描述", "测试描述",
+      "--优先级", "0",
+      "--Tag", "feat",
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)
+    const result = JSON.parse(stdout)
+    expect(result.成功).toBe(false)
+    expect(result.消息).toBe("写入Key错误")
+  })
+
+  test("delete命令写入Key错误应失败", async () => {
+    const { stdout } = await runCli([
+      "delete",
+      "--标题", "不存在的任务",
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)
+    const result = JSON.parse(stdout)
+    expect(result.成功).toBe(false)
+    expect(result.消息).toBe("写入Key错误")
+  })
+
+  test("update-description命令写入Key错误应失败", async () => {
+    const { stdout } = await runCli([
+      "update-description",
+      "--标题", "某任务",
+      "--新描述", "新描述",
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)
+    const result = JSON.parse(stdout)
+    expect(result.成功).toBe(false)
+    expect(result.消息).toBe("写入Key错误")
+  })
+
+  test("update-title命令写入Key错误应失败", async () => {
+    const { stdout } = await runCli([
+      "update-title",
+      "--标题", "旧标题",
+      "--新标题", "新标题",
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)
+    const result = JSON.parse(stdout)
+    expect(result.成功).toBe(false)
+    expect(result.消息).toBe("写入Key错误")
+  })
+
+  test("update-dependency命令写入Key错误应失败", async () => {
+    const { stdout } = await runCli([
+      "update-dependency",
+      "--标题", "某任务",
+      "--新依赖", "[]",
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)
+    const result = JSON.parse(stdout)
+    expect(result.成功).toBe(false)
+    expect(result.消息).toBe("写入Key错误")
+  })
+
+  test("update-priority命令写入Key错误应失败", async () => {
+    const { stdout } = await runCli([
+      "update-priority",
+      "--标题", "某任务",
+      "--新优先级", "5",
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)
+    const result = JSON.parse(stdout)
+    expect(result.成功).toBe(false)
+    expect(result.消息).toBe("写入Key错误")
+  })
+
+  test("mark-complete命令写入Key错误应失败", async () => {
+    const { stdout } = await runCli([
+      "mark-complete",
+      "--标题", "某任务",
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)
+    const result = JSON.parse(stdout)
+    expect(result.成功).toBe(false)
+    expect(result.消息).toBe("写入Key错误")
+  })
+
+  test("add-activity命令写入Key错误应失败", async () => {
+    const { stdout } = await runCli([
+      "add-activity",
+      "--标题", "某任务",
+      "--角色", "planner",
+      "--消息", "测试消息",
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)
+    const result = JSON.parse(stdout)
+    expect(result.成功).toBe(false)
+    expect(result.消息).toBe("写入Key错误")
+  })
+
+  test("init命令写入Key错误应失败", async () => {
+    const uniqueProject = `pwtest_${Date.now()}`
+    const { stdout } = await runCli([
+      "init",
+      "--项目", uniqueProject,
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)
+    const result = JSON.parse(stdout)
+    expect(result.成功).toBe(false)
+    expect(result.消息).toBe("写入Key错误")
+  })
+
+  test("查询命令不需要密码", async () => {
+    // query是只读命令，不应该需要密码
+    const { stdout } = await runCli([
+      "query-by-title",
+      "--标题", "不存在的任务",
+    ], cliEnv)
+    const result = JSON.parse(stdout)
+    expect(result.成功).toBe(true)
+    expect(result.数量).toBe(0)
+  })
+
+  test("写入Key正确时add命令成功", async () => {
+    const { stdout } = await runCli([
+      "add",
+      "--标题", "正确密码测试任务",
+      "--描述", "测试描述",
+      "--优先级", "0",
+      "--Tag", "feat",
+      "--WRITE_KEY", 写入Key,
+    ], cliEnv)
+    const result = JSON.parse(stdout)
+    expect(result.成功).toBe(true)
   })
 })

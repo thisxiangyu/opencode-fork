@@ -103,6 +103,46 @@ describe("PEE 环境初始化", () => {
     expect(existsSync(join(projectDir, "node_modules", "file-uri-to-path", "package.json"))).toBe(true)
   })
 
+  it("已有规划图CLI.js 且用户选择覆盖时会更新到当前 WRITE_KEY 版本", async () => {
+    const projectDir = await makeProjectDir()
+    const cliPath = join(projectDir, "规划图CLI.js")
+    await writeFile(cliPath, "const legacy = '--WRITEIN_PASSWORD only_planner_can_write_in'\n", "utf-8")
+
+    await main({
+      linkBackend: vi.fn().mockReturnValue("mock"),
+      selectOrCreateSession: vi.fn(async (role: IRole) => new SetupOnlySession(role, projectDir)),
+      createSession: vi.fn(async (role: IRole) => new SetupOnlySession(role, projectDir)),
+      relocateRole: vi.fn(async (roles: IRole[]) => roles[0]),
+      loopConfig: new LoopConfig({ maxCycles: 0, startPrompt: "fresh wiki" }),
+      askUser: vi.fn(async () => "y"),
+    })
+
+    const cli = await readFile(cliPath, "utf-8")
+    expect(cli).toContain("WRITE_KEY_HASH")
+    expect(cli).toContain("--WRITE_KEY")
+    expect(cli).not.toContain("WRITEIN_PASSWORD")
+    expect(cli).not.toContain("only_planner_can_write_in")
+    expect(cli).not.toContain("ONLY_YOU_CAN_WRITE")
+  })
+
+  it("已有规划图CLI.js 且用户拒绝覆盖时保留原文件", async () => {
+    const projectDir = await makeProjectDir()
+    const cliPath = join(projectDir, "规划图CLI.js")
+    const oldCli = "// old schedule map cli\n"
+    await writeFile(cliPath, oldCli, "utf-8")
+
+    await main({
+      linkBackend: vi.fn().mockReturnValue("mock"),
+      selectOrCreateSession: vi.fn(async (role: IRole) => new SetupOnlySession(role, projectDir)),
+      createSession: vi.fn(async (role: IRole) => new SetupOnlySession(role, projectDir)),
+      relocateRole: vi.fn(async (roles: IRole[]) => roles[0]),
+      loopConfig: new LoopConfig({ maxCycles: 0, startPrompt: "fresh wiki" }),
+      askUser: vi.fn(async () => "n"),
+    })
+
+    await expect(readFile(cliPath, "utf-8")).resolves.toBe(oldCli)
+  })
+
   it("已有静态检查脚本但健康检查异常时中止初始化", async () => {
     const projectDir = await makeProjectDir()
     await writeFile(join(projectDir, "静态检查脚本.js"), "process.stderr.write('broken static check')\nprocess.exit(1)\n", "utf-8")

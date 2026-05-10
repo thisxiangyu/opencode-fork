@@ -4,7 +4,7 @@
 node 规划图CLI.js help
 
 # 项目初始化（首次使用执行，同名项目不能重复创建）
-node 规划图CLI.js init --项目 <项目名>
+node 规划图CLI.js init --项目 <项目名> --WRITE_KEY <Key>
 
 # 设置项目环境变量（指定项目数据库）
 # 方式一：设置一次，后续命令无需重复（推荐）
@@ -54,49 +54,53 @@ node 规划图CLI.js query-deleted --数量 20 --描述字数阈值 100 --动态
 
 #  添加
 
+# 注意：添加/变更操作需要 --WRITE_KEY <Key> 参数。
+
 # 优先级序号越小，优先级越高（0为最高），优先级高的任务排在前面
 
 # 添加根任务
-node 规划图CLI.js add --标题 <标题> --描述 <描述> --优先级 <序号> --Tag <Tag>
+node 规划图CLI.js add --标题 <标题> --描述 <描述> --优先级 <序号> --Tag <Tag> --WRITE_KEY <Key>
 
 # 添加任务
-node 规划图CLI.js add --标题 <标题> --描述 <描述> --优先级 <序号> --父任务 <父任务标题> --Tag <Tag>
+node 规划图CLI.js add --标题 <标题> --描述 <描述> --优先级 <序号> --父任务 <父任务标题> --Tag <Tag> --WRITE_KEY <Key>
 
 # 添加带依赖的任务
-node 规划图CLI.js add --标题 <标题> --描述 <描述> --优先级 <序号> --父任务 <父任务标题> --Tag <Tag> --依赖 '[{"依赖任务":"<依赖任务标题>","原因":"<依赖详情描述，应具体>"}]'
+node 规划图CLI.js add --标题 <标题> --描述 <描述> --优先级 <序号> --父任务 <父任务标题> --Tag <Tag> --依赖 '[{"依赖任务":"<依赖任务标题>","原因":"<依赖详情描述，应具体>"}]' --WRITE_KEY <Key>
 
 # 添加带多个Tag的任务，示例：
-node 规划图CLI.js add --标题 "新任务" --描述 "描述" --优先级 0 --父任务 "父任务标题" --Tag "feat" --其它Tag '["explore_in_progress","detail"]'
+node 规划图CLI.js add --标题 "新任务" --描述 "描述" --优先级 0 --父任务 "父任务标题" --Tag "feat" --其它Tag '["explore_in_progress","detail"]' --WRITE_KEY <Key>
 
 # 技巧：传入大数字（如99999）可自动插到末尾，无需查询当前最大优先级
-node 规划图CLI.js add --标题 <标题> --描述 <描述> --优先级 99999 --父任务 <父任务标题> --Tag <Tag>
+node 规划图CLI.js add --标题 <标题> --描述 <描述> --优先级 99999 --父任务 <父任务标题> --Tag <Tag> --WRITE_KEY <Key>
 
 
 #  变更
 
+# 注意：变更操作需要 --WRITE_KEY <Key> 参数
+
 # 变更任务描述
-node 规划图CLI.js update-description --标题 <标题> --新描述 <新描述>
+node 规划图CLI.js update-description --标题 <标题> --新描述 <新描述> --WRITE_KEY <Key>
 
 # 变更标题
-node 规划图CLI.js update-title --标题 <旧标题> --新标题 <新标题>
+node 规划图CLI.js update-title --标题 <旧标题> --新标题 <新标题> --WRITE_KEY <Key>
 
 # 变更依赖
-node 规划图CLI.js update-dependency --标题 <标题> --新依赖 '[{"依赖任务":"<依赖任务标题>","原因":"<依赖详情>"}]'
+node 规划图CLI.js update-dependency --标题 <标题> --新依赖 '[{"依赖任务":"<依赖任务标题>","原因":"<依赖详情>"}]' --WRITE_KEY <Key>
 
 # 变更优先级（同级任务会因插入而重排序）
-node 规划图CLI.js update-priority --标题 <标题> --新优先级 <序号>
+node 规划图CLI.js update-priority --标题 <标题> --新优先级 <序号> --WRITE_KEY <Key>
 
 
 #  动态
 
 # 添加一条动态
-node 规划图CLI.js add-activity --标题 <标题> --角色 <角色名> --消息 <消息内容>
+node 规划图CLI.js add-activity --标题 <标题> --角色 <角色名> --消息 <消息内容> --WRITE_KEY <Key>
 
 
 #  状态
 
 # 标记为已完成（有子任务时会提示确认并级联标记）
-node 规划图CLI.js mark-complete --标题 <标题>
+node 规划图CLI.js mark-complete --标题 <标题> --WRITE_KEY <Key>
 
 # 删除（陈旧/过时的任务应定期清理）
-node 规划图CLI.js delete --标题 <标题>
+node 规划图CLI.js delete --标题 <标题> --WRITE_KEY <Key>

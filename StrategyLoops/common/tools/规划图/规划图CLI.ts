@@ -11,6 +11,8 @@ import { fileURLToPath } from "url"
 
 const scriptDir = import.meta.url ? dirname(fileURLToPath(import.meta.url)) : __dirname
 
+export const WRITE_KEY_HASH = 0x9ee19172f78b1ecen
+
 export const TIME_PERIODS = [
   "早晨",   // 5:00-7:59
   "上午",   // 8:00-11:59
@@ -1102,20 +1104,20 @@ export function 查询规划图_返回视图(一次性聚焦数量上限: number
 
 const CLI_COMMANDS = {
   help: "显示帮助信息",
-  init: "初始化数据库 --项目 <项目名>",
-  add: "添加任务 --标题 <标题> --描述 <描述> [--父任务 <父任务>] [--优先级 <序号>] [--Tag <Tag>] [--依赖 <JSON>] [--其它Tag <JSON>]",
-  delete: "删除任务 --标题 <标题>",
+  init: "初始化数据库 --项目 <项目名> --WRITE_KEY <Key>",
+  add: "添加任务 --标题 <标题> --描述 <描述> [--父任务 <父任务>] [--优先级 <序号>] [--Tag <Tag>] [--依赖 <JSON>] [--其它Tag <JSON>] --WRITE_KEY <Key>",
+  delete: "删除任务 --标题 <标题> --WRITE_KEY <Key>",
   "query-deleted": "查询已删除任务 --数量 <n> --描述字数阈值 <字数> --动态字数阈值 <字数> [--从 <ISO>] [--到 <ISO>]",
   query: "查询规划图视图 --数量 <n> --描述字数阈值 <字数> --动态字数阈值 <字数> [--从 <ISO>] [--到 <ISO>]",
   "query-by-title": "按标题查询 --标题 <标题> [--模糊 <true|false>]",
   "query-by-id": "按ID查询 --id <ID>",
   "query-by-tag": "按Tag查询 --Tag <Tag>",
-  "update-description": "改描述 --标题 <标题> --新描述 <描述>",
-  "update-title": "改标题 --标题 <旧标题> --新标题 <新标题>",
-  "update-dependency": "改依赖 --标题 <标题> --新依赖 <JSON>",
-  "update-priority": "改优先级 --标题 <标题> --新优先级 <序号>",
-  "mark-complete": "标记为已完成 --标题 <标题>",
-  "add-activity": "添加动态 --标题 <标题> --角色 <角色> --消息 <消息>",
+  "update-description": "改描述 --标题 <标题> --新描述 <描述> --WRITE_KEY <Key>",
+  "update-title": "改标题 --标题 <旧标题> --新标题 <新标题> --WRITE_KEY <Key>",
+  "update-dependency": "改依赖 --标题 <标题> --新依赖 <JSON> --WRITE_KEY <Key>",
+  "update-priority": "改优先级 --标题 <标题> --新优先级 <序号> --WRITE_KEY <Key>",
+  "mark-complete": "标记为已完成 --标题 <标题> --WRITE_KEY <Key>",
+  "add-activity": "添加动态 --标题 <标题> --角色 <角色> --消息 <消息> --WRITE_KEY <Key>",
   "query-dependency-chain": "查询依赖链 --标题 <标题> [--最大层数 <n>]",
 } as const
 
@@ -1136,6 +1138,17 @@ function parseArgs(args: string[]): Record<string, string> {
 
 function outputResult(data: unknown) {
   console.log(JSON.stringify(data, null, 2))
+}
+
+function 计算写入Key哈希(key: string): bigint {
+  return [...Buffer.from(key, "utf8")].reduce(
+    (hash, byte) => (hash ^ BigInt(byte)) * 0x100000001b3n & 0xffffffffffffffffn,
+    0xcbf29ce484222325n,
+  )
+}
+
+function 校验写入Key(key: string | undefined): boolean {
+  return key !== undefined && 计算写入Key哈希(key) === WRITE_KEY_HASH
 }
 
 function printHelp() {
@@ -1165,6 +1178,10 @@ async function runCli() {
   if (command === "init") {
     if (!flags.项目) {
       outputResult({ 成功: false, 消息: "缺少必需参数: --项目" })
+      process.exit(1)
+    }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" })
       process.exit(1)
     }
     try {
@@ -1203,6 +1220,10 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --描述, --优先级" })
       process.exit(1)
     }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" })
+      process.exit(1)
+    }
     let 依赖: 任务依赖[] = []
     let 其它Tag: string[] = []
     try {
@@ -1233,6 +1254,10 @@ async function runCli() {
   if (command === "delete") {
     if (!flags.标题) {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题" })
+      process.exit(1)
+    }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" })
       process.exit(1)
     }
     const result = 规划图.删除任务(flags.标题)
@@ -1337,6 +1362,10 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --新描述" })
       process.exit(1)
     }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" })
+      process.exit(1)
+    }
     const result = 规划图.改描述(flags.标题, flags.新描述)
     outputResult(result)
     process.exit(result.成功 ? 0 : 1)
@@ -1347,6 +1376,10 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --新标题" })
       process.exit(1)
     }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" })
+      process.exit(1)
+    }
     const result = 规划图.改标题(flags.标题, flags.新标题)
     outputResult(result)
     process.exit(result.成功 ? 0 : 1)
@@ -1355,6 +1388,10 @@ async function runCli() {
   if (command === "update-dependency") {
     if (!flags.标题 || !flags.新依赖) {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --新依赖" })
+      process.exit(1)
+    }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" })
       process.exit(1)
     }
     let 新依赖: 任务依赖[]
@@ -1374,6 +1411,10 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --新优先级" })
       process.exit(1)
     }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" })
+      process.exit(1)
+    }
     const result = 规划图.改优先级(flags.标题, parseInt(flags.新优先级))
     outputResult(result)
     process.exit(result.成功 ? 0 : 1)
@@ -1382,6 +1423,10 @@ async function runCli() {
   if (command === "mark-complete") {
     if (!flags.标题) {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题" })
+      process.exit(1)
+    }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" })
       process.exit(1)
     }
     const result = 规划图.标记为已完成(flags.标题)
@@ -1408,6 +1453,10 @@ async function runCli() {
   if (command === "add-activity") {
     if (!flags.标题 || !flags.角色 || !flags.消息) {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --角色, --消息" })
+      process.exit(1)
+    }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" })
       process.exit(1)
     }
     const result = 规划图.添加动态(flags.标题, flags.角色, flags.消息)

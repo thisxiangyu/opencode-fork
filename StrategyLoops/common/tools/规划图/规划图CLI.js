@@ -30,6 +30,7 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 var CLI_exports = {};
 __export(CLI_exports, {
   TIME_PERIODS: () => TIME_PERIODS,
+  WRITE_KEY_HASH: () => WRITE_KEY_HASH,
   formatDateTime: () => formatDateTime,
   getDb: () => getDb,
   getTimePeriod: () => getTimePeriod,
@@ -38,8 +39,6 @@ __export(CLI_exports, {
   任务: () => 任务,
   任务Tag: () => 任务Tag,
   任务依赖: () => 任务依赖,
-  规划图: () => 规划图,
-  规划图dbPath: () => 规划图dbPath,
   加载根任务: () => 加载根任务,
   动态记录: () => 动态记录,
   当前表中全部任务数: () => 当前表中全部任务数,
@@ -47,6 +46,8 @@ __export(CLI_exports, {
   当前项目名: () => 当前项目名,
   查询规划图_返回视图: () => 查询规划图_返回视图,
   检查环境完整性: () => 检查环境完整性,
+  规划图: () => 规划图,
+  规划图dbPath: () => 规划图dbPath,
   解析任务行: () => 解析任务行
 });
 module.exports = __toCommonJS(CLI_exports);
@@ -56,6 +57,7 @@ var import_fs = require("fs");
 var import_url = require("url");
 const import_meta = {};
 const scriptDir = import_meta.url ? (0, import_path.dirname)((0, import_url.fileURLToPath)(import_meta.url)) : __dirname;
+const WRITE_KEY_HASH = 0x9ee19172f78b1ecen;
 const TIME_PERIODS = [
   "早晨",
   // 5:00-7:59
@@ -405,7 +407,7 @@ const 规划图 = {
     const 依赖提醒 = 依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，依赖链是极为重要的，不要忽视隐性依赖）" : "";
     return {
       成功: true,
-      消息: `已添加${isRoot ? "根任务" : "子任务"}「${标题trim}」${父任务标题信息}（优先级：${实际优先级序号}，ID：${newTaskId}）${依赖提醒}`,
+      消息: `已添加${isRoot ? "根任务" : "子任务"}「${标题trim}」${父任务标题信息}（优先级：${实际优先级序号}，ID：${newTaskId}）${依赖提醒}`
     };
   },
   删除任务(标题) {
@@ -574,7 +576,6 @@ const 规划图 = {
     const existing = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` };
     获取规划图Db().prepare("UPDATE 规划图 SET 任务描述 = ? WHERE id = ?").run(新描述.trim(), existing.id);
-    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
     return { 成功: true, 消息: `已更新任务「${标题trim}」的描述` };
   },
   改标题(旧标题, 新标题) {
@@ -587,7 +588,6 @@ const 规划图 = {
     const duplicate = 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE 标题 = ?").get(新标题trim);
     if (duplicate) return { 成功: false, 消息: `新标题「${新标题trim}」在当前项目「${当前项目名}」已存在` };
     获取规划图Db().prepare("UPDATE 规划图 SET 标题 = ? WHERE id = ?").run(新标题trim, existing.id);
-    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
     return { 成功: true, 消息: `已将任务「${旧标题trim}」更名为「${新标题trim}」（ID：${existing.id}不变，父子关系和依赖关系不受影响）` };
   },
   改依赖(标题, 新依赖) {
@@ -608,7 +608,6 @@ const 规划图 = {
     const 依赖校验结果 = 校验同级依赖规则(标题trim, existingTask.父任务ID ?? null, existingTask.优先级序号 ?? 0, 新依赖);
     if (依赖校验结果) return 依赖校验结果;
     获取规划图Db().prepare("UPDATE 规划图 SET 依赖 = ? WHERE id = ?").run(JSON.stringify(新依赖), existing.id);
-    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
     const 依赖提醒 = 新依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，依赖链是极为重要的，不要忽视隐性依赖）" : "";
     return { 成功: true, 消息: `已更新任务「${标题trim}」的依赖${依赖提醒}` };
   },
@@ -672,7 +671,6 @@ const 规划图 = {
     const 后两个任务 = 更新后同级.slice(当前任务索引 + 1, 当前任务索引 + 3).map((t) => 解析任务行(t));
     const 前两个描述 = 前两个任务.length > 0 ? 前两个任务.map((t) => `《${t.标题}》(优先级${t.优先级序号})`).join("、") : "无";
     const 后两个描述 = 后两个任务.length > 0 ? 后两个任务.map((t) => `《${t.标题}》(优先级${t.优先级序号})`).join("、") : "无";
-    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
     return { 成功: true, 消息: `已将任务「${标题trim}」的优先级从 ${原优先级序号} 改为 ${实际优先级序号}。当前位置：前两个任务[${前两个描述}] <- 本任务 -> 后两个任务[${后两个描述}]` };
   },
   标记为已完成(标题) {
@@ -692,7 +690,6 @@ const 规划图 = {
     const 新动态 = { 时间UTC: (/* @__PURE__ */ new Date()).toISOString(), 角色: 角色.trim(), 消息: 消息.trim() };
     现有动态.push(新动态);
     获取规划图Db().prepare("UPDATE 规划图 SET 动态 = ? WHERE id = ?").run(JSON.stringify(现有动态), existing.id);
-    const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
     return { 成功: true, 消息: `已为任务「${标题trim}」添加动态` };
   }
 };
@@ -707,12 +704,10 @@ function _完成任务(标题) {
       return { 成功: false, 消息: `不允许直接将父任务标记为完成，请先确保所有子任务完成` };
     }
     获取规划图Db().prepare("UPDATE 规划图 SET 是否完成 = 1 WHERE id = ?").run(existing.id);
-    const updated2 = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
     return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成` };
   }
   获取规划图Db().prepare("UPDATE 规划图 SET 是否完成 = 1 WHERE id = ?").run(existing.id);
   尝试向上自动完成(existing.id);
-  const updated = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ?").get(existing.id);
   return { 成功: true, 消息: `已将任务「${标题trim}」标记为已完成` };
 }
 function 构建时间过滤条件(从, 到) {
@@ -923,20 +918,20 @@ function 查询规划图_返回视图(一次性聚焦数量上限, 从, 到, 描
 }
 const CLI_COMMANDS = {
   help: "显示帮助信息",
-  init: "初始化数据库 --项目 <项目名>",
-  add: "添加任务 --标题 <标题> --描述 <描述> [--父任务 <父任务>] [--优先级 <序号>] [--Tag <Tag>] [--依赖 <JSON>] [--其它Tag <JSON>]",
-  delete: "删除任务 --标题 <标题>",
+  init: "初始化数据库 --项目 <项目名> --WRITE_KEY <Key>",
+  add: "添加任务 --标题 <标题> --描述 <描述> [--父任务 <父任务>] [--优先级 <序号>] [--Tag <Tag>] [--依赖 <JSON>] [--其它Tag <JSON>] --WRITE_KEY <Key>",
+  delete: "删除任务 --标题 <标题> --WRITE_KEY <Key>",
   "query-deleted": "查询已删除任务 --数量 <n> --描述字数阈值 <字数> --动态字数阈值 <字数> [--从 <ISO>] [--到 <ISO>]",
   query: "查询规划图视图 --数量 <n> --描述字数阈值 <字数> --动态字数阈值 <字数> [--从 <ISO>] [--到 <ISO>]",
   "query-by-title": "按标题查询 --标题 <标题> [--模糊 <true|false>]",
   "query-by-id": "按ID查询 --id <ID>",
   "query-by-tag": "按Tag查询 --Tag <Tag>",
-  "update-description": "改描述 --标题 <标题> --新描述 <描述>",
-  "update-title": "改标题 --标题 <旧标题> --新标题 <新标题>",
-  "update-dependency": "改依赖 --标题 <标题> --新依赖 <JSON>",
-  "update-priority": "改优先级 --标题 <标题> --新优先级 <序号>",
-  "mark-complete": "标记为已完成 --标题 <标题>",
-  "add-activity": "添加动态 --标题 <标题> --角色 <角色> --消息 <消息>",
+  "update-description": "改描述 --标题 <标题> --新描述 <描述> --WRITE_KEY <Key>",
+  "update-title": "改标题 --标题 <旧标题> --新标题 <新标题> --WRITE_KEY <Key>",
+  "update-dependency": "改依赖 --标题 <标题> --新依赖 <JSON> --WRITE_KEY <Key>",
+  "update-priority": "改优先级 --标题 <标题> --新优先级 <序号> --WRITE_KEY <Key>",
+  "mark-complete": "标记为已完成 --标题 <标题> --WRITE_KEY <Key>",
+  "add-activity": "添加动态 --标题 <标题> --角色 <角色> --消息 <消息> --WRITE_KEY <Key>",
   "query-dependency-chain": "查询依赖链 --标题 <标题> [--最大层数 <n>]"
 };
 function parseArgs(args) {
@@ -953,6 +948,15 @@ function parseArgs(args) {
 }
 function outputResult(data) {
   console.log(JSON.stringify(data, null, 2));
+}
+function 计算写入Key哈希(key) {
+  return [...Buffer.from(key, "utf8")].reduce(
+    (hash, byte) => (hash ^ BigInt(byte)) * 0x100000001b3n & 0xffffffffffffffffn,
+    0xcbf29ce484222325n
+  );
+}
+function 校验写入Key(key) {
+  return key !== void 0 && 计算写入Key哈希(key) === WRITE_KEY_HASH;
 }
 function printHelp() {
   const lines = ["规划图CLI - 任务管理工具", "", "用法: npx tsx 规划图CLI.ts <命令> [选项]", ""];
@@ -977,6 +981,10 @@ async function runCli() {
   if (command === "init") {
     if (!flags.项目) {
       outputResult({ 成功: false, 消息: "缺少必需参数: --项目" });
+      process.exit(1);
+    }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" });
       process.exit(1);
     }
     try {
@@ -1012,6 +1020,10 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --描述, --优先级" });
       process.exit(1);
     }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" });
+      process.exit(1);
+    }
     let 依赖 = [];
     let 其它Tag = [];
     try {
@@ -1041,6 +1053,10 @@ async function runCli() {
   if (command === "delete") {
     if (!flags.标题) {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题" });
+      process.exit(1);
+    }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" });
       process.exit(1);
     }
     const result = 规划图.删除任务(flags.标题);
@@ -1139,6 +1155,10 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --新描述" });
       process.exit(1);
     }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" });
+      process.exit(1);
+    }
     const result = 规划图.改描述(flags.标题, flags.新描述);
     outputResult(result);
     process.exit(result.成功 ? 0 : 1);
@@ -1148,6 +1168,10 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --新标题" });
       process.exit(1);
     }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" });
+      process.exit(1);
+    }
     const result = 规划图.改标题(flags.标题, flags.新标题);
     outputResult(result);
     process.exit(result.成功 ? 0 : 1);
@@ -1155,6 +1179,10 @@ async function runCli() {
   if (command === "update-dependency") {
     if (!flags.标题 || !flags.新依赖) {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --新依赖" });
+      process.exit(1);
+    }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" });
       process.exit(1);
     }
     let 新依赖;
@@ -1173,6 +1201,10 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --新优先级" });
       process.exit(1);
     }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" });
+      process.exit(1);
+    }
     const result = 规划图.改优先级(flags.标题, parseInt(flags.新优先级));
     outputResult(result);
     process.exit(result.成功 ? 0 : 1);
@@ -1180,6 +1212,10 @@ async function runCli() {
   if (command === "mark-complete") {
     if (!flags.标题) {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题" });
+      process.exit(1);
+    }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" });
       process.exit(1);
     }
     const result = 规划图.标记为已完成(flags.标题);
@@ -1205,6 +1241,10 @@ async function runCli() {
   if (command === "add-activity") {
     if (!flags.标题 || !flags.角色 || !flags.消息) {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --角色, --消息" });
+      process.exit(1);
+    }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" });
       process.exit(1);
     }
     const result = 规划图.添加动态(flags.标题, flags.角色, flags.消息);
@@ -1242,6 +1282,7 @@ if (process.argv[1] === __filename) {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   TIME_PERIODS,
+  WRITE_KEY_HASH,
   formatDateTime,
   getDb,
   getTimePeriod,
@@ -1250,8 +1291,6 @@ if (process.argv[1] === __filename) {
   任务,
   任务Tag,
   任务依赖,
-  规划图,
-  规划图dbPath,
   加载根任务,
   动态记录,
   当前表中全部任务数,
@@ -1259,5 +1298,7 @@ if (process.argv[1] === __filename) {
   当前项目名,
   查询规划图_返回视图,
   检查环境完整性,
+  规划图,
+  规划图dbPath,
   解析任务行
 });

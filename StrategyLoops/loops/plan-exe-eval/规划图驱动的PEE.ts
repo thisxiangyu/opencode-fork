@@ -106,6 +106,8 @@ const MAX_REJECTIONS_PER_ROLE = 4
 /** 总打回循环上限 */
 const MAX_TOTAL_REJECTION_LOOPS = 15
 
+const 规划图写入Key = "ONLY_YOU_CAN_WRITE"
+
 // Note：角色的systemPrompt 是每轮都发的，但是其实理论上只要发一次就够了，因为"重要的事情说三遍"在大部分llm架构都未必成立。
 // 后续可以试一下将systemPrompt接入一个本地模型，这样可以动态生成systemPrompt，看看效果怎么样。
 // ⭐️ 某种意义上来说，远程大模型相当于一支"雇佣军"，而本地大模型负责的是"秘书/管家"这样的端侧亲密的角色，
@@ -221,6 +223,7 @@ export class 规划者 implements IRole {
     - ./规划图CLI.js
     - ./规划图CLI使用说明书.md
     - 项目名即根目录名。
+    - 写入Key：${规划图写入Key}
 
     熟练使用规划图，它体现了产品路线图。从全局把控项目进度、节奏、质量、深度、创新、产品体验。
     对于高层次任务，你像一个CEO，理清依赖关系、不断问自己“先做这个、后做那个是否最优？能不能拆得更细？”、把控创新探索和实际落地的比例（探索可能失败，但也有可能带来巨大收益；循规蹈矩虽然稳妥，但可能错失创新机会）、决策创新探索的结果（可用、暂时不用、弃用）；
@@ -821,7 +824,7 @@ async function recordRejectionActivity(
 
   const message = `${roleName}打回${rejectionCount}次`
 
-  const result = await runCli(projectDir, ["add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", message], { repairOnMissingBetterSqlite3: true })
+  const result = await runCli(projectDir, ["add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", message, "--WRITE_KEY", 规划图写入Key], { repairOnMissingBetterSqlite3: true })
   if (result.exitCode !== 0) {
     const errMsg = `[规划图] 记录打回动态失败 (exit=${result.exitCode}): ${result.stderr.trim()}`
     logFile.error(errMsg)
@@ -867,7 +870,7 @@ async function recordRoleActivity(
     throw new Error(`规划图CLI脚本不存在: ${cliPath}，无法记录角色动态。请确保项目根目录存在规划图CLI。`)
   }
 
-  const result = await runCli(projectDir, ["add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", activityMessage], { repairOnMissingBetterSqlite3: true })
+  const result = await runCli(projectDir, ["add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", activityMessage, "--WRITE_KEY", 规划图写入Key], { repairOnMissingBetterSqlite3: true })
   if (result.exitCode !== 0) {
     const errMsg = `[规划图] 记录角色动态失败 (exit=${result.exitCode}): ${result.stderr.trim()}`
     logFile.error(errMsg)
