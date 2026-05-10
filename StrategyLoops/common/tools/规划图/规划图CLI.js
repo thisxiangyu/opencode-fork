@@ -931,7 +931,7 @@ const CLI_COMMANDS = {
   "update-dependency": "改依赖 --标题 <标题> --新依赖 <JSON> --WRITE_KEY <Key>",
   "update-priority": "改优先级 --标题 <标题> --新优先级 <序号> --WRITE_KEY <Key>",
   "mark-complete": "标记为已完成 --标题 <标题> --WRITE_KEY <Key>",
-  "add-activity": "添加动态 --标题 <标题> --角色 <角色> --消息 <消息> --WRITE_KEY <Key>",
+  "add-activity": "添加动态 --标题 <标题> --角色 <角色> --消息 <消息>",
   "query-dependency-chain": "查询依赖链 --标题 <标题> [--最大层数 <n>]"
 };
 function parseArgs(args) {
@@ -1241,10 +1241,6 @@ async function runCli() {
   if (command === "add-activity") {
     if (!flags.标题 || !flags.角色 || !flags.消息) {
       outputResult({ 成功: false, 消息: "缺少必需参数: --标题, --角色, --消息" });
-      process.exit(1);
-    }
-    if (!校验写入Key(flags.WRITE_KEY)) {
-      outputResult({ 成功: false, 消息: "写入Key错误" });
       process.exit(1);
     }
     const result = 规划图.添加动态(flags.标题, flags.角色, flags.消息);

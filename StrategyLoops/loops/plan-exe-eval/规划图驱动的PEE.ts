@@ -821,7 +821,7 @@ async function recordRejectionActivity(
 
   const message = `${roleName}打回${rejectionCount}次`
 
-  const result = await runCli(projectDir, ["add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", message, "--WRITE_KEY", 规划图写入Key], { repairOnMissingBetterSqlite3: true })
+  const result = await runCli(projectDir, ["add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", message], { repairOnMissingBetterSqlite3: true })
   if (result.exitCode !== 0) {
     const errMsg = `[规划图] 记录打回动态失败 (exit=${result.exitCode}): ${result.stderr.trim()}`
     logFile.error(errMsg)
@@ -867,7 +867,7 @@ async function recordRoleActivity(
     throw new Error(`规划图CLI脚本不存在: ${cliPath}，无法记录角色动态。请确保项目根目录存在规划图CLI。`)
   }
 
-  const result = await runCli(projectDir, ["add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", activityMessage, "--WRITE_KEY", 规划图写入Key], { repairOnMissingBetterSqlite3: true })
+  const result = await runCli(projectDir, ["add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", activityMessage], { repairOnMissingBetterSqlite3: true })
   if (result.exitCode !== 0) {
     const errMsg = `[规划图] 记录角色动态失败 (exit=${result.exitCode}): ${result.stderr.trim()}`
     logFile.error(errMsg)

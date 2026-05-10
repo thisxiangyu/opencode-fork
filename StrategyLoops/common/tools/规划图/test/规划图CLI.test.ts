@@ -1438,7 +1438,6 @@ describe("CLI命令集成测试", () => {
       "--标题", "CLI测试任务",
       "--角色", "planner",
       "--消息", "CLI动态测试消息",
-      "--WRITE_KEY", 写入Key,
     ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(true)
@@ -1449,7 +1448,6 @@ describe("CLI命令集成测试", () => {
       "add-activity",
       "--标题", "CLI测试任务",
       "--角色", "planner",
-      "--WRITE_KEY", 写入Key,
     ], cliEnv)
     const result = JSON.parse(stdout)
     expect(result.成功).toBe(false)
@@ -1624,18 +1622,84 @@ describe("CLI写入Key验证", () => {
     expect(result.消息).toBe("写入Key错误")
   })
 
-  test("add-activity命令写入Key错误应失败", async () => {
+  test("add-activity命令不校验写入Key", async () => {
+    await runCli([
+      "add",
+      "--标题", "动态免Key测试任务",
+      "--描述", "测试描述",
+      "--优先级", "0",
+      "--Tag", "feat",
+      "--WRITE_KEY", 写入Key,
+    ], cliEnv)
+
     const { stdout } = await runCli([
       "add-activity",
-      "--标题", "某任务",
+      "--标题", "动态免Key测试任务",
       "--角色", "planner",
       "--消息", "测试消息",
       "--WRITE_KEY", "wrong-key",
     ], cliEnv)
     const result = JSON.parse(stdout)
-    expect(result.成功).toBe(false)
-    expect(result.消息).toBe("写入Key错误")
+    expect(result.成功).toBe(true)
   })
+
+  test("不需要写入Key的查询命令额外携带Key也应稳定成功", async () => {
+    await runCli([
+      "add",
+      "--标题", "查询免Key测试任务",
+      "--描述", "测试描述",
+      "--优先级", "0",
+      "--Tag", "feat",
+      "--WRITE_KEY", 写入Key,
+    ], cliEnv)
+
+    const byTitle = JSON.parse((await runCli([
+      "query-by-title",
+      "--标题", "查询免Key测试任务",
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)).stdout)
+    expect(byTitle.成功).toBe(true)
+    expect(byTitle.数量).toBeGreaterThanOrEqual(1)
+
+    const byId = JSON.parse((await runCli([
+      "query-by-id",
+      "--id", String(byTitle.任务[0].id),
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)).stdout)
+    expect(byId.成功).toBe(true)
+
+    const byTag = JSON.parse((await runCli([
+      "query-by-tag",
+      "--Tag", "feat",
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)).stdout)
+    expect(byTag.成功).toBe(true)
+
+    const dependencyChain = JSON.parse((await runCli([
+      "query-dependency-chain",
+      "--标题", "查询免Key测试任务",
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)).stdout)
+    expect(dependencyChain.成功).toBe(true)
+
+    const query = await runCli([
+      "query",
+      "--数量", "10",
+      "--描述字数阈值", "50",
+      "--动态字数阈值", "100",
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)
+    expect(query.stdout).toContain("规划图视图")
+
+    const deleted = await runCli([
+      "query-deleted",
+      "--数量", "10",
+      "--描述字数阈值", "50",
+      "--动态字数阈值", "100",
+      "--WRITE_KEY", "wrong-key",
+    ], cliEnv)
+    expect(deleted.stdout).toContain("已删除任务")
+  }, 20000)
 
   test("init命令写入Key错误应失败", async () => {
     const uniqueProject = `pwtest_${Date.now()}`
