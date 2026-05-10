@@ -52,6 +52,9 @@ import {
   type RejectionState,
 } from "./PEE.utils"
 
+/** 异常提交修复最大重试次数 */
+const MAX_COMMIT_HARNESS_RETRIES = 5
+
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = dirname(__filename)
 
@@ -139,9 +142,18 @@ const 提交员动态Schema = {
   },
 }
 
-function buildKnowledgeDomainPrompt(role: IRole): string {
-  if (role.outputSchema.type === "text") return role.knowledgeDomainPrompt()
-  return role.knowledgeDomainPrompt() + "\n\n【输出格式】请严格按照 JSON Schema 输出：\n```json\n" + JSON.stringify(role.outputSchema, null, 2) + "\n```\n"
+function buildKnowledgeDomainPrompt(role: IRole, commitPolicyPrompt = ""): string {
+  const rolePrompt = role.knowledgeDomainPrompt() + commitPolicyPrompt
+  if (role.outputSchema.type === "text") return rolePrompt
+  return rolePrompt + "\n\n【输出格式】请严格按照 JSON Schema 输出：\n```json\n" + JSON.stringify(role.outputSchema, null, 2) + "\n```\n"
+}
+
+function buildCommitPolicyPrompt(role: IRole, commitAllowedRoles: IRole[]): string {
+  if (role.accessMode !== "writable") return ""
+  const isCommitAuthorized = commitAllowedRoles.some(r => r.name === role.name)
+  return isCommitAuthorized
+    ? "\n\n【提交权限】当前策略配置允许你提交到仓库。你可以提交，也可以根据实际情况选择不提交。若提交，后续角色会以你回合结束后的仓库状态作为新的合法基线。"
+    : "\n\n【提交权限】当前策略配置未授予你提交权限。你不得执行 git commit / svn commit 等提交操作；若误提交，必须按系统要求撤回提交并保留变更。"
 }
 
 function validate修复性动态(raw: string): { valid: boolean; error?: string } {
@@ -213,9 +225,9 @@ export class 规划者 implements IRole {
     熟练使用规划图，它体现了产品路线图。从全局把控项目进度、节奏、质量、深度、创新、产品体验。
     对于高层次任务，你像一个CEO，理清依赖关系、不断问自己“先做这个、后做那个是否最优？能不能拆得更细？”、把控创新探索和实际落地的比例（探索可能失败，但也有可能带来巨大收益；循规蹈矩虽然稳妥，但可能错失创新机会）、决策创新探索的结果（可用、暂时不用、弃用）；
     根据项目执行情况，动态调整规划图。
-    末端是高层次任务的自然分解，对于这类任务，你像一个小队长，描述要具体、清晰、原子级、手把手、步骤化。
+    末端是高层次任务的自然分解，对于这类任务，你像一个小队长，描述要清晰、原子级、步骤化、有具体到输出项如何验收的标准。
 
-    末端任务应正好适合1次提交。（不要派发复合、复杂、概括性的任务，比如“把某个模块做完”）
+    末端任务应正好适合1次提交。（不要派发复合、含糊、概括性的任务，比如“把某个模块做完”）
 
     【项目交付】轮次有上限。超过上限未完成有一次延期机会。如果延期: 先汇报进度，接着分析还要几轮才能全部做完、有哪些会简化或绝对不可能完成、哪些建议只先完成demo，往后迭代新版本再做完整版不迟。
     【完美主义】如果达到上限前完成（即，还有富余的轮次），继续探索创新或者优化已有实现。直到实在没有任何更优的做法了，允许通过发送${this.项目已提前完成sign}宣告提前完成。
@@ -289,7 +301,7 @@ export class 执行者 implements IRole {
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个执行者，负责落实每一轮任务。你首先应阅读项目WIKI，了解项目要求。
 
-    你决不允许擅自提交，无论是代码仓库还是资产仓库。你只负责实现。
+    提交权限由当前策略配置决定；若系统未明确授予提交权限，你不得擅自提交，无论是代码仓库还是资产仓库。你只负责实现。
 
     如果你认为规划者的任务分配不合理，你需要先完成你觉得合理的部分，不合理的部分给出明确的理由和建议。通过在规划图CLI中添加动态的方式反驳规划者的决策。
     对于团队成员给出的修复建议，先理解，再分步执行。` }
@@ -534,6 +546,23 @@ export interface PEEMainDeps {
   loopConfig: LoopConfig
   askUser?: (prompt: string) => Promise<string>
   runScheduleMapCli?: typeof runScheduleMapCli
+  getGitHead?: (projectDir: string) => Promise<string | null>
+  /**
+   * 允许提交到仓库的角色列表。
+   *
+   * 列表中的角色有权提交（git commit / svn commit 等）。
+   * 默认只含提交员（new 提交员()）。
+   *
+   * 该列表用于显式维护合法提交基线（authorizedBaseline）：
+   * - 授权角色到达其回合时刷新 authorizedBaseline
+   * - 授权角色回合结束后再次刷新（覆盖本轮合法提交）
+   * - 无权限 writable 角色只能对照 authorizedBaseline，不得推进它
+   * - readonly 角色跳过检测
+   *
+   * 注：角色匹配使用 name 字段比较，调用方传入的实例与 main() 内部实例
+   * 可以不同，只要 name 一致即可。
+   */
+  commitAllowedRoles?: IRole[]
 }
 
 function isCycleCompleted(nextRole: IRole, theFirstRole: IRole): boolean {
@@ -586,6 +615,27 @@ export async function runNodeScript(
     child.stderr?.on("data", (data) => { stderr += data.toString() })
     child.on("close", (exitCode) => resolve({ stdout, stderr, exitCode }))
     child.on("error", (err) => reject(err))
+  })
+}
+
+  /**
+   * 获取项目目录当前的 git HEAD 哈希。
+   * 非 git 仓库或 git 不可用时返回 null。
+   *
+   * 提交权限 harness 依赖这个哈希维护 authorizedBaseline；
+   * 一旦取不到 HEAD，调用方必须显式失败，而不是静默放过 writable 角色。
+   */
+async function getGitHead(projectDir: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const child = spawn("git", ["-C", projectDir, "rev-parse", "HEAD"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    let stdout = ""
+    child.stdout?.on("data", (data) => { stdout += data.toString() })
+    child.on("close", (code) => {
+      resolve(code === 0 ? stdout.trim() : null)
+    })
+    child.on("error", () => resolve(null))
   })
 }
 
@@ -1097,8 +1147,10 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     loopConfig: config,
     askUser,
     runScheduleMapCli,
+    getGitHead,
     ...deps,
   }
+  const _getGitHead = runtimeDeps.getGitHead!
 
   let 规划者instance = new 规划者() as IRole
   let 执行者instance = new 执行者() as IRole
@@ -1121,6 +1173,24 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     边缘质保员instance,
     提交员instance
   ]) as IRole[]
+
+  /**
+   * 允许提交到仓库的角色列表。
+   * 默认只含提交员。外部可通过 deps.commitAllowedRoles 配置。
+   * 角色匹配使用 name 字段，所有配置项必须能在 allRoles 中找到对应角色名。
+   */
+  const commitAllowedRoles: IRole[] = runtimeDeps.commitAllowedRoles ?? [提交员instance]
+  // 校验：配置中所有角色名必须在 allRoles 中存在
+  {
+    const unknown = commitAllowedRoles.filter(cr => !allRoles.some(r => r.name === cr.name))
+    if (unknown.length > 0) {
+      throw new Error(
+        `commitAllowedRoles 包含无法匹配的角色: ${unknown.map(r => r.name).join(", ")}。` +
+        `可用角色: ${allRoles.map(r => r.name).join(", ")}`
+      )
+    }
+  }
+
   let currentRole = 规划者instance
 
   // 打回状态管理
@@ -1264,6 +1334,19 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
   const projectDir = entrySession.directory
   await runtimeDeps.setupProjectEnvironment(projectDir, runtimeDeps.loopConfig.startPrompt, runtimeDeps.askUser)
 
+  /**
+   * 合法提交基线。
+   *
+   * - 授权角色（commitAllowedRoles 中的 writable 角色）到达其回合时刷新此基线
+   * - 无权限 writable 角色只能对照此基线检测异常提交，不得推进它
+   * - 初始值取自项目环境就绪后的仓库 HEAD
+   * - 若无法建立该基线，提交权限 harness 无法判定“谁偷偷提交过”，因此必须立即报错
+   */
+  let authorizedBaseline = await _getGitHead(projectDir)
+  if (authorizedBaseline === null) {
+    throw new Error("[提交权限检测] 无法获取仓库 git HEAD，不能建立合法提交基线。请确认当前项目目录已初始化 git 仓库且 git 可用。")
+  }
+
   entrySession.onInterruption((msg) => {
     interruptionQueue.push(msg)
     logFile.info(`[检测到中断] reason=${msg.reason}`)
@@ -1394,6 +1477,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         // - 策略首个角色首次开始，发送启动提示词
         // - 其他情况：用上一个角色的 response 作为 upstreamMsg，发送 systemPrompt(upstreamMsg)
         const shouldActivateKnowledge = !knowledgeSent.has(currentRole.name) || compactBeforeSend
+        const commitPolicyPrompt = buildCommitPolicyPrompt(currentRole, commitAllowedRoles)
 
         let msgToBeSent: string
         const roundInfo = buildRoundInfo(cycle, runtimeDeps.loopConfig.maxCycles)
@@ -1414,7 +1498,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             lastResponseEmptyCount++
             msgToBeSent = buildMsgToBeSent(
               roundInfo,
-              buildKnowledgeDomainPrompt(currentRole),
+              buildKnowledgeDomainPrompt(currentRole, commitPolicyPrompt),
               currentRole.systemPrompt.bind(currentRole),
               `暂无(第${lastResponseEmptyCount}次空缺上游消息)，请你自行决断本轮行为。`,
               true,
@@ -1424,7 +1508,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             lastResponseEmptyCount = 0 // 重置计数
             msgToBeSent = buildMsgToBeSent(
               roundInfo,
-              buildKnowledgeDomainPrompt(currentRole),
+              buildKnowledgeDomainPrompt(currentRole, commitPolicyPrompt),
               currentRole.systemPrompt.bind(currentRole),
               upstreamMsg,
               true,
@@ -1433,12 +1517,12 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
           }
           knowledgeSent.add(currentRole.name)
         } else {
-          msgToBeSent = buildMsgToBeSent(
-            roundInfo,
-            currentRole.knowledgeDomainPrompt(),
-            currentRole.systemPrompt.bind(currentRole),
-            upstreamMsg,
-            false,
+            msgToBeSent = buildMsgToBeSent(
+              roundInfo,
+              currentRole.knowledgeDomainPrompt() + commitPolicyPrompt,
+              currentRole.systemPrompt.bind(currentRole),
+              upstreamMsg,
+              false,
             roundInfoSuffix,
           )
         }
@@ -1455,6 +1539,19 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         if (injectedResponse !== undefined) {
           resumedRoleName = undefined
           resumedResponse = undefined
+        }
+
+        // 【提交权限检测 - 到达时基线刷新】
+        // 授权角色（commitAllowedRoles 中的 writable 角色）到达其回合时，
+        // 刷新 authorizedBaseline 以反映当前仓库 HEAD，确保后续无权限角色
+        // 以最新合法状态为对照。无论该角色本轮是否实际提交，基线都会刷新为当前 HEAD。
+        const isCommitAuthorized = commitAllowedRoles.some(r => r.name === currentRole.name)
+        if (isCommitAuthorized && currentRole.accessMode === "writable") {
+          const fresh = await _getGitHead(projectDir)
+          if (fresh === null) {
+            throw new Error(`[提交权限检测] 无法在角色 ${currentRole.name} 到达时刷新 git HEAD，不能继续维护合法提交基线。`)
+          }
+          authorizedBaseline = fresh
         }
 
         let outputFormatRetryCount = 0
@@ -1534,6 +1631,54 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             throw new Error(`[静态检查] 执行者连续${runtimeDeps.loopConfig.staticCheckMaxRetries}次未通过，停止策略循环。${validation.error ? `\n${validation.error}` : ""}`)
           }
           consoleAndLogFile.warn(`[${currentRole.name}] 重试${OUTPUT_MAX_FORMAT_RETRIES}次后仍未通过格式校验，系统接受原始输出。误差: ${validation.error}`)
+        }
+
+        // 【提交权限检测 - 结束后基线刷新与异常提交检查】
+        //
+        // 授权角色（commitAllowedRoles 中的 writable 角色）：
+        //   回合结束后再次刷新 authorizedBaseline，使其合法提交被后续角色感知。
+        //   （到达时已刷新一次，这里刷新第二次，覆盖授权角色本轮产生的提交。）
+        //
+        // 无权限 writable 角色：回合结束后对照 authorizedBaseline 检测异常提交。
+        //   若 HEAD 偏离基线，阻塞流程直到角色通过 git reset --soft 撤回提交，
+        //   或超过重试上限终止。
+        //
+        // readonly 角色不参与检测。
+        if (currentRole.accessMode === "writable") {
+          if (isCommitAuthorized) {
+            const fresh = await _getGitHead(projectDir)
+            if (fresh === null) {
+              throw new Error(`[提交权限检测] 无法在角色 ${currentRole.name} 结束后刷新 git HEAD，不能继续维护合法提交基线。`)
+            }
+            authorizedBaseline = fresh
+            consoleAndLogFile.info(`[${currentRole.name}] 授权基线已刷新，HEAD=${authorizedBaseline.substring(0, 8)}`)
+          } else {
+            let commitRetries = 0
+            while (true) {
+              const currentHead = await _getGitHead(projectDir)
+              if (currentHead === null) {
+                throw new Error(`[提交权限检测] 无法在角色 ${currentRole.name} 的提交校验阶段读取 git HEAD，不能判断是否存在异常提交。`)
+              }
+              if (currentHead === authorizedBaseline) break
+
+              commitRetries++
+              consoleAndLogFile.warn(`[${currentRole.name}] 检测到异常提交 (${commitRetries}/${MAX_COMMIT_HARNESS_RETRIES})，基线=${authorizedBaseline.substring(0, 8)}，当前=${currentHead?.substring(0, 8) ?? "null"}`)
+
+              if (commitRetries > MAX_COMMIT_HARNESS_RETRIES) {
+                throw new Error(`[${currentRole.name}] 异常提交修复超过${MAX_COMMIT_HARNESS_RETRIES}次，角色持续未按要求撤回提交，停止策略循环。`)
+              }
+
+              const commitErrorMsg = `检测到你的回合出现了不合规定的提前提交。你缺少提交权限，提前提交影响了后续团队成员的检查、阅读。
+请通过 git reset --soft 撤回你所有的提交并保留变更。
+完成后请回复"已撤回"，系统将重新校验本轮提交状态。`
+
+              await session.sendMsg({
+                msgSource: MSG_SOURCE.system,
+                content: commitErrorMsg,
+              }, false)
+            }
+            consoleAndLogFile.info(`[${currentRole.name}] 提交检测通过，HEAD=${authorizedBaseline.substring(0, 8)}`)
+          }
         }
 
         logFile.info(`<<< ${currentRole.name} 完成`)

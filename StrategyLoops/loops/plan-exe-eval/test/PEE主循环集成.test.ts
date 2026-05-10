@@ -9,6 +9,9 @@ import { main } from "../规划图驱动的PEE"
 
 const 静态检查模版Path = join(__dirname, "../../../common/CICD/Node静态检查模版.js")
 
+/** 创建仅含 name 的 mock IRole，用于测试中的 commitAllowedRoles 配置 */
+const role = (name: string): IRole => ({ name } as IRole)
+
 class ScriptedSession implements ISession {
   id: string
   role: IRole
@@ -83,6 +86,9 @@ describe("PEE main loop integration", () => {
     failSetup?: boolean
     failQueryByTitle?: boolean
     staticCheckMaxRetries?: number
+    getGitHead?: (projectDir: string) => Promise<string | null>
+    commitAllowedRoles?: IRole[]
+    maxCycles?: number
   }) {
     const sessions = new Map<string, ScriptedSession>()
     const activities: Array<{ 标题: string; 角色: string; 消息: string }> = []
@@ -164,9 +170,11 @@ describe("PEE main loop integration", () => {
       createSession,
       relocateRole,
       setupProjectEnvironment,
-      loopConfig: new LoopConfig({ maxCycles: 1, startPrompt: "test-start", staticCheckMaxRetries: options.staticCheckMaxRetries }),
+      loopConfig: new LoopConfig({ maxCycles: options.maxCycles ?? 1, startPrompt: "test-start", staticCheckMaxRetries: options.staticCheckMaxRetries }),
       askUser: vi.fn(async () => options.askUserResponse ?? ""),
       runScheduleMapCli,
+      getGitHead: options.getGitHead ?? (async () => "abc123def"),
+      commitAllowedRoles: options.commitAllowedRoles,
     })
 
     if (options.interruptRoleName) {
@@ -611,5 +619,429 @@ describe("PEE main loop integration", () => {
     // 检查是否有包含"所有轮次已耗尽"的消息
     const hasExhaustionMsg = plannerMessages.some(m => m.content.includes("所有轮次已耗尽"))
     expect(hasExhaustionMsg).toBe(true)
+  })
+
+  it("detects abnormal commit by writable non-commitman role and blocks until fixed", async () => {
+    const projectDir = "/tmp/pee-abnormal-commit"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证异常提交检测与修复闭环",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    // 模拟 git HEAD：先正常，执行者偷偷提交后变脏，修复后恢复
+    let gitHeadValue = "abc123def"
+    const mockGetGitHead = vi.fn(async () => gitHeadValue)
+
+    const { sessions } = await runMainWithScript({
+      projectDir,
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "执行测试" }),
+        async () => "收到",
+      ],
+      executorResponses: [
+        async () => {
+          gitHeadValue = "def456abc" // 模拟无权限角色偷偷提交
+          return "执行完成"
+        },
+        async () => {
+          gitHeadValue = "abc123def" // 按指令 git reset --soft 后恢复
+          return "已撤回"
+        },
+      ],
+      taskMap,
+      getGitHead: mockGetGitHead,
+    })
+
+    const executorSession = sessions.get("executor")
+    expect(executorSession).toBeDefined()
+    const messages = await executorSession!.getMessages()
+
+    // 验证执行者收到了异常提交错误消息
+    const errorMsg = messages.find(m => m.content.includes("不合规定的提前提交"))
+    expect(errorMsg).toBeDefined()
+    expect(errorMsg!.content).toContain("git reset --soft")
+    expect(errorMsg!.content).toContain("你缺少提交权限")
+
+    // 验证 getGitHead 被多次调用（基线 + 检测 + 重检）
+    expect(mockGetGitHead.mock.calls.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it("throws when abnormal commit fix exceeds max retries", async () => {
+    const projectDir = "/tmp/pee-abnormal-commit-limit"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证异常提交修复超限后终止",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    // 执行者触发异常提交后持续不修复：基线正常，之后一直脏 HEAD
+    let gitHeadValue = "abc123def"
+    const mockGetGitHead = vi.fn(async () => gitHeadValue)
+
+    await expect(runMainWithScript({
+      projectDir,
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "触发提交上限" }),
+        async () => "收到",
+      ],
+      // 1 个任务回复 + 5 个错误回复（第 6 轮检测时 commitRetries>5 直接抛错，不再发消息）
+      executorResponses: [
+        async () => {
+          gitHeadValue = "def456ab" // 触发异常提交
+          return "执行完成"
+        },
+        ...Array.from({ length: 5 }, () => async () => "不撤回"),
+      ],
+      taskMap,
+      getGitHead: mockGetGitHead,
+    })).rejects.toThrow("异常提交修复超过5次")
+  })
+
+  it("allows commit when writable role is in commitAllowedRoles", async () => {
+    const projectDir = "/tmp/pee-custom-authorized"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证自定义授权列表允许额外角色提交",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    // commitAllowedRoles 包含执行者，执行者提交合法，不应收到错误
+    let gitHeadValue = "abc123def"
+    const mockGetGitHead = vi.fn(async () => gitHeadValue)
+
+    const { sessions } = await runMainWithScript({
+      projectDir,
+      commitAllowedRoles: [role("commitman"), role("executor")],
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "执行测试" }),
+        async () => "收到",
+      ],
+      executorResponses: [
+        async () => {
+          gitHeadValue = "def456abc" // 执行者有权限，提交合法
+          return "执行完成"
+        },
+      ],
+      taskMap,
+      getGitHead: mockGetGitHead,
+    })
+
+    const executorSession = sessions.get("executor")
+    const messages = await executorSession!.getMessages()
+    // 执行者不应收到异常提交错误
+    expect(messages.some(m => m.content.includes("不合规定的提前提交"))).toBe(false)
+  })
+
+  it("refreshes baseline when authorized role arrives, even without committing", async () => {
+    const projectDir = "/tmp/pee-baseline-no-commit"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证授权角色不提交时仍刷新基线",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    let gitHeadValue = "abc123def"
+    const mockGetGitHead = vi.fn(async () => gitHeadValue)
+
+    await runMainWithScript({
+      projectDir,
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "执行测试" }),
+        async () => "收到",
+      ],
+      taskMap,
+      getGitHead: mockGetGitHead,
+    })
+
+    // 提交员（默认授权）刷新基线：初始化 + 5 个无权限角色检查 = 6 次，
+    // 提交员到达时刷新 + 结束后刷新 ≥ 2 次，总计 ≥ 8。
+    // 断言 > 6 即可证明提交员刷新已发生。
+    expect(mockGetGitHead.mock.calls.length).toBeGreaterThan(6)
+  })
+
+  it("refreshes baseline after authorized role commits, so next cycle passes", async () => {
+    const projectDir = "/tmp/pee-baseline-commit-follow"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证提交员提交后基线跟随刷新",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    // 提交员提交后 HEAD 变为新值，后续 unauthorized 角色应对照新基线
+    let gitHeadValue = "abc123def"
+    const mockGetGitHead = vi.fn(async () => gitHeadValue)
+
+    // maxCycles=2，使第二轮规划者也能执行提交检测
+    const qaResp = async () => JSON.stringify({ 一句话动态: "检查无问题" })
+    const evalPassResp = async () => JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" })
+    const archPassResp = async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "", 打回留言: "" })
+
+    await runMainWithScript({
+      projectDir,
+      maxCycles: 2,
+      staticCheckMaxRetries: 0,
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "第1轮" }),
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "第2轮" }),
+        async () => "收到",
+      ],
+      compactorResponses: Array.from({ length: 4 }, () => async () => JSON.stringify({ 是否压缩: false })),
+      executorResponses: Array.from({ length: 4 }, () => async () => "执行完成"),
+      evaluatorResponses: Array.from({ length: 4 }, () => evalPassResp),
+      scissorResponses: Array.from({ length: 4 }, () => qaResp),
+      architectResponses: Array.from({ length: 4 }, () => archPassResp),
+      qaResponses: Array.from({ length: 4 }, () => qaResp),
+      edgeQaResponses: Array.from({ length: 4 }, () => qaResp),
+      commitResponses: [
+        async () => {
+          gitHeadValue = "new00001" // 提交员合法提交，HEAD 前进
+          return JSON.stringify({ 一句话动态: "已提交，git哈希: new00001" })
+        },
+        async () => JSON.stringify({ 一句话动态: "无提交，原因: 测试" }),
+        async () => JSON.stringify({ 一句话动态: "无提交，原因: 测试" }),
+      ],
+      taskMap,
+      getGitHead: mockGetGitHead,
+    })
+
+    // 若基线未刷新，第二轮规划者会对 "new00001" 参照旧基线 "abc123def" 报异常提交
+    // 测试不抛异常即证明基线正确刷新
+    expect(mockGetGitHead).toHaveBeenCalled()
+  })
+
+  it("does not trigger commit detection for readonly roles", async () => {
+    const projectDir = "/tmp/pee-readonly-skip"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证readonly角色不触发提交检测",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    const mockGetGitHead = vi.fn(async () => "abc123def")
+
+    const { sessions } = await runMainWithScript({
+      projectDir,
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "执行测试" }),
+        async () => "收到",
+      ],
+      taskMap,
+      getGitHead: mockGetGitHead,
+    })
+
+    // 评估者、架构师、压缩决策员均为 readonly，不应收到异常提交消息
+    for (const roleName of ["evaluator", "architect", "compactor"]) {
+      const s = sessions.get(roleName)
+      if (!s) continue
+      const messages = await s.getMessages()
+      expect(messages.some(m => m.content.includes("不合规定的提前提交"))).toBe(false)
+    }
+  })
+
+  it("after authorized role commits, next unauthorized writable role passes baseline check", async () => {
+    const projectDir = "/tmp/pee-authorized-commit-no-false-positive"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证授权角色提交后，下一位无权限writable角色不会被误判",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    // commitAllowedRoles 含执行者，执行者提交后基线应刷新，
+    // 后续 scissorHands/QA/edgeQA 不应被误判为异常提交
+    let gitHeadValue = "abc123def"
+    const mockGetGitHead = vi.fn(async () => gitHeadValue)
+
+    const { sessions } = await runMainWithScript({
+      projectDir,
+      commitAllowedRoles: [role("commitman"), role("executor")],
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "执行测试" }),
+        async () => "收到",
+      ],
+      executorResponses: [
+        async () => {
+          gitHeadValue = "def456abc" // 授权角色合法提交
+          return "执行完成"
+        },
+      ],
+      taskMap,
+      getGitHead: mockGetGitHead,
+    })
+
+    // 后续无权限 writable 角色不应收到异常提交错误
+    for (const roleName of ["scissorHands", "QA", "edgeQA"]) {
+      const s = sessions.get(roleName)
+      if (!s) continue
+      const messages = await s.getMessages()
+      expect(messages.some(m => m.content.includes("不合规定的提前提交"))).toBe(false)
+    }
+    // getGitHead 被调用次数应包括到达时刷新 + 结束后刷新（授权角色两轮刷新）
+    expect(mockGetGitHead.mock.calls.length).toBeGreaterThan(5)
+  })
+
+  it("throws when commitAllowedRoles contains a name not matching any role in allRoles", async () => {
+    const projectDir = "/tmp/pee-unknown-role"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证未知角色名配置即报错",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    // "nonexistent" 不存在于 allRoles 中，应直接抛错
+    await expect(runMainWithScript({
+      projectDir,
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "不会执行到" }),
+      ],
+      commitAllowedRoles: [role("commitman"), role("nonexistent")],
+      taskMap,
+    })).rejects.toThrow("commitAllowedRoles 包含无法匹配的角色")
+  })
+
+  it("fails closed when git HEAD is unavailable before baseline is established", async () => {
+    const projectDir = "/tmp/pee-null-head-initial"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证无法建立合法提交基线时直接报错",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    await expect(runMainWithScript({
+      projectDir,
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "不会执行到" }),
+      ],
+      getGitHead: async () => null,
+      taskMap,
+    })).rejects.toThrow("无法获取仓库 git HEAD")
+  })
+
+  it("injects runtime commit policy prompt for authorized writable role", async () => {
+    const projectDir = "/tmp/pee-authorized-prompt"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证授权 writable 角色收到可提交提示",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    const { sessions } = await runMainWithScript({
+      projectDir,
+      commitAllowedRoles: [role("commitman"), role("executor")],
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "执行测试" }),
+        async () => "收到",
+      ],
+      executorResponses: [async () => "执行完成"],
+      taskMap,
+      getGitHead: async () => "abc123def",
+    })
+
+    const executorSession = sessions.get("executor")
+    expect(executorSession).toBeDefined()
+    const messages = await executorSession!.getMessages()
+    expect(messages.some(m => m.content.includes("当前策略配置允许你提交到仓库"))).toBe(true)
+  })
+
+  it("injects runtime commit policy prompt for unauthorized writable role", async () => {
+    const projectDir = "/tmp/pee-unauthorized-prompt"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证未授权 writable 角色收到禁提提示",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    const { sessions } = await runMainWithScript({
+      projectDir,
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "执行测试" }),
+        async () => "收到",
+      ],
+      executorResponses: [async () => "执行完成"],
+      taskMap,
+      getGitHead: async () => "abc123def",
+    })
+
+    const executorSession = sessions.get("executor")
+    expect(executorSession).toBeDefined()
+    const messages = await executorSession!.getMessages()
+    expect(messages.some(m => m.content.includes("当前策略配置未授予你提交权限"))).toBe(true)
   })
 })
