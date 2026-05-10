@@ -181,16 +181,14 @@ export class PresetMockSession extends MockSession {
     if (this.role.name === "evaluator") {
       return JSON.stringify({
         检查结果: "通过",
-        问题列表: [],
-        打回留言: ""
+        问题列表: []
       })
     }
     if (this.role.name === "architect") {
       return JSON.stringify({
         检查结果: "通过",
         架构问题: [],
-        重构建议: "",
-        打回留言: ""
+        重构建议: ""
       })
     }
     if (this.role.name === "compactor") {

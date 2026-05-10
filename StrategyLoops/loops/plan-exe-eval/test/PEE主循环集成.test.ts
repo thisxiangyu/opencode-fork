@@ -104,9 +104,9 @@ describe("PEE main loop integration", () => {
         role.name === "planner" ? options.plannerResponses :
         role.name === "compactor" ? (options.compactorResponses ?? [async () => JSON.stringify({ 是否压缩: false })]) :
         role.name === "executor" ? (options.executorResponses ?? [async () => "执行完成"]) :
-        role.name === "evaluator" ? (options.evaluatorResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" })]) :
+        role.name === "evaluator" ? (options.evaluatorResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })]) :
         role.name === "scissorHands" ? (options.scissorResponses ?? [async () => JSON.stringify({ 一句话动态: "检查无问题" })]) :
-        role.name === "architect" ? (options.architectResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "", 打回留言: "" })]) :
+        role.name === "architect" ? (options.architectResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })]) :
         role.name === "QA" ? (options.qaResponses ?? [async () => qaResponse]) :
         role.name === "edgeQA" ? (options.edgeQaResponses ?? [async () => qaResponse]) :
         (options.commitResponses ?? [async () => JSON.stringify({ 一句话动态: "无提交，原因: 测试模式" })])
@@ -244,7 +244,7 @@ describe("PEE main loop integration", () => {
     expect(activities.some((activity) => activity.角色 === "commitman")).toBe(true)
   })
 
-  it("records evaluator rejection and routes executor through rejection loop with extracted note", async () => {
+  it("records evaluator rejection and routes executor through rejection loop with full json", async () => {
     const projectDir = "/tmp/pee-evaluator-rejection"
     const taskMap = new Map<string, any>([
       ["测试任务", {
@@ -271,8 +271,8 @@ describe("PEE main loop integration", () => {
         async () => "已按评估者意见补充边缘测试，暂无已知遗留风险。",
       ],
       evaluatorResponses: [
-        async () => JSON.stringify({ 检查结果: "打回", 问题列表: ["缺测试"], 打回留言: "请补边缘测试" }),
-        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" }),
+        async () => JSON.stringify({ 检查结果: "打回", 问题列表: ["缺测试"] }),
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
       ],
       taskMap,
     })
@@ -283,7 +283,7 @@ describe("PEE main loop integration", () => {
     expect(evaluatorSession).toBeDefined()
     const executorMessages = await executorSession!.getMessages()
     const evaluatorMessages = await evaluatorSession!.getMessages()
-    expect(executorMessages.some((message) => message.content.includes("请补边缘测试"))).toBe(true)
+    expect(executorMessages.some((message) => message.content.includes('"问题列表":["缺测试"]'))).toBe(true)
     expect(evaluatorMessages.some((message) => message.content.includes("评估者第1次打回"))).toBe(true)
     expect(evaluatorMessages.some((message) => message.content.includes("执行反馈: 已按评估者意见补充边缘测试，暂无已知遗留风险。"))).toBe(true)
     expect(activities.some((activity) => activity.角色 === "evaluator" && activity.消息 === "evaluator打回1次")).toBe(true)
@@ -319,8 +319,8 @@ describe("PEE main loop integration", () => {
         async () => "已按打回意见调整实现",
       ],
       evaluatorResponses: [
-        async () => JSON.stringify({ 检查结果: "打回", 问题列表: ["缺测试"], 打回留言: "请补边缘测试" }),
-        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" }),
+        async () => JSON.stringify({ 检查结果: "打回", 问题列表: ["缺测试"] }),
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
       ],
       taskMap,
     })
@@ -442,12 +442,12 @@ describe("PEE main loop integration", () => {
         async () => "已按架构建议重新分层，暂无已知遗留风险。",
       ],
       evaluatorResponses: [
-        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" }),
-        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" }),
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
       ],
       architectResponses: [
-        async () => JSON.stringify({ 检查结果: "打回", 架构问题: ["分层不清晰"], 重构建议: "按领域拆分", 打回留言: "请按领域重新分层" }),
-        async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "", 打回留言: "" }),
+        async () => JSON.stringify({ 检查结果: "打回", 架构问题: ["分层不清晰"], 重构建议: "按领域拆分" }),
+        async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" }),
       ],
       scissorResponses: [
         async () => JSON.stringify({ 一句话动态: "检查无问题" }),
@@ -468,7 +468,8 @@ describe("PEE main loop integration", () => {
     const evaluatorMessages = await evaluatorSession!.getMessages()
     const scissorMessages = await scissorSession!.getMessages()
     const architectMessages = await architectSession!.getMessages()
-    expect(executorMessages.some((message) => message.content.includes("请按领域重新分层"))).toBe(true)
+    expect(executorMessages.some((message) => message.content.includes('"架构问题":["分层不清晰"]'))).toBe(true)
+    expect(executorMessages.some((message) => message.content.includes('"重构建议":"按领域拆分"'))).toBe(true)
     expect(evaluatorMessages.some((message) => message.content.includes("执行反馈: 已按架构建议重新分层，暂无已知遗留风险。"))).toBe(true)
     expect(evaluatorMessages.length).toBeGreaterThanOrEqual(2)
     expect(scissorMessages.length).toBeGreaterThanOrEqual(2)
@@ -650,9 +651,9 @@ describe("PEE main loop integration", () => {
       ],
       compactorResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 是否压缩: false })),
       executorResponses: Array.from({ length: 6 }, () => async () => "执行完成"),
-      evaluatorResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" })),
+      evaluatorResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })),
       scissorResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 一句话动态: "无提交，原因: 测试" })),
-      architectResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "", 打回留言: "" })),
+      architectResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })),
       qaResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
       edgeQaResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 一句话动态: "无提交，原因: 测试" })),
       commitResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 一句话动态: "无提交，原因: 测试" })),
@@ -860,8 +861,8 @@ describe("PEE main loop integration", () => {
 
     // maxCycles=2，使第二轮规划者也能执行提交检测
     const qaResp = async () => JSON.stringify({ 一句话动态: "检查无问题" })
-    const evalPassResp = async () => JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" })
-    const archPassResp = async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "", 打回留言: "" })
+    const evalPassResp = async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })
+    const archPassResp = async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })
 
     await runMainWithScript({
       projectDir,

@@ -15,7 +15,7 @@ describe("PEE interruption and flow semantics", () => {
     reason,
   })
 
-  it("uses evaluator rejection note as executor upstream during rejection loop", () => {
+  it("uses evaluator rejection json as executor upstream during rejection loop", () => {
     const rejectionState: RejectionState = {
       evaluatorRejections: 1,
       architectRejections: 0,
@@ -27,11 +27,10 @@ describe("PEE interruption and flow semantics", () => {
     const evaluatorResponse = JSON.stringify({
       检查结果: "打回",
       问题列表: ["变量命名不规范"],
-      打回留言: "请修复变量命名问题",
     })
 
     const upstream = buildUpstreamForRole("executor", rejectionState, extractRejectionUpstream(evaluatorResponse))
-    expect(upstream).toBe("请修复变量命名问题")
+    expect(upstream).toBe(evaluatorResponse)
   })
 
   it("keeps first normal executor upstream free of rejection hint text", () => {

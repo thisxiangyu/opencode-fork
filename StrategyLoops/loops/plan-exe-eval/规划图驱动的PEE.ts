@@ -350,11 +350,10 @@ ${upstreamMsg}
 
   outputSchema = {
     type: "object",
-    required: ["检查结果", "问题列表", "打回留言"],
+    required: ["检查结果", "问题列表"],
     properties: {
       检查结果: { type: "string", enum: ["通过", "打回"] },
       问题列表: { type: "array", items: { type: "string" } },
-      打回留言: { type: "string" },
     },
   }
   validateOutput(raw: string): { valid: boolean; error?: string } {
@@ -362,8 +361,7 @@ ${upstreamMsg}
     if (!json) return { valid: false, error: "输出中未找到有效的 JSON 对象" }
     if (!["通过", "打回"].includes(json.检查结果)) return { valid: false, error: "检查结果必须是'通过'或'打回'" }
     if (!Array.isArray(json.问题列表)) return { valid: false, error: "问题列表必须是数组" }
-    if (typeof json.打回留言 !== "string") return { valid: false, error: "打回留言必须是字符串" }
-    if (json.检查结果 === "通过" && (json.问题列表.length > 0 || json.打回留言.trim())) return { valid: false, error: "问题列表不为空，或存在打回留言，检查结果却未通过，这是矛盾的，请重试" }
+    if (json.检查结果 === "通过" && json.问题列表.length > 0) return { valid: false, error: "问题列表不为空，检查结果却为通过，这是矛盾的，请重试" }
     return { valid: true }
   }
 }
@@ -429,12 +427,11 @@ ${upstreamMsg}
 
   outputSchema = {
     type: "object",
-    required: ["检查结果", "架构问题", "重构建议", "打回留言"],
+    required: ["检查结果", "架构问题", "重构建议"],
     properties: {
       检查结果: { type: "string", enum: ["通过", "打回"] },
       架构问题: { type: "array", items: { type: "string" } },
       重构建议: { type: "string" },
-      打回留言: { type: "string" },
     },
   }
   validateOutput(raw: string): { valid: boolean; error?: string } {
@@ -443,8 +440,7 @@ ${upstreamMsg}
     if (!["通过", "打回"].includes(json.检查结果)) return { valid: false, error: "检查结果必须是'通过'或'打回'" }
     if (!Array.isArray(json.架构问题)) return { valid: false, error: "架构问题必须是数组" }
     if (typeof json.重构建议 !== "string") return { valid: false, error: "重构建议必须是字符串" }
-    if (typeof json.打回留言 !== "string") return { valid: false, error: "打回留言必须是字符串" }
-    if (json.检查结果 === "通过" && (json.架构问题.length > 0 || json.重构建议.trim() || json.打回留言.trim())) return { valid: false, error: "架构问题不为空，或存在重构建议/打回留言，检查结果却为通过，这是矛盾的，请重试" }
+    if (json.检查结果 === "通过" && (json.架构问题.length > 0 || json.重构建议.trim())) return { valid: false, error: "架构问题不为空，或存在重构建议，检查结果却为通过，这是矛盾的，请重试" }
     return { valid: true }
   }
 }
@@ -805,7 +801,7 @@ async function setupProjectEnvironment(projectDir: string, startPrompt: string, 
  * `${roleName}打回${rejectionCount}次`，让规划者下轮能从规划图感知任务难度。
  *
  * 与 recordRoleActivity 的区别：此处的 activity message 由系统合成，角色自身
- * 的输出内容（问题列表、打回留言）不入库，仅通过 upstream 传给执行者。
+ * 的输出内容不入库，仅通过 upstream 传给执行者。
  *
  * 【重要】CLI 脚本丢失时直接抛异常，因为动态记录是打回追踪的关键依据。
  */
@@ -1500,7 +1496,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
           currentRole.name,
           rejectionState,
           rejectionState.inRejectionLoop && currentRole instanceof 执行者
-            ? extractRejectionUpstream(lastResponse)
+            ? lastResponse
             : lastResponse,
         )
 

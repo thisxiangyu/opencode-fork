@@ -285,7 +285,7 @@ export function buildUpstreamForRole(
   // 打回循环中
   if (rejectionState.inRejectionLoop) {
     if (roleName === "executor") {
-      return lastResponse // 执行者使用打回留言
+      return lastResponse // 执行者使用完整打回 JSON
     }
     // 其他角色使用打回循环信息
     return buildRejectionUpstream(rejectionState)
@@ -313,15 +313,13 @@ export function buildUpstreamForRole(
 }
 
 /**
- * 从评估者/架构师输出中提取给执行者的打回留言。
+ * 归一化评估者/架构师传给执行者的打回上游信息。
  *
- * 打回循环里，执行者应收到精炼后的留言而不是整段结构化 JSON。
- * 若未提取到留言，则保守回退为原始响应，避免吞掉上游信息。
+ * 当前约定直接透传完整问题 JSON；若未解析到 JSON，则保守回退为原始响应。
  */
 export function extractRejectionUpstream(rawResponse: string): string {
   const json = extractJSON(rawResponse)
-  const rejectionNote = typeof json?.打回留言 === "string" ? json.打回留言.trim() : ""
-  if (rejectionNote) return rejectionNote
+  if (json) return JSON.stringify(json)
   return rawResponse
 }
 

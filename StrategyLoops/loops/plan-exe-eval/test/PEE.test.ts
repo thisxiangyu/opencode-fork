@@ -46,7 +46,7 @@ describe("PEE utils", () => {
     })
 
     it("parses first balanced JSON from noisy text", () => {
-      expect(extractJSON('好的，结果是{"打回留言":"请修复"}，请确认')).toEqual({ 打回留言: "请修复" })
+      expect(extractJSON('好的，结果是{"检查结果":"打回","问题列表":["请修复"]}，请确认')).toEqual({ 检查结果: "打回", 问题列表: ["请修复"] })
     })
 
     it("returns null for non JSON text", () => {
@@ -214,12 +214,12 @@ describe("PEE utils", () => {
       expect(upstream).not.toContain("ARCH")
     })
 
-    it("extracts rejection note for executor upstream", () => {
+    it("extracts full rejection json for executor upstream", () => {
       expect(
         extractRejectionUpstream(
-          JSON.stringify({ 检查结果: "打回", 问题列表: ["问题"], 打回留言: "请修复变量命名" }),
+          JSON.stringify({ 检查结果: "打回", 问题列表: ["问题"] }),
         ),
-      ).toBe("请修复变量命名")
+      ).toBe(JSON.stringify({ 检查结果: "打回", 问题列表: ["问题"] }))
 
       expect(extractRejectionUpstream("纯文本留言")).toBe("纯文本留言")
     })
@@ -237,7 +237,7 @@ describe("PEE utils", () => {
         compactorUpstream: "上轮任务标题: 任务Z\n上轮任务Tag: OLD\n本轮任务标题: 任务A\n本轮任务Tag: FEAT\n",
       }
 
-      expect(buildUpstreamForRole("executor", state, "请修复变量命名")).toBe("请修复变量命名")
+      expect(buildUpstreamForRole("executor", state, '{"检查结果":"打回","问题列表":["请修复变量命名"]}')).toBe('{"检查结果":"打回","问题列表":["请修复变量命名"]}')
       expect(buildUpstreamForRole("evaluator", state, "ignored")).toContain("评估者第1次打回")
       expect(buildUpstreamForRole("evaluator", state, "ignored")).toContain("执行反馈: 已按评估者意见修复变量命名")
 
@@ -261,7 +261,7 @@ describe("PEE utils", () => {
       expect(
         getRejectionActivityToRecord(
           "evaluator",
-          JSON.stringify({ 检查结果: "打回", 问题列表: ["问题"], 打回留言: "请修复" }),
+          JSON.stringify({ 检查结果: "打回", 问题列表: ["问题"] }),
           state,
         ),
       ).toEqual({ roleName: "evaluator", rejectionCount: 1 })
@@ -269,7 +269,7 @@ describe("PEE utils", () => {
       expect(
         getRejectionActivityToRecord(
           "architect",
-          JSON.stringify({ 检查结果: "打回", 架构问题: ["问题"], 重构建议: "建议", 打回留言: "请重构" }),
+          JSON.stringify({ 检查结果: "打回", 架构问题: ["问题"], 重构建议: "建议" }),
           { ...state, architectRejections: 2, rejectionSource: "architect" },
         ),
       ).toEqual({ roleName: "architect", rejectionCount: 2 })
@@ -278,7 +278,7 @@ describe("PEE utils", () => {
       expect(
         getRejectionActivityToRecord(
           "evaluator",
-          JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" }),
+          JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
           state,
         ),
       ).toBeNull()
@@ -305,27 +305,25 @@ describe("PEE utils", () => {
 
     it("validates evaluator schema", () => {
       const role = new 评估者()
-      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" }))).toEqual({ valid: true })
-      expect(role.validateOutput(JSON.stringify({ 检查结果: "未知", 问题列表: [], 打回留言: "" })).valid).toBe(false)
-      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 问题列表: ["仍有问题"], 打回留言: "" }))).toEqual({
+      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 问题列表: [] }))).toEqual({ valid: true })
+      expect(role.validateOutput(JSON.stringify({ 检查结果: "未知", 问题列表: [] })).valid).toBe(false)
+      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 问题列表: ["仍有问题"] }))).toEqual({
         valid: false,
-        error: "问题列表不为空，或存在打回留言，检查结果却未通过，这是矛盾的，请重试",
+        error: "问题列表不为空，检查结果却为通过，这是矛盾的，请重试",
       })
-      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "请修复" })).valid).toBe(false)
     })
 
     it("validates architect schema", () => {
       const role = new 架构师()
       expect(
-        role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "", 打回留言: "" })),
+        role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })),
       ).toEqual({ valid: true })
-      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: "bad", 重构建议: "x", 打回留言: "" })).valid).toBe(false)
-      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: ["分层不清"], 重构建议: "", 打回留言: "" }))).toEqual({
+      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: "bad", 重构建议: "x" })).valid).toBe(false)
+      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: ["分层不清"], 重构建议: "" }))).toEqual({
         valid: false,
-        error: "架构问题不为空，或存在重构建议/打回留言，检查结果却为通过，这是矛盾的，请重试",
+        error: "架构问题不为空，或存在重构建议，检查结果却为通过，这是矛盾的，请重试",
       })
-      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "建议分层", 打回留言: "" })).valid).toBe(false)
-      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "", 打回留言: "请重构" })).valid).toBe(false)
+      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "建议分层" })).valid).toBe(false)
     })
 
     it("validates compactor schema", () => {
