@@ -519,12 +519,13 @@ ${预备Commit()}
 ${Commit()}
 
 【一句话动态要求】
-提交完成后，必须输出一句话动态，格式如下（JSON对象）：
-- 有提交时：{"一句话动态": "已提交，git哈希: <哈希>，svn哈希: <哈希>"}（没有某类仓库则省略对应行）
-- 无提交时：{"一句话动态": "无提交，原因: <原因>"}
+- 严格按系统追加的 JSON Schema 输出。
+- “一句话动态”的内容必须严格为以下两类之一：
+  1. 有提交时：“已提交，git哈希: <哈希>，svn哈希: <哈希>”（没有某类仓库则省略对应部分）
+  2. 无提交时：“无提交，原因: <原因>”
 
 【重要】哈希必须从实际提交后的输出中获取，只提交了一个仓库就只写一个哈希，多个仓库都提交了必须分别写。` }
-  systemPrompt(upstreamMsg: string) { return `根据现在仓库的情况决定是否提交、如何提交。\n\n输出要求：按【一句话动态要求】输出JSON对象。` }
+  systemPrompt(upstreamMsg: string) { return `根据现在仓库的情况决定是否提交、如何提交。\n\n输出要求：按【一句话动态要求】输出。` }
   accessMode: "readonly" | "writable" = "writable"
   model = MiniMax27HS
 
@@ -1390,6 +1391,8 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
      * - 其它角色（评估者等）：跟随执行者的压缩决策
      */
     let compactBeforeSend = false
+    /** 压缩决策员为执行者下一回合下发的一次性压缩指令 */
+    let executorShouldCompact = false
     /** 记录执行节点本轮是否压缩，供跟随角色同步决策 */
     let executorDidCompact = false
     /** 标记是否通过"项目已提前完成"路径退出循环 */
@@ -1462,9 +1465,15 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         }
       }
 
+      if (currentRole === 执行者instance && executorShouldCompact) {
+        compactBeforeSend = true
+        executorShouldCompact = false
+      }
+
       // 【跟随压缩】非核心决策角色，跟随执行节点的压缩决策
       if (
         executorDidCompact &&
+        !rejectionState.inRejectionLoop &&
         currentRole !== 规划者instance &&
         currentRole !== 压缩决策员instance &&
         currentRole !== 执行者instance
@@ -1755,8 +1764,9 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         // 压缩决策员输出后：解析其 是否压缩 以决定是否对下一角色（执行者）触发
         if (currentRole === 压缩决策员instance) {
           const compactorOutput = extractJSON(response)
-          compactBeforeSend = compactorOutput?.是否压缩 === true
-          if (compactBeforeSend) {
+          executorShouldCompact = compactorOutput?.是否压缩 === true
+          compactBeforeSend = false
+          if (executorShouldCompact) {
             consoleAndLogFile.info(`[压缩决策] 请求压缩执行者会话。`)
           }
         }
@@ -1766,6 +1776,9 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             rejectionState.executorFeedback = response.trim()
           }
           executorDidCompact = compactBeforeSend
+          compactBeforeSend = false
+        }
+        if (currentRole !== 执行者instance && currentRole !== 压缩决策员instance) {
           compactBeforeSend = false
         }
 
@@ -1808,6 +1821,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
           consoleAndLogFile.info(`[当前循环: 第${cycle + 1}圈]`)
           // 新一轮开始，重置跟随压缩标记
           executorDidCompact = false
+          executorShouldCompact = false
           compactBeforeSend = false
         }
 

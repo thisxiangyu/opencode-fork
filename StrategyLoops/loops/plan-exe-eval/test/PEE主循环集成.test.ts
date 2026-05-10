@@ -17,6 +17,7 @@ class ScriptedSession implements ISession {
   role: IRole
   directory: string
   private messages: SessionMessage[] = []
+  private compactHistoryCalls: boolean[] = []
   private interruptionCallbacks: Array<(msg: InterruptedMsgContext) => void> = []
   private scriptedResponses: Array<() => Promise<string>>
   private waitResponse = ""
@@ -41,8 +42,11 @@ class ScriptedSession implements ISession {
   async getMessages(): Promise<SessionMessage[]> { return this.messages }
   getTokenUsage() { return undefined }
 
-  async sendMsg(message: SessionMessage): Promise<string> {
+  getCompactHistoryCalls(): boolean[] { return [...this.compactHistoryCalls] }
+
+  async sendMsg(message: SessionMessage, compactHistory?: boolean): Promise<string> {
     this.messages.push(message)
+    this.compactHistoryCalls.push(compactHistory === true)
     const next = this.scriptedResponses.shift()
     if (!next) throw new Error(`No scripted response for role ${this.role.name}`)
     return next()
@@ -283,6 +287,53 @@ describe("PEE main loop integration", () => {
     expect(evaluatorMessages.some((message) => message.content.includes("评估者第1次打回"))).toBe(true)
     expect(evaluatorMessages.some((message) => message.content.includes("执行反馈: 已按评估者意见补充边缘测试，暂无已知遗留风险。"))).toBe(true)
     expect(activities.some((activity) => activity.角色 === "evaluator" && activity.消息 === "evaluator打回1次")).toBe(true)
+  })
+
+  it("does not re-compact follower roles during rejection loops", async () => {
+    const projectDir = "/tmp/pee-no-recompact-in-rejection"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证打回循环不重复压缩",
+        Tag: ["test", "fix"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    const { sessions } = await runMainWithScript({
+      projectDir,
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "按流程执行" }),
+        async () => "<整个项目已全部提前完成>",
+        async () => "是的",
+      ],
+      compactorResponses: [
+        async () => JSON.stringify({ 是否压缩: true }),
+      ],
+      executorResponses: [
+        async () => "第一次实现",
+        async () => "已按打回意见调整实现",
+      ],
+      evaluatorResponses: [
+        async () => JSON.stringify({ 检查结果: "打回", 问题列表: ["缺测试"], 打回留言: "请补边缘测试" }),
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [], 打回留言: "" }),
+      ],
+      taskMap,
+    })
+
+    const executorSession = sessions.get("executor")!
+    const evaluatorSession = sessions.get("evaluator")!
+    const scissorSession = sessions.get("scissorHands")!
+    const architectSession = sessions.get("architect")!
+
+    expect(executorSession.getCompactHistoryCalls()).toEqual([true, false])
+    expect(evaluatorSession.getCompactHistoryCalls()).toEqual([true, false])
+    expect(scissorSession.getCompactHistoryCalls()).toEqual([false])
+    expect(architectSession.getCompactHistoryCalls()).toEqual([false])
   })
 
   it("asks executor to fix static check failures before moving to evaluator", async () => {
