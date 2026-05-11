@@ -196,7 +196,7 @@ export class PresetMockSession extends MockSession {
         是否压缩: false
       })
     }
-    if (this.role.name === "ScissorHands" || this.role.name === "QA" || this.role.name === "EdgeQA" || this.role.name === "Commitman") {
+    if (this.role.name === "docAligner" || this.role.name === "ScissorHands" || this.role.name === "QA" || this.role.name === "EdgeQA" || this.role.name === "Commitman") {
       return JSON.stringify({
         一句话动态: "检查无问题"
       })

@@ -308,6 +308,32 @@ ${upstreamMsg}
   }
 }
 
+export class 注释与文档对齐员 implements IRole {
+  name = "docAligner"
+  介入间隔 = 2
+  disabledTools = ["question", "github_*"]
+  knowledgeDomainPrompt() { return `你是注释与文档专项对其员，你：
+【整改注释】把项目代码文件注释按照REPO_WIKI中的要求进行整理，不要遗漏已有注释。
+【检查文档】检查主要文件夹是否都有对应的WIKI、确保WIKI引用连接合理、确保WIKI跟模块代码文件中连接合理。
+【更新文档】将旧的、不符合当前代码状态的文档表述更新。永远使用类维基百科的说明性、专业性表述，不要用"现在、变成、不再"等暗含时间变化性表述。
+【更新注释】像上述符合需要更新的标准一样更新所需注释表述。已较新表述或没有文件或逻辑变动的表述可以不更新。
+ 
+ 风格 - 小心谨慎，你的变更不要破坏业务逻辑，不要导致报错。
+${团队Prompt}` }
+  systemPrompt(upstreamMsg: string) { return `下面是一些信息：
+---
+${upstreamMsg}
+---
+请按【知识域】要求进行注释与文档对齐工作。` }
+  accessMode: "writable" = "writable"
+  model = MiniMax27HS
+
+  outputSchema = 修复性动态Schema
+  validateOutput(raw: string): { valid: boolean; error?: string } {
+    return validate修复性动态(raw)
+  }
+}
+
 export class 执行者 implements IRole {
   name = "executor"
   介入间隔 = 0
@@ -1192,9 +1218,10 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
   const _getGitHead = runtimeDeps.getGitHead!
 
   let 规划者instance = new 规划者() as IRole
+  let 压缩决策员instance = new 压缩决策员() as IRole
+  let 注释与文档对齐员instance = new 注释与文档对齐员() as IRole
   let 执行者instance = new 执行者() as IRole
   let 评估者instance = new 评估者() as IRole
-  let 压缩决策员instance = new 压缩决策员() as IRole
   let 冗余枝剪者instance = new 冗余枝剪者() as IRole
   let 架构师instance = new 架构师() as IRole
   let 质保员instance = new 质保员() as IRole
@@ -1204,6 +1231,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
   const allRoles = 检查names重复([
     规划者instance, 
     压缩决策员instance, 
+    注释与文档对齐员instance,
     执行者instance, 
     评估者instance,
     冗余枝剪者instance,
@@ -1243,10 +1271,10 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
 
     /**
    * 完整大循环的跳转策略：
-   * 规划者 → 压缩决策员 → 执行者 → 评估者 → (打回执行者 OR 冗余枝剪者)
+   * 规划者 → 压缩决策员 → 注释与文档对齐员 → 执行者 → 评估者 → (打回执行者 OR 冗余枝剪者)
    * → 冗余枝剪者 → 架构师 → (打回执行者 OR 质保员)
    * → 质保员 → 边缘质保员 → 提交员 → 规划者
-   * 
+   *
    * 打回逻辑：
    * - 评估者打回：执行者 → 评估者 → (继续打回 OR 通过到冗余枝剪者)
    * - 架构师打回：执行者 → 评估者 → 冗余枝剪者 → 架构师 → (继续打回 OR 通过到质保员)
@@ -1331,6 +1359,9 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
       return 压缩决策员instance
     }
     if(r instanceof 压缩决策员) {
+      return 注释与文档对齐员instance
+    }
+    if(r instanceof 注释与文档对齐员) {
       return 执行者instance
     }
     if(r instanceof 执行者) {
@@ -1427,7 +1458,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     if (role.currentSessionInstance) {
       return role.currentSessionInstance
     }
-    const session = await runtimeDeps.createSession(role, `[${role.name}] 会话开始于${formatDateTime({ isoString: new Date().toISOString(), showYear: false, showPeriod: true, showTime: true ,showSeconds: false})}`, projectDir)
+    const session = await runtimeDeps.createSession(role, `[${role.name}] 开始于${formatDateTime({ isoString: new Date().toISOString(), showYear: false, showPeriod: true, showTime: true ,showSeconds: false})}`, projectDir)
     role.currentSessionInstance = session
     session.onInterruption((msg) => {
       interruptionQueue.push(msg)
@@ -1821,6 +1852,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         // - 打回动态：由系统根据分支路由自动合成消息（"evaluator打回N次"）
         // - 此处动态：由角色自己生成内容，系统只负责解析和搬运
         if (
+          currentRole instanceof 注释与文档对齐员 ||
           currentRole instanceof 冗余枝剪者 ||
           currentRole instanceof 质保员 ||
           currentRole instanceof 边缘质保员 ||

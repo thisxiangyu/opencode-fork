@@ -27,13 +27,14 @@ import {
 } from "../PEE.utils"
 import {
   规划者,
+  压缩决策员,
+  注释与文档对齐员,
   执行者,
   评估者,
   冗余枝剪者,
   架构师,
   质保员,
   边缘质保员,
-  压缩决策员,
   提交员,
 } from "../规划图驱动的PEE"
 
@@ -356,11 +357,11 @@ describe("PEE utils", () => {
       expect(role.validateOutput(JSON.stringify({ 是否压缩: "false" })).valid).toBe(false)
     })
 
-    it("validates fixer-style activity schema across scissorhands qa and edgeqa", () => {
+    it("validates fixer-style activity schema across docAligner scissorhands qa and edgeqa", () => {
       const valid = JSON.stringify({ 一句话动态: "检查无问题" })
       const invalid = JSON.stringify({ 一句话动态: "   " })
 
-      for (const role of [new 冗余枝剪者(), new 质保员(), new 边缘质保员()]) {
+      for (const role of [new 注释与文档对齐员(), new 冗余枝剪者(), new 质保员(), new 边缘质保员()]) {
         expect(role.validateOutput(valid)).toEqual({ valid: true })
         expect(role.validateOutput(invalid).valid).toBe(false)
       }
