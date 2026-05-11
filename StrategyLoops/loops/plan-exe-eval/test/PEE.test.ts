@@ -457,11 +457,12 @@ describe("PEE utils", () => {
   })
 
   describe("sparse role scheduling", () => {
-    it("always runs first round, keeps core dense, and sparsifies later rounds by interval", () => {
+    it("always runs first round, keeps core dense, and waits full gaps between sparse interventions", () => {
       expect(shouldRoleInterveneThisRound(0, 0)).toBe(true)
       expect(shouldRoleInterveneThisRound(2, 0)).toBe(true)
       expect(shouldRoleInterveneThisRound(2, 1)).toBe(false)
-      expect(shouldRoleInterveneThisRound(2, 2)).toBe(true)
+      expect(shouldRoleInterveneThisRound(2, 2)).toBe(false)
+      expect(shouldRoleInterveneThisRound(2, 3)).toBe(true)
     })
   })
 

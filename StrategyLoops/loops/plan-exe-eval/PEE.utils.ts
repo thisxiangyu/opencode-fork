@@ -369,10 +369,15 @@ export function normalizeRoleName(currentRoleName: string): string {
   return currentRoleName
 }
 
+/**
+ * 判断角色在本轮是否应该介入。
+ * 介入间隔为2 → 等两回合后第3回合才介入（cycle=0首次介入，cycle=1/2跳过，cycle=3再介入）。
+ * 介入间隔为3 → 等三回合后第4回合才介入，以此类推。
+ */
 export function shouldRoleInterveneThisRound(介入间隔: number, cycle: number): boolean {
   if (介入间隔 === 0) return true
   if (cycle === 0) return true
-  return cycle % 介入间隔 === 0
+  return cycle % (介入间隔 + 1) === 0
 }
 
 // ============== roundInfo 构建 ==============

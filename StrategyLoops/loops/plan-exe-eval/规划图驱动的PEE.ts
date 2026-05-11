@@ -208,11 +208,13 @@ export class 规划者 implements IRole {
   }
   压缩阈值 = 1000 * 330
 
-  knowledgeDomainPrompt() { return `你作为规划者接手项目，负责理解目标、分析当前局面、制定规划图。
+  knowledgeDomainPrompt() { return `你作为规划者接手项目 。你对最终结果负责。
+    
+    你应当理解目标、分析局面、制定规划图。
 
     你可以不亲自去执行。但是你必须亲自理解、亲自规划（使用规划图而不要使用文件）。
 
-    你是唯一规划者。
+    你是对最终结果负责。
     
     不要在规划图或任务留言中让别人去规划，不要命令别人动规划图。
 
@@ -249,7 +251,9 @@ export class 规划者 implements IRole {
 
     // 规划者不需要upstream，因为他应自己探索仓库
   systemPrompt(upstreamMsg: string) { return `
-  查看任务动态，根据当前仓库情况，派发新一轮任务。仅派发末端任务，不派发高层次任务。
+  统筹开始。
+  请先查看任务动态，尽到规划者对项目推进有用的各种综合职责。
+  最后根据当前仓库情况，派发新一轮任务。仅派发末端任务，不派发高层次任务。
 ` }
   accessMode: "readonly" | "writable" = "writable"
   model = GPT55
@@ -318,19 +322,19 @@ export class 注释与文档对齐员 implements IRole {
   name = "注释与文档对齐员"
   介入间隔 = 2
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return `你是注释与文档专项对其员，你：
-【整改注释】把项目代码文件注释按照REPO_WIKI中的要求进行整理，不要遗漏已有注释。
+  knowledgeDomainPrompt() { return `你是注释与文档专项对齐员，你：
+【理解WIKI】确保你完全理解了REPO_WIKI中对注释和文档的要求，建议多举几个例子想想每步该怎么做。
+【整改注释】把项目代码文件注释按照WIKI中的要求进行整理，不要遗漏已有注释。
 【检查文档】检查主要文件夹是否都有对应的WIKI、确保WIKI引用连接合理、确保WIKI跟模块代码文件中连接合理。
 【更新文档】将旧的、不符合当前代码状态的文档表述更新。永远使用类维基百科的说明性、专业性表述，不要用"现在、变成、不再"等暗含时间变化性表述。
 【更新注释】像上述符合需要更新的标准一样更新所需注释表述。已较新表述或没有文件或逻辑变动的表述可以不更新。
  
  风格 - 小心谨慎，你的变更不要破坏业务逻辑，不要导致报错。
 ${团队Prompt}` }
-  systemPrompt(upstreamMsg: string) { return `下面是一些信息：
----
-${upstreamMsg}
----
-请按【知识域】要求进行注释与文档对齐工作。` }
+
+  // 不需要Upstream
+  systemPrompt(upstreamMsg: string) { return `
+请按要求进行注释与文档对齐工作。` }
   accessMode: "writable" = "writable"
   model = MiniMax27HS
 
@@ -424,7 +428,7 @@ export class 冗余枝剪者 implements IRole {
     当前这次未提交的变更 以及最近几次任务涉及的历史提交。
 
     工作流程：
-    1. 先检查问题：查阅仓库变更，识别冗余代码、无用文件、误导性路径
+    1. 先检查问题：查阅仓库变更和历史提交，识别冗余代码、无用文件、误导性路径
     2. 解决问题：删除或重构冗余部分
     3. 输出动态：用一句话总结本次检测和修复情况（格式见下方输出要求）
     
@@ -459,7 +463,7 @@ export class 架构师 implements IRole {
 
 【确保架构完美】架构不好，果断要求重构。
 
-【局部整体性视角】多查看diff（关注暂存区、工作区以及整体变动），跳出来看跨文件关系，多问自己：
+【局部整体性视角】多查看diff（关注暂存区、工作区以及整体变动），跳出来看跨文件关系，查看历史，多问自己：
   文件是否放在了正确的文件夹？
   代码块是否放在了正确的文件？
   这次变动是否引入了冗余？

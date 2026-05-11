@@ -104,6 +104,7 @@ describe("PEE main loop integration", () => {
       const scriptedResponses =
         role.name === "规划者" ? options.plannerResponses :
         role.name === "压缩决策员" ? (options.compactorResponses ?? [async () => JSON.stringify({ 是否压缩: false })]) :
+        role.name === "注释与文档对齐员" ? (options.qaResponses ?? [async () => qaResponse]) :
         role.name === "执行者" ? (options.executorResponses ?? [async () => "执行完成"]) :
         role.name === "评估者" ? (options.evaluatorResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })]) :
         role.name === "冗余枝剪者" ? (options.scissorResponses ?? [async () => JSON.stringify({ 一句话动态: "检查无问题" })]) :
@@ -446,6 +447,8 @@ describe("PEE main loop integration", () => {
         async () => JSON.stringify({ 检查结果: "打回", 架构问题: ["分层不清晰"], 重构建议: "按领域拆分" }),
         async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" }),
       ],
+      qaResponses: Array.from({ length: 5 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+      edgeQaResponses: Array.from({ length: 3 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
       scissorResponses: [
         async () => JSON.stringify({ 一句话动态: "检查无问题" }),
         async () => JSON.stringify({ 一句话动态: "检查无问题" }),
@@ -536,8 +539,11 @@ describe("PEE main loop integration", () => {
       compactorResponses: Array.from({ length: 2 }, () => async () => JSON.stringify({ 是否压缩: false })),
       executorResponses: Array.from({ length: 2 }, () => async () => "执行完成"),
       evaluatorResponses: Array.from({ length: 2 }, () => async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })),
+      qaResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+      edgeQaResponses: Array.from({ length: 3 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+      commitResponses: Array.from({ length: 3 }, () => async () => JSON.stringify({ 一句话动态: "无提交，原因: 测试模式" })),
       taskMap,
-      failOnActivityRole: "QA",
+      failOnActivityRole: "质保员",
     })).rejects.toThrow("记录角色动态失败")
   })
 
@@ -911,6 +917,7 @@ describe("PEE main loop integration", () => {
     ]
     const maxInterval = Math.max(...sparseRoles.map((item) => item.role.介入间隔))
     const maxCycles = maxInterval + 1
+    const totalCycles = maxCycles + 1
     const taskMap = new Map<string, any>([
       ["测试任务1", {
         ID: 1,
@@ -958,28 +965,30 @@ describe("PEE main loop integration", () => {
     try {
       const { sessions } = await runMainWithScript({
         projectDir,
-        maxCycles,
+        maxCycles: totalCycles,
         plannerResponses: [
           async () => JSON.stringify({ 本轮任务标题: "测试任务1", 留言: "第1轮" }),
           async () => JSON.stringify({ 本轮任务标题: "测试任务2", 留言: "第2轮" }),
           async () => JSON.stringify({ 本轮任务标题: "测试任务3", 留言: "第3轮" }),
           async () => JSON.stringify({ 本轮任务标题: "测试任务4", 留言: "第4轮" }),
+          async () => JSON.stringify({ 本轮任务标题: "测试任务4", 留言: "额外轮次" }),
           async () => "收到",
-        ].slice(0, maxCycles + 1),
-        compactorResponses: Array.from({ length: maxCycles }, () => async () => JSON.stringify({ 是否压缩: false })),
-        executorResponses: Array.from({ length: maxCycles }, () => async () => "执行完成"),
-        evaluatorResponses: Array.from({ length: maxCycles }, () => async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })),
-        scissorResponses: Array.from({ length: maxCycles }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
-        architectResponses: Array.from({ length: maxCycles }, () => async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })),
-        qaResponses: Array.from({ length: maxCycles }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
-        edgeQaResponses: Array.from({ length: maxCycles }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+        ].slice(0, totalCycles + 1),
+        compactorResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 是否压缩: false })),
+        executorResponses: Array.from({ length: totalCycles }, () => async () => "执行完成"),
+        evaluatorResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })),
+        scissorResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+        architectResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })),
+        qaResponses: Array.from({ length: totalCycles * 2 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+        edgeQaResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
         commitResponses: [
           async () => JSON.stringify({ 一句话动态: "无提交，原因: 第1轮测试" }),
           async () => JSON.stringify({ 一句话动态: "无提交，原因: 第2轮测试" }),
           async () => JSON.stringify({ 一句话动态: "无提交，原因: 第3轮测试" }),
           async () => JSON.stringify({ 一句话动态: "无提交，原因: 第4轮测试" }),
           async () => JSON.stringify({ 一句话动态: "无提交，原因: 额外测试" }),
-        ].slice(0, maxCycles + 1),
+          async () => JSON.stringify({ 一句话动态: "无提交，原因: 再额外测试" }),
+        ].slice(0, totalCycles + 1),
         taskMap,
       })
 
@@ -993,10 +1002,10 @@ describe("PEE main loop integration", () => {
       for (const sparseRole of sparseRoles) {
         const messages = await sessions.get(sparseRole.name)?.getMessages()
         expect(messages).toBeDefined()
-        const interveneCycles = Array.from({ length: maxCycles }, (_, cycle) => cycle)
-          .filter((cycle) => cycle === 0 || cycle % sparseRole.role.介入间隔 === 0)
+        const interveneCycles = Array.from({ length: totalCycles }, (_, cycle) => cycle)
+          .filter((cycle) => cycle === 0 || cycle % (sparseRole.role.介入间隔 + 1) === 0)
         expect(messages).toHaveLength(interveneCycles.length)
-        expect(messages?.[0]?.content).toContain("暂无新增任务")
+        expect(messages?.[0]?.content.startsWith("当前时间：")).toBe(true)
 
         for (let index = 1; index < interveneCycles.length; index++) {
           const currentCycle = interveneCycles[index]!
@@ -1007,8 +1016,8 @@ describe("PEE main loop integration", () => {
           }
         }
 
-        const skippedCycles = Array.from({ length: maxCycles }, (_, cycle) => cycle)
-          .filter((cycle) => cycle > 0 && cycle % sparseRole.role.介入间隔 !== 0)
+        const skippedCycles = Array.from({ length: totalCycles }, (_, cycle) => cycle)
+          .filter((cycle) => cycle > 0 && cycle % (sparseRole.role.介入间隔 + 1) !== 0)
         for (const skippedCycle of skippedCycles) {
           expect(consoleSpy.mock.calls.some(([message]) => String(message).includes(`[稀疏角色跳过] 第${skippedCycle + 1}轮跳过 ${sparseRole.name}`))).toBe(true)
         }
@@ -1239,14 +1248,18 @@ describe("PEE main loop integration", () => {
       qaResponses: [
         async () => JSON.stringify({ 一句话动态: "第一轮质保通过" }),
         async () => JSON.stringify({ 一句话动态: "第二轮质保通过" }),
+        async () => JSON.stringify({ 一句话动态: "第三轮质保通过" }),
+        async () => JSON.stringify({ 一句话动态: "第四轮质保通过" }),
       ],
       edgeQaResponses: [
         async () => JSON.stringify({ 一句话动态: "第一轮边缘质保通过" }),
         async () => JSON.stringify({ 一句话动态: "第二轮边缘质保通过" }),
+        async () => JSON.stringify({ 一句话动态: "第三轮边缘质保通过" }),
       ],
       commitResponses: [
         async () => JSON.stringify({ 一句话动态: "无提交，原因: 第一轮提交处理完成" }),
         async () => JSON.stringify({ 一句话动态: "无提交，原因: 第二轮提交处理完成" }),
+        async () => JSON.stringify({ 一句话动态: "无提交，原因: 第三轮提交处理完成" }),
       ],
       taskMap,
     })
