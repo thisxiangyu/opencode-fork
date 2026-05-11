@@ -116,6 +116,9 @@ export function buildRejectionUpstream(state: RejectionState): string {
  *
  * @param frozenPlannerInfo - 规划者输出的完整 upstream（包含本轮任务标题、描述、Tag）
  * @param previousPlannerInfo - 上一轮完整任务视图（用于判断任务翻新度）
+ *
+ * 【设计阐述】因为压缩决策员的信息是流式的，上轮任务已发过了，
+ * 为节省 token 每次只关注本轮任务的描述，而不需要额外冗余的上轮任务描述了。
  */
 export function buildCompactorUpstream(
   frozenPlannerInfo: string | undefined,
@@ -123,12 +126,12 @@ export function buildCompactorUpstream(
 ): string {
   if (!frozenPlannerInfo) return ""
 
-  const buildTaskSnapshot = (label: string, plannerInfo: string) => {
+  const buildTaskSnapshot = (label: string, plannerInfo: string, includeDescription: boolean) => {
     const 标题 = plannerInfo.match(/本轮任务标题[：:]\s*(.+?)(?:\n|$)/)?.[1]?.trim() ?? ""
     const 描述 = plannerInfo.match(/描述[：:]\s*(.+?)(?:\n|$)/)?.[1]?.trim() ?? ""
     const tag = plannerInfo.match(/Tag[：:]\s*(.+?)(?:\n|$)/)?.[1]?.trim() ?? ""
     const maxLen = 80
-    const 描述内容 = 描述
+    const 描述内容 = 描述 && includeDescription
       ? 描述.length > maxLen
         ? 描述.slice(0, maxLen) + `....（折叠${描述.length - maxLen}字）`
         : 描述
@@ -141,8 +144,8 @@ export function buildCompactorUpstream(
   }
 
   let upstream = ""
-  if (previousPlannerInfo) upstream += buildTaskSnapshot("上轮任务", previousPlannerInfo)
-  upstream += buildTaskSnapshot("本轮任务", frozenPlannerInfo)
+  if (previousPlannerInfo) upstream += buildTaskSnapshot("上轮任务", previousPlannerInfo, false)
+  upstream += buildTaskSnapshot("本轮任务", frozenPlannerInfo, true)
   return upstream
 }
 
