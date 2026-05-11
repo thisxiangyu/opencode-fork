@@ -273,6 +273,7 @@ const 团队Prompt = "项目规划 - 团队围绕着规划图CLI推进任务。"
 export class 压缩决策员 implements IRole {
   name = "compactor"
   介入间隔 = 0
+  压缩阈值 = 1000 * 200
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个压缩决策员，负责在每轮执行前判断是否需要对执行者的会话进行压缩（compact）。
 压缩的含义：将旧的对话历史总结为摘要，仅保留最近的关键上下文。好的压缩让执行者更聪明（释放无关历史，聚焦当前任务），坏的压缩因思维链断裂导致状态不一致。
@@ -284,7 +285,7 @@ ${团队Prompt}
 1. 翻新度：如果本轮任务跟上一轮比是"高翻新"（7-10分：不同任务类型、同任务的不同层次、切换功能模块、不同文件、同文件中度或大型重构、思维链不需延续）→ 建议压缩
           如果本轮任务跟上一轮比是"低翻新"（1-6分：必须严格复用上一个任务思维链）→ 不压缩
 2. Context Rot 迹象：如果会话过长或模型频繁"忘记"前文 → 建议压缩` }
-  systemPrompt(upstreamMsg: string) { return `本轮的任务：
+  systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
 ${upstreamMsg}
 ---
@@ -1530,6 +1531,16 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         if (usage?.input !== undefined && usage.input >= threshold) {
           compactBeforeSend = true
           logFile.info(`[规划者] token用量=${usage.input} >= 阈值=${threshold}，触发压缩`)
+        }
+      }
+
+      // 【压缩决策员压缩】基于 session token 用量与阈值比较，自动触发
+      if (currentRole instanceof 压缩决策员) {
+        const usage = session.getTokenUsage()
+        const threshold = (currentRole as 压缩决策员).压缩阈值
+        if (usage?.input !== undefined && usage.input >= threshold) {
+          compactBeforeSend = true
+          logFile.info(`[压缩决策员] token用量=${usage.input} >= 阈值=${threshold}，触发压缩`)
         }
       }
 
