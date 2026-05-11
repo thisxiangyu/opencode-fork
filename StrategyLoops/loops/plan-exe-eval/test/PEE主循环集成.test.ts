@@ -593,6 +593,50 @@ describe("PEE main loop integration", () => {
     })).rejects.toThrow("派发验证尝试超过10次")
   })
 
+  it("rejects planner dispatch when task is already completed and retries with correct task", async () => {
+    const projectDir = "/tmp/pee-completed-task-reject"
+    const taskMap = new Map<string, any>([
+      ["已完成任务", {
+        ID: 1,
+        标题: "已完成任务",
+        任务描述: "该任务已完成",
+        Tag: ["test"],
+        是否完成: true,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+      ["未完成任务", {
+        ID: 2,
+        标题: "未完成任务",
+        任务描述: "该任务未完成，可正常派发",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    const { sessions } = await runMainWithScript({
+      projectDir,
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "已完成任务", 留言: "派发一个已完成的任务" }),
+        async () => JSON.stringify({ 本轮任务标题: "未完成任务", 留言: "改派未完成的任务" }),
+        async () => "<整个项目已全部提前完成>",
+        async () => "是的",
+      ],
+      taskMap,
+    })
+
+    const plannerSession = sessions.get("规划者")
+    expect(plannerSession).toBeDefined()
+    const plannerMessages = await plannerSession!.getMessages()
+    // 验证规划者收到了"已完成"拒绝消息
+    expect(plannerMessages.some(m => m.content.includes("已完成，不能派发"))).toBe(true)
+    expect(plannerMessages.some(m => m.content.includes("如果需要重新执行该任务，请另开一个单独的任务来补充执行"))).toBe(true)
+  })
+
   it("sends exhaustion message to planner and exits when user presses Enter", async () => {
     const projectDir = "/tmp/pee-exhausted-exit"
     const taskMap = new Map<string, any>([

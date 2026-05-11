@@ -213,8 +213,6 @@ export class 规划者 implements IRole {
     你应当理解目标、分析局面、制定规划图。
 
     你可以不亲自去执行。但是你必须亲自理解、亲自规划（使用规划图而不要使用文件）。
-
-    你是对最终结果负责。
     
     不要在规划图或任务留言中让别人去规划，不要命令别人动规划图。
 
@@ -1065,6 +1063,14 @@ async function validatePlannerDispatch(
       response = await session.sendMsg({
         msgSource: MSG_SOURCE.system,
         content: `任务"${title}"已被删除，无法派发。请检查规划图，重新输出完整的派发 JSON，选择一个未被删除的任务。`,
+      }, false)
+      continue
+    }
+    if (task.是否完成) {
+      consoleAndLogFile.warn(`[派发验证] 任务"${title}"已完成，阻止派发`)
+      response = await session.sendMsg({
+        msgSource: MSG_SOURCE.system,
+        content: `你派发的任务"${title}"已完成，不能派发。请检查。如果需要重新执行该任务，请另开一个单独的任务来补充执行。`,
       }, false)
       continue
     }
