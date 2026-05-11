@@ -6,6 +6,8 @@
 
 import { INTERRUPTION_REASON, type InterruptedMsgContext } from "../../common/types"
 
+export type 稀疏任务动态映射 = Record<string, string>
+
 // ============== JSON 解析 ==============
 
 /**
@@ -359,6 +361,12 @@ export function normalizeRoleName(currentRoleName: string): string {
   return currentRoleName
 }
 
+export function shouldRoleInterveneThisRound(介入间隔: number, cycle: number): boolean {
+  if (介入间隔 === 0) return true
+  if (cycle === 0) return true
+  return cycle % 介入间隔 === 0
+}
+
 // ============== roundInfo 构建 ==============
 
 /**
@@ -368,6 +376,25 @@ export function buildRoundInfo(cycle: number, maxCycles: number): string {
   const now = new Date()
   const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`
   return `当前时间：${timeStr}，第${cycle + 1}轮/共${maxCycles}轮\n\n`
+}
+
+export function buildRoundInfoWithSparseScope(
+  cycle: number,
+  maxCycles: number,
+  _角色名: string,
+  介入间隔: number,
+  任务动态映射: 稀疏任务动态映射,
+): string {
+  const base = buildRoundInfo(cycle, maxCycles)
+  if (介入间隔 === 0) return base
+  const entries = Object.entries(任务动态映射)
+  if (entries.length === 0) {
+    return base + `自你上次介入以来，暂无新增任务。请结合当前未提交变更和最近几次提交，自行判断是否还有值得检查的地方。\n\n`
+  }
+  const scope = entries
+    .map(([任务标题, 一句话动态]) => `- ${任务标题}: ${一句话动态}`)
+    .join("\n")
+  return base + `下面这些任务是自你上次介入以来新增的，请重点检查它们：\n${scope}\n\n`
 }
 
 // ============== 消息内容构建 =============

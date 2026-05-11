@@ -9,6 +9,7 @@ import { askUserWithTimeout } from "./system"
  */
 export interface IRole {
   name: string
+  介入间隔: number
   knowledgeDomainPrompt(): string // 知识域提示词, 区分Role的系统提示词。
   systemPrompt(upstreamMsg: string): string // 接收上一个上游的响应，构造本轮发送内容。
   memory?: string

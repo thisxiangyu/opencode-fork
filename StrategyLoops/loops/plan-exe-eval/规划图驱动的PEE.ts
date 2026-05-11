@@ -48,8 +48,11 @@ import {
   normalizeRoleName,
   planResumedValidation,
   resetRejectionState,
+  shouldRoleInterveneThisRound,
   takeLatestDispatchableInterruption,
+  type 稀疏任务动态映射,
   type RejectionState,
+  buildRoundInfoWithSparseScope,
 } from "./PEE.utils"
 
 /** 异常提交修复最大重试次数 */
@@ -184,6 +187,7 @@ function validate提交员动态(raw: string): { valid: boolean; error?: string 
 export class 规划者 implements IRole {
   memory?: string | undefined
   name = "planner"
+  介入间隔 = 0
   disabledTools = ["question", "todowrite"]
 
   项目已提前完成sign = "<整个项目已全部提前完成>"
@@ -242,7 +246,7 @@ export class 规划者 implements IRole {
   查看任务动态，根据当前仓库情况，派发新一轮任务。仅派发末端任务，不派发高层次任务。
 ` }
   accessMode: "readonly" | "writable" = "writable"
-  model = Opus47
+  model = GPT55
 
   outputSchema = {
     type: "object",
@@ -264,12 +268,16 @@ export class 规划者 implements IRole {
   }
 }
 
+const 团队Prompt = "项目规划 - 团队围绕着规划图CLI推进任务。"
+
 export class 压缩决策员 implements IRole {
   name = "compactor"
+  介入间隔 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个压缩决策员，负责在每轮执行前判断是否需要对执行者的会话进行压缩（compact）。
 压缩的含义：将旧的对话历史总结为摘要，仅保留最近的关键上下文。好的压缩让执行者更聪明（释放无关历史，聚焦当前任务），坏的压缩因思维链断裂导致状态不一致。
 
+${团队Prompt}
 你可以阅读规划图、阅读仓库历史、阅读源码或相关资产，从而了解任务详情。
 
 你的判断依据：
@@ -301,13 +309,17 @@ ${upstreamMsg}
 
 export class 执行者 implements IRole {
   name = "executor"
+  介入间隔 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个执行者，负责落实每一轮任务。你首先应阅读项目WIKI，了解项目要求。
 
     提交权限由当前策略配置决定；若系统未明确授予提交权限，你不得擅自提交，无论是代码仓库还是资产仓库。你只负责实现。
 
     如果你认为规划者的任务分配不合理，你需要先完成你觉得合理的部分，不合理的部分给出明确的理由和建议。通过在规划图CLI中添加动态的方式反驳规划者的决策。
-    对于团队成员给出的修复建议，先理解，再分步执行。` }
+    对于团队成员给出的修复建议，先理解，再分步执行。
+    
+    ${团队Prompt}
+    ` }
   systemPrompt(upstreamMsg: string) { return `下面是一些信息：
 ---
 ${upstreamMsg}
@@ -334,11 +346,15 @@ ${upstreamMsg}
 
 export class 评估者 implements IRole {
   name = "evaluator"
+  介入间隔 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { 
     return `你是一个评估者，负责代码Review、内容审查、指导优化。你专业而挑剔，常常能深度思考，洞察细微差错。
 
-${代码评审()}` 
+${代码评审()}
+
+${团队Prompt}
+` 
   }
   systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
@@ -368,20 +384,27 @@ ${upstreamMsg}
 
 export class 冗余枝剪者 implements IRole {
   name = "scissorHands"
+  介入间隔 = 2
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return `你是一个冗余枝剪者，负责寻找当前这次未提交的变更中：
+  knowledgeDomainPrompt() { return `你是一个冗余枝剪者，负责寻找项目中：
     因前后逻辑覆盖、项目推进太快造成的不必要的冗余/误导性路径（代码、逻辑、文件、文件夹、资产等）
+
+    【工作范围】
+    当前这次未提交的变更 以及最近几次任务涉及的历史提交。
 
     工作流程：
     1. 先检查问题：查阅仓库变更，识别冗余代码、无用文件、误导性路径
     2. 解决问题：删除或重构冗余部分
-    3. 输出动态：用一句话总结本次检测和修复情况（格式见下方输出要求）` }
+    3. 输出动态：用一句话总结本次检测和修复情况（格式见下方输出要求）
+    
+    ${团队Prompt}
+    ` }
   systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
 ${upstreamMsg}
 ---
 
-请查阅本轮的仓库变更，进行冗余枝剪。` }
+请查阅本轮的仓库变更和最近几次提交涉及的文件，进行冗余枝剪。` }
   accessMode: "readonly" | "writable" = "writable"
   model = MiniMax27HS
 
@@ -393,11 +416,13 @@ ${upstreamMsg}
 
 export class 架构师 implements IRole {
   name = "architect"
+  介入间隔 = 3
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { 
     return `你是一个架构师，负责从更高明的角度审视项目。你只做重构评估，不新增功能。
 
-${架构评审()}
+【工作范围】
+ 当前这次未提交的变更 以及最近几次任务涉及的历史提交。
 
 【全局视角】规划图工具请查看说明书。你只允许查询，不允许增删改动。
 
@@ -413,15 +438,19 @@ ${架构评审()}
   有哪些未来可拓展的产品点（当前实现是否满足该点的拓展要求）？
   是否有更高明的设计？
 
-  逐行查找：过度设计（过度设计是原罪，简单清晰是最好的）
-  原则：规划图权威，你的重构不应该违背规划图的规划意图。这要求你必须小心谨慎，真实理解了规划图的路线图意图。` 
+  ${架构评审()}
+
+  逐行查找 - 过度设计（过度设计是原罪，简单清晰是最好的）
+  原则 - 规划图权威，你的重构不应该违背规划图的规划意图。这要求你必须小心谨慎，真实理解了规划图的路线图意图。
+  ${团队Prompt}
+  ` 
   }
   systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
 ${upstreamMsg}
 ---
 
-请查阅本轮的仓库变更，执行架构评估。` }
+请查阅本轮的仓库变更和最近几次提交涉及的文件，执行架构评估。` }
   accessMode: "readonly" | "writable" = "readonly"
   model = MiniMax27HS
 
@@ -447,6 +476,7 @@ ${upstreamMsg}
 
 export class 质保员 implements IRole {
   name = "QA"
+  介入间隔 = 2
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个质保员，负责写测试、找bug/复现bug/记录bug。
 
@@ -456,7 +486,10 @@ export class 质保员 implements IRole {
     工作流程：
     1. 先检查问题：查阅仓库变更，检查测试覆盖率，排查bug，识别缺失的测试用例
     2. 解决问题：编写缺失的测试，修复发现的bug
-    3. 输出动态：用一句话总结本次检测和修复情况（格式见下方输出要求）` }
+    3. 输出动态：用一句话总结本次检测和修复情况（格式见下方输出要求）
+    
+    ${团队Prompt}
+    ` }
   systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
 ${upstreamMsg}
@@ -474,6 +507,7 @@ ${upstreamMsg}
 
 export class 边缘质保员 implements IRole {
   name = "edgeQA"
+  介入间隔 = 2
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个边缘质保员，负责写测试、寻找质保员测试时未覆盖到的边缘情况。
 
@@ -489,7 +523,10 @@ export class 边缘质保员 implements IRole {
     工作流程：
     1. 先检查问题：查阅仓库变更和测试文件，识别未覆盖的边缘情况
     2. 解决问题：编写边缘情况的测试用例
-    3. 输出动态：用一句话总结本次检测和修复情况（格式见下方输出要求）` }
+    3. 输出动态：用一句话总结本次检测和修复情况（格式见下方输出要求）
+    
+    ${团队Prompt}
+    ` }
   systemPrompt(upstreamMsg: string) { return `一些信息：
 ---
 ${upstreamMsg}
@@ -507,6 +544,7 @@ ${upstreamMsg}
 
 export class 提交员 implements IRole {
   name = "commitman"
+  介入间隔 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() {
     return `你是一个提交员，负责提交仓库。包括git仓库（如有）、svn仓库（如有）等等。
@@ -1192,6 +1230,8 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
   }
 
   let currentRole = 规划者instance
+  const 提交员任务动态日志: Array<{ 任务标题: string; 一句话动态: string }> = []
+  const 稀疏角色已读游标 = new Map<string, number>()
 
   // 打回状态管理
   const rejectionState = createRejectionState()
@@ -1323,6 +1363,31 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     return Role跳转策略内核(r, response, rejectionState)
   }
 
+  const 构建稀疏角色任务范围 = (role: IRole): 稀疏任务动态映射 => {
+    const start = 稀疏角色已读游标.get(role.name) ?? 0
+    return 提交员任务动态日志.slice(start).reduce<稀疏任务动态映射>((acc, item) => {
+      acc[item.任务标题] = item.一句话动态
+      return acc
+    }, {})
+  }
+
+  const shouldExecuteCurrentRole = (role: IRole, currentCycle: number): boolean => {
+    if (rejectionState.inRejectionLoop) return true
+    return shouldRoleInterveneThisRound(role.介入间隔, currentCycle)
+  }
+
+  const getSkippedRoleSuccessor = (role: IRole): IRole => {
+    const index = allRoles.findIndex((item) => item.name === role.name)
+    if (index === -1) {
+      throw new Error(`角色 ${role.name} 不在调度序列中，无法跳过`)
+    }
+    const nextRole = allRoles[(index + 1) % allRoles.length]
+    if (!nextRole) {
+      throw new Error(`角色 ${role.name} 跳过后找不到后继角色`)
+    }
+    return nextRole
+  }
+
   const interruptionQueue: InterruptedMsgContext[] = []
 
   consoleAndLogFile.infoC(LOG_COLOR.GREEN, `[${策略描述}][预备] 总圈数=${runtimeDeps.loopConfig.maxCycles}`)
@@ -1398,6 +1463,13 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     outer: while (true) {
       // 内层循环：正常轮次执行
       while (cycle < runtimeDeps.loopConfig.maxCycles) {
+      if (!shouldExecuteCurrentRole(currentRole, cycle)) {
+        const nextRole = getSkippedRoleSuccessor(currentRole)
+        consoleAndLogFile.info(`[稀疏角色跳过] 第${cycle + 1}轮跳过 ${currentRole.name}，介入间隔=${currentRole.介入间隔}，下一角色=${nextRole.name}`)
+        currentRole = nextRole
+        continue
+      }
+
       // 【中断消费语义】
       // 这里统一消费四种中断语义：
       // - pause / new_message / rollback：恢复被中断角色的本轮输出，随后允许用户决定消息派发给哪个角色
@@ -1488,7 +1560,15 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         const commitPolicyPrompt = buildCommitPolicyPrompt(currentRole, commitAllowedRoles)
 
         let msgToBeSent: string
-        const roundInfo = buildRoundInfo(cycle, runtimeDeps.loopConfig.maxCycles)
+        const roundInfo = currentRole.介入间隔 === 0
+          ? buildRoundInfo(cycle, runtimeDeps.loopConfig.maxCycles)
+          : buildRoundInfoWithSparseScope(
+            cycle,
+            runtimeDeps.loopConfig.maxCycles,
+            currentRole.name,
+            currentRole.介入间隔,
+            构建稀疏角色任务范围(currentRole),
+          )
         const roundInfoSuffix = rejectionState.inRejectionLoop && currentRole instanceof 执行者
           ? EXECUTOR_REJECTION_ROUNDINFO_SUFFIX
           : ""
@@ -1749,6 +1829,10 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
 
         // 【提交员完成后提取提交信息】
         if (currentRole instanceof 提交员) {
+          const commitOutput = extractJSON(response)
+          if (commitOutput?.一句话动态 && currentTaskTitle) {
+            提交员任务动态日志.push({ 任务标题: currentTaskTitle, 一句话动态: commitOutput.一句话动态 })
+          }
           // 提取提交信息，作为下一轮规划者的 upstream
           // 简化处理：直接使用提交员的输出作为提交信息
           const commitInfo = `[上一轮提交信息]\n${response.substring(0, 500)}${response.length > 500 ? "..." : ""}`
@@ -1777,6 +1861,9 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         }
         if (currentRole !== 执行者instance && currentRole !== 压缩决策员instance) {
           compactBeforeSend = false
+        }
+        if (currentRole.介入间隔 > 0) {
+          稀疏角色已读游标.set(currentRole.name, 提交员任务动态日志.length)
         }
 
         let nextRole = Role跳转策略(currentRole, response)

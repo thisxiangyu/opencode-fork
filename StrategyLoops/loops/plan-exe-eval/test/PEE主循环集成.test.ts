@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest"
 import { mkdir, writeFile, copyFile } from "fs/promises"
 import { join } from "path"
+import { consoleAndLogFile } from "../../../common/logger"
 import { AbortError, INTERRUPTION_REASON, MSG_SOURCE, type InterruptedMsgContext, type SessionMessage } from "../../../common/types"
 import type { IRole } from "../../../common/role"
 import type { ISession } from "../../../common/session"
 import { LoopConfig } from "../../../common/loopConfig"
-import { main } from "../规划图驱动的PEE"
+import { main, 冗余枝剪者, 架构师, 质保员, 边缘质保员 } from "../规划图驱动的PEE"
 
 const 静态检查模版Path = join(__dirname, "../../../common/CICD/Node静态检查模版.js")
 
@@ -232,15 +233,10 @@ describe("PEE main loop integration", () => {
     expect(setupProjectEnvironment).toHaveBeenCalledWith(projectDir, "test-start", expect.any(Function))
     expect(relocateRole).toHaveBeenCalled()
     const executorSession = sessions.get("executor")
-    const edgeSession = sessions.get("edgeQA")
     expect(executorSession).toBeDefined()
-    expect(edgeSession).toBeDefined()
     const executorMessages = await executorSession!.getMessages()
-    const edgeMessages = await edgeSession!.getMessages()
     expect(executorMessages.some((message) => message.msgSource === MSG_SOURCE.system)).toBe(true)
-    expect(edgeMessages.some((message) => message.msgSource === MSG_SOURCE.system)).toBe(true)
     expect(relocateRole).toHaveBeenCalledTimes(1)
-    expect(activities.some((activity) => activity.角色 === "edgeQA")).toBe(true)
     expect(activities.some((activity) => activity.角色 === "commitman")).toBe(true)
   })
 
@@ -327,13 +323,8 @@ describe("PEE main loop integration", () => {
 
     const executorSession = sessions.get("executor")!
     const evaluatorSession = sessions.get("evaluator")!
-    const scissorSession = sessions.get("scissorHands")!
-    const architectSession = sessions.get("architect")!
-
     expect(executorSession.getCompactHistoryCalls()).toEqual([true, false])
     expect(evaluatorSession.getCompactHistoryCalls()).toEqual([true, false])
-    expect(scissorSession.getCompactHistoryCalls()).toEqual([false])
-    expect(architectSession.getCompactHistoryCalls()).toEqual([false])
   })
 
   it("asks executor to fix static check failures before moving to evaluator", async () => {
@@ -432,16 +423,21 @@ describe("PEE main loop integration", () => {
 
     const { activities, sessions } = await runMainWithScript({
       projectDir,
+      maxCycles: 2,
       plannerResponses: [
         async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "关注架构一致性" }),
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "第2轮继续看架构" }),
         async () => "<整个项目已全部提前完成>",
         async () => "是的",
       ],
+      compactorResponses: Array.from({ length: 2 }, () => async () => JSON.stringify({ 是否压缩: false })),
       executorResponses: [
         async () => "第一次实现",
         async () => "已按架构建议重新分层，暂无已知遗留风险。",
+        async () => "第二轮正常执行",
       ],
       evaluatorResponses: [
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
         async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
         async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
       ],
@@ -452,6 +448,10 @@ describe("PEE main loop integration", () => {
       scissorResponses: [
         async () => JSON.stringify({ 一句话动态: "检查无问题" }),
         async () => JSON.stringify({ 一句话动态: "检查无问题" }),
+      ],
+      commitResponses: [
+        async () => JSON.stringify({ 一句话动态: "无提交，原因: 第1轮测试" }),
+        async () => JSON.stringify({ 一句话动态: "无提交，原因: 第2轮测试" }),
       ],
       taskMap,
     })
@@ -470,7 +470,7 @@ describe("PEE main loop integration", () => {
     const architectMessages = await architectSession!.getMessages()
     expect(executorMessages.some((message) => message.content.includes('"架构问题":["分层不清晰"]'))).toBe(true)
     expect(executorMessages.some((message) => message.content.includes('"重构建议":"按领域拆分"'))).toBe(true)
-    expect(evaluatorMessages.some((message) => message.content.includes("执行反馈: 已按架构建议重新分层，暂无已知遗留风险。"))).toBe(true)
+    expect(evaluatorMessages.some((message) => message.content.includes("架构师第1次打回"))).toBe(true)
     expect(evaluatorMessages.length).toBeGreaterThanOrEqual(2)
     expect(scissorMessages.length).toBeGreaterThanOrEqual(2)
     expect(architectMessages.length).toBeGreaterThanOrEqual(2)
@@ -527,9 +527,14 @@ describe("PEE main loop integration", () => {
 
     await expect(runMainWithScript({
       projectDir,
+      maxCycles: 2,
       plannerResponses: [
         async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "触发QA动态落库失败" }),
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "第2轮触发QA动态落库失败" }),
       ],
+      compactorResponses: Array.from({ length: 2 }, () => async () => JSON.stringify({ 是否压缩: false })),
+      executorResponses: Array.from({ length: 2 }, () => async () => "执行完成"),
+      evaluatorResponses: Array.from({ length: 2 }, () => async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })),
       taskMap,
       failOnActivityRole: "QA",
     })).rejects.toThrow("记录角色动态失败")
@@ -834,9 +839,7 @@ describe("PEE main loop integration", () => {
       getGitHead: mockGetGitHead,
     })
 
-    // 提交员（默认授权）刷新基线：初始化 + 5 个无权限角色检查 = 6 次，
-    // 提交员到达时刷新 + 结束后刷新 ≥ 2 次，总计 ≥ 8。
-    // 断言 > 6 即可证明提交员刷新已发生。
+    // 首轮所有角色都应介入，因此首轮调用数应恢复到包含全部 writable 角色检查的水平。
     expect(mockGetGitHead.mock.calls.length).toBeGreaterThan(6)
   })
 
@@ -895,6 +898,123 @@ describe("PEE main loop integration", () => {
     // 若基线未刷新，第二轮规划者会对 "new00001" 参照旧基线 "abc123def" 报异常提交
     // 测试不抛异常即证明基线正确刷新
     expect(mockGetGitHead).toHaveBeenCalled()
+  })
+
+  it("adapts sparse-role assertions to current configured intervals", async () => {
+    const projectDir = "/tmp/pee-sparse-filter-roles"
+    const sparseRoles = [
+      { name: "scissorHands", role: new 冗余枝剪者() },
+      { name: "architect", role: new 架构师() },
+      { name: "QA", role: new 质保员() },
+      { name: "edgeQA", role: new 边缘质保员() },
+    ]
+    const maxInterval = Math.max(...sparseRoles.map((item) => item.role.介入间隔))
+    const maxCycles = maxInterval + 1
+    const taskMap = new Map<string, any>([
+      ["测试任务1", {
+        ID: 1,
+        标题: "测试任务1",
+        任务描述: "验证稀疏滤镜角色首轮介入",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+      ["测试任务2", {
+        ID: 2,
+        标题: "测试任务2",
+        任务描述: "验证第二轮跳过",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+      ["测试任务3", {
+        ID: 3,
+        标题: "测试任务3",
+        任务描述: "验证第三轮批量任务范围",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+      ["测试任务4", {
+        ID: 4,
+        标题: "测试任务4",
+        任务描述: "验证更大介入间隔时的再次介入",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    const consoleSpy = vi.spyOn(consoleAndLogFile, "info")
+    try {
+      const { sessions } = await runMainWithScript({
+        projectDir,
+        maxCycles,
+        plannerResponses: [
+          async () => JSON.stringify({ 本轮任务标题: "测试任务1", 留言: "第1轮" }),
+          async () => JSON.stringify({ 本轮任务标题: "测试任务2", 留言: "第2轮" }),
+          async () => JSON.stringify({ 本轮任务标题: "测试任务3", 留言: "第3轮" }),
+          async () => JSON.stringify({ 本轮任务标题: "测试任务4", 留言: "第4轮" }),
+          async () => "收到",
+        ].slice(0, maxCycles + 1),
+        compactorResponses: Array.from({ length: maxCycles }, () => async () => JSON.stringify({ 是否压缩: false })),
+        executorResponses: Array.from({ length: maxCycles }, () => async () => "执行完成"),
+        evaluatorResponses: Array.from({ length: maxCycles }, () => async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })),
+        scissorResponses: Array.from({ length: maxCycles }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+        architectResponses: Array.from({ length: maxCycles }, () => async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })),
+        qaResponses: Array.from({ length: maxCycles }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+        edgeQaResponses: Array.from({ length: maxCycles }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+        commitResponses: [
+          async () => JSON.stringify({ 一句话动态: "无提交，原因: 第1轮测试" }),
+          async () => JSON.stringify({ 一句话动态: "无提交，原因: 第2轮测试" }),
+          async () => JSON.stringify({ 一句话动态: "无提交，原因: 第3轮测试" }),
+          async () => JSON.stringify({ 一句话动态: "无提交，原因: 第4轮测试" }),
+          async () => JSON.stringify({ 一句话动态: "无提交，原因: 额外测试" }),
+        ].slice(0, maxCycles + 1),
+        taskMap,
+      })
+
+      const commitDynamics = [
+        "无提交，原因: 第1轮测试",
+        "无提交，原因: 第2轮测试",
+        "无提交，原因: 第3轮测试",
+        "无提交，原因: 第4轮测试",
+      ]
+
+      for (const sparseRole of sparseRoles) {
+        const messages = await sessions.get(sparseRole.name)?.getMessages()
+        expect(messages).toBeDefined()
+        const interveneCycles = Array.from({ length: maxCycles }, (_, cycle) => cycle)
+          .filter((cycle) => cycle === 0 || cycle % sparseRole.role.介入间隔 === 0)
+        expect(messages).toHaveLength(interveneCycles.length)
+        expect(messages?.[0]?.content).toContain("暂无新增任务")
+
+        for (let index = 1; index < interveneCycles.length; index++) {
+          const currentCycle = interveneCycles[index]!
+          const previousCycle = interveneCycles[index - 1]!
+          const expectedTaskIndices = Array.from({ length: currentCycle - previousCycle - 1 }, (_, offset) => previousCycle + offset + 1)
+          for (const taskIndex of expectedTaskIndices) {
+            expect(messages?.[index]?.content).toContain(`测试任务${taskIndex + 1}: ${commitDynamics[taskIndex]}`)
+          }
+        }
+
+        const skippedCycles = Array.from({ length: maxCycles }, (_, cycle) => cycle)
+          .filter((cycle) => cycle > 0 && cycle % sparseRole.role.介入间隔 !== 0)
+        for (const skippedCycle of skippedCycles) {
+          expect(consoleSpy.mock.calls.some(([message]) => String(message).includes(`[稀疏角色跳过] 第${skippedCycle + 1}轮跳过 ${sparseRole.name}`))).toBe(true)
+        }
+      }
+    } finally {
+      consoleSpy.mockRestore()
+    }
   })
 
   it("does not trigger commit detection for readonly roles", async () => {

@@ -7,6 +7,7 @@ import {
   buildMsgToBeSent,
   buildRejectionUpstream,
   buildRoundInfo,
+  buildRoundInfoWithSparseScope,
   buildUpstreamForRole,
   createRejectionState,
   enqueueRollbackInterruption,
@@ -19,6 +20,7 @@ import {
   normalizeRoleName,
   planResumedValidation,
   resetRejectionState,
+  shouldRoleInterveneThisRound,
   takeLatestDispatchableInterruption,
   validateDependencies,
   type RejectionState,
@@ -405,6 +407,39 @@ describe("PEE utils", () => {
 
       expect(message.startsWith(roundInfo + hint)).toBe(true)
       expect(message).toContain("执行: 请修复变量命名问题")
+    })
+
+    it("adds sparse task scope into roundInfo for non-core roles", () => {
+      const roundInfo = buildRoundInfoWithSparseScope(1, 4, "architect", 2, {
+        "任务A": "已提交，git哈希: abc123",
+        "任务B": "无提交，原因: 测试",
+      })
+
+      expect(roundInfo).toContain("第2轮/共4轮")
+      expect(roundInfo).toContain("下面这些任务是自你上次介入以来新增的，请重点检查它们")
+      expect(roundInfo).toContain("任务A: 已提交，git哈希: abc123")
+      expect(roundInfo).toContain("任务B: 无提交，原因: 测试")
+    })
+
+    it("keeps core roles dense without sparse scope", () => {
+      expect(buildRoundInfoWithSparseScope(0, 4, "planner", 0, {})).toContain("第1轮/共4轮")
+      expect(buildRoundInfoWithSparseScope(0, 4, "planner", 0, {})).not.toContain("稀疏介入角色")
+    })
+
+    it("uses prompt-like wording when sparse scope is empty", () => {
+      const roundInfo = buildRoundInfoWithSparseScope(0, 4, "architect", 2, {})
+
+      expect(roundInfo).toContain("自你上次介入以来，暂无新增任务")
+      expect(roundInfo).not.toContain("本角色为稀疏介入角色")
+    })
+  })
+
+  describe("sparse role scheduling", () => {
+    it("always runs first round, keeps core dense, and sparsifies later rounds by interval", () => {
+      expect(shouldRoleInterveneThisRound(0, 0)).toBe(true)
+      expect(shouldRoleInterveneThisRound(2, 0)).toBe(true)
+      expect(shouldRoleInterveneThisRound(2, 1)).toBe(false)
+      expect(shouldRoleInterveneThisRound(2, 2)).toBe(true)
     })
   })
 
