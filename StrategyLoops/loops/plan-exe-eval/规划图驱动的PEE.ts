@@ -1,6 +1,12 @@
 /**
  * PEE是隐式地将【决策】包含在"规划"当中的，即规划者同时承担决策职责（coo和ceo同体，类似于早期创业公司的组织形态，缺点是，对于开放式决策缺乏慢思考），
  * 适合不需要开放式决策、以封闭式决策为主的项目。
+ *
+ * 角色流程：规划者 → 压缩决策员 → 注释与文档对齐员 → 执行者 → 评估者 → (打回执行者 OR 冗余枝剪者)
+ *          → 冗余枝剪者 → 架构师 → (打回执行者 OR 质保员)
+ *          → 质保员 → 边缘质保员 → 提交员 → 规划者
+ * 
+ * 5+n 思想：介入间隔为0的角色是稠密工作者，介入间隔大于0的角色是稀疏工作者。以下5个角色必须稠密：规划者、压缩决策员、执行者、评估者、提交员。其它角色可以安插、调整。
  */
 import { consoleAndLogFile, LOG_DIR, logFile, LOG_COLOR, RESET } from "../../common/logger"
 import { AskTo重新定位角色, 检查names重复, type IRole,
@@ -101,7 +107,7 @@ const config = new LoopConfig({ maxCycles: 30 , startPrompt: makeAI网站开发S
 
 /** 输出格式校验最大重试次数 */
 const OUTPUT_MAX_FORMAT_RETRIES = 3
-const EXECUTOR_REJECTION_ROUNDINFO_SUFFIX = "检查是的确存在的问题还是瞎说。实践后，请输出5句话以内的执行反馈\n\n"
+const 执行者打回轮次信息后缀 = "检查是的确存在的问题还是瞎说。实践后，请输出5句话以内的执行反馈\n\n"
 
 /** 单个角色打回上限（第5次打回会触发） */
 const MAX_REJECTIONS_PER_ROLE = 4
@@ -186,7 +192,7 @@ function validate提交员动态(raw: string): { valid: boolean; error?: string 
 
 export class 规划者 implements IRole {
   memory?: string | undefined
-  name = "planner"
+  name = "规划者"
   介入间隔 = 0
   disabledTools = ["question", "todowrite"]
 
@@ -271,7 +277,7 @@ export class 规划者 implements IRole {
 const 团队Prompt = "项目规划 - 团队围绕着规划图CLI推进任务。"
 
 export class 压缩决策员 implements IRole {
-  name = "compactor"
+  name = "压缩决策员"
   介入间隔 = 0
   压缩阈值 = 1000 * 200
   disabledTools = ["question", "github_*"]
@@ -309,7 +315,7 @@ ${upstreamMsg}
 }
 
 export class 注释与文档对齐员 implements IRole {
-  name = "docAligner"
+  name = "注释与文档对齐员"
   介入间隔 = 2
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是注释与文档专项对其员，你：
@@ -335,12 +341,10 @@ ${upstreamMsg}
 }
 
 export class 执行者 implements IRole {
-  name = "executor"
+  name = "执行者"
   介入间隔 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个执行者，负责落实每一轮任务。你首先应阅读项目WIKI，了解项目要求。
-
-    提交权限由当前策略配置决定；若系统未明确授予提交权限，你不得擅自提交，无论是代码仓库还是资产仓库。你只负责实现。
 
     如果你认为规划者的任务分配不合理，你需要先完成你觉得合理的部分，不合理的部分给出明确的理由和建议。通过在规划图CLI中添加动态的方式反驳规划者的决策。
     对于团队成员给出的修复建议，先理解，再分步执行。
@@ -372,7 +376,7 @@ ${upstreamMsg}
 }
 
 export class 评估者 implements IRole {
-  name = "evaluator"
+  name = "评估者"
   介入间隔 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { 
@@ -410,7 +414,7 @@ ${upstreamMsg}
 }
 
 export class 冗余枝剪者 implements IRole {
-  name = "scissorHands"
+  name = "冗余枝剪者"
   介入间隔 = 2
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个冗余枝剪者，负责寻找项目中：
@@ -442,7 +446,7 @@ ${upstreamMsg}
 }
 
 export class 架构师 implements IRole {
-  name = "architect"
+  name = "架构师"
   介入间隔 = 3
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { 
@@ -502,8 +506,8 @@ ${upstreamMsg}
 }
 
 export class 质保员 implements IRole {
-  name = "QA"
-  介入间隔 = 2
+  name = "质保员"
+  介入间隔 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个质保员，负责写测试、找bug/复现bug/记录bug。
 
@@ -533,7 +537,7 @@ ${upstreamMsg}
 }
 
 export class 边缘质保员 implements IRole {
-  name = "edgeQA"
+  name = "边缘质保员"
   介入间隔 = 2
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个边缘质保员，负责写测试、寻找质保员测试时未覆盖到的边缘情况。
@@ -570,7 +574,7 @@ ${upstreamMsg}
 }
 
 export class 提交员 implements IRole {
-  name = "commitman"
+  name = "提交员"
   介入间隔 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() {
@@ -898,10 +902,11 @@ async function recordRejectionActivity(
 /**
  * 获取"检查-修复-汇报"型角色在规划图中的标准名称。
  *
- * 三个角色的 name 属性与规划图约定的 roleName 不一致，需要映射：
- * - 冗余枝剪者.name = "ScissorHands" → 规划图 roleName = "ScissorHands"
- * - 质保员.name = "QA" → 规划图 roleName = "QA"
- * - 边缘质保员.name = "EdgeQA" → 规划图 roleName = "EdgeQA"
+ * 四个角色的 name 属性与规划图约定的 roleName 一致，直接返回：
+ * - 冗余枝剪者.name = "冗余枝剪者" → 规划图 roleName = "冗余枝剪者"
+ * - 质保员.name = "质保员" → 规划图 roleName = "质保员"
+ * - 边缘质保员.name = "边缘质保员" → 规划图 roleName = "边缘质保员"
+ * - 提交员.name = "提交员" → 规划图 roleName = "提交员"
  */
 export function getActivityRoleName(currentRole: IRole): string {
   return normalizeRoleName(currentRole.name)
@@ -1289,7 +1294,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         state.executorPractices++
         state.totalRejectionLoops++
         state.inRejectionLoop = true
-        state.rejectionSource = "evaluator"
+        state.rejectionSource = "评估者"
         
         logFile.info(`[评估者打回] 第${state.evaluatorRejections}次，总循环${state.totalRejectionLoops}次`)
         
@@ -1307,7 +1312,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         return 执行者instance
       } else {
         // 评估者通过
-        if (state.rejectionSource === "evaluator") {
+        if (state.rejectionSource === "评估者") {
           // 结束评估者打回循环
           state.inRejectionLoop = false
           state.rejectionSource = undefined
@@ -1326,7 +1331,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         state.executorPractices++
         state.totalRejectionLoops++
         state.inRejectionLoop = true
-        state.rejectionSource = "architect"
+        state.rejectionSource = "架构师"
         
         logFile.info(`[架构师打回] 第${state.architectRejections}次，总循环${state.totalRejectionLoops}次`)
         
@@ -1344,7 +1349,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         return 执行者instance
       } else {
         // 架构师通过
-        if (state.rejectionSource === "architect") {
+        if (state.rejectionSource === "架构师") {
           // 结束架构师打回循环
           state.inRejectionLoop = false
           state.rejectionSource = undefined
@@ -1366,7 +1371,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     }
     if(r instanceof 执行者) {
       // 执行者完成后，根据打回状态决定下一步
-      if (state.rejectionSource === "architect") {
+      if (state.rejectionSource === "架构师") {
         // 架构师打回循环：执行者 → 评估者 → 冗余枝剪者 → 架构师
         return 评估者instance
       } else {
@@ -1614,7 +1619,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             构建稀疏角色任务范围(currentRole),
           )
         const roundInfoSuffix = rejectionState.inRejectionLoop && currentRole instanceof 执行者
-          ? EXECUTOR_REJECTION_ROUNDINFO_SUFFIX
+          ? 执行者打回轮次信息后缀
           : ""
         const upstreamMsg = buildUpstreamForRole(
           currentRole.name,
@@ -1843,13 +1848,13 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         //
         // 设计思路：
         // 1. 这四个角色的 outputSchema 统一为 `修复性动态Schema`，要求输出 {"一句话动态": "..."}
-        // 2. 主循环的通用校验机制（L1200-L1230）已经对所有结构化输出角色进行了最多 3 次重试
+        // 2. 主循环的通用校验机制已经对所有结构化输出角色进行了最多 3 次重试
         // 3. 能走到这里的 response，要么已通过 validate 校验，要么是 3 次重试后系统"接受原始输出"放行
         // 4. 因此这里只需简单判断：解析成功就记录，解析失败就跳过（不再额外重试）
         // 5. 动态记录属于辅助信息，不应为此再消耗 1 轮 tokens——信任通用机制已经尽力
         //
         // 与评估者/架构师打回动态的区别：
-        // - 打回动态：由系统根据分支路由自动合成消息（"evaluator打回N次"）
+        // - 打回动态：由系统根据分支路由自动合成消息（"评估者打回N次"）
         // - 此处动态：由角色自己生成内容，系统只负责解析和搬运
         if (
           currentRole instanceof 注释与文档对齐员 ||

@@ -74,7 +74,7 @@ describe("PEE utils", () => {
       state.executorPractices = 4
       state.totalRejectionLoops = 3
       state.inRejectionLoop = true
-      state.rejectionSource = "architect"
+      state.rejectionSource = "架构师"
       state.frozenPlannerInfo = "frozen"
       state.compactorUpstream = "compact"
       state.executorFeedback = "已修复命名问题"
@@ -160,8 +160,8 @@ describe("PEE utils", () => {
           任务描述: "实现用户名密码登录",
           Tag: ["FEAT", "核心功能"],
           动态: [
-            { 角色: "executor", 消息: "已实现登录" },
-            { 角色: "evaluator", 消息: "发现边界问题" },
+            { 角色: "执行者", 消息: "已实现登录" },
+            { 角色: "评估者", 消息: "发现边界问题" },
           ],
         },
         [
@@ -171,12 +171,12 @@ describe("PEE utils", () => {
               {
                 标题: "数据库设计",
                 Tag: ["ARCH"],
-                动态: [{ 角色: "architect", 消息: "表结构已完成" }],
+                动态: [{ 角色: "架构师", 消息: "表结构已完成" }],
               },
               {
                 标题: "鉴权约定",
                 Tag: ["API"],
-                动态: [{ 角色: "planner", 消息: "接口约定已确认" }],
+                动态: [{ 角色: "规划者", 消息: "接口约定已确认" }],
               },
             ],
           },
@@ -186,7 +186,7 @@ describe("PEE utils", () => {
               {
                 标题: "不应出现的二层依赖",
                 Tag: ["OLD"],
-                动态: [{ 角色: "planner", 消息: "旧动态" }],
+                动态: [{ 角色: "规划者", 消息: "旧动态" }],
               },
             ],
           },
@@ -199,12 +199,12 @@ describe("PEE utils", () => {
       expect(upstream).toContain("上层依赖任务：")
         expect(upstream).toContain("数据库设计")
         expect(upstream).toContain("  Tag: ARCH")
-        expect(upstream).toContain("[architect: 表结构已完成]")
+        expect(upstream).toContain("[架构师: 表结构已完成]")
         expect(upstream).toContain("鉴权约定")
         expect(upstream).toContain("  Tag: API")
-        expect(upstream).toContain("[planner: 接口约定已确认]")
+        expect(upstream).toContain("[规划者: 接口约定已确认]")
         expect(upstream).toContain("当前任务动态：")
-        expect(upstream).toContain("[executor: 已实现登录]")
+        expect(upstream).toContain("[执行者: 已实现登录]")
         expect(upstream).toContain("留言: 请注意测试覆盖")
         expect(upstream.match(/留言: 请注意测试覆盖/g)?.length).toBe(1)
         expect(upstream).not.toContain("不应出现的二层依赖")
@@ -255,21 +255,21 @@ describe("PEE utils", () => {
         executorPractices: 1,
         totalRejectionLoops: 1,
         inRejectionLoop: true,
-        rejectionSource: "evaluator",
+        rejectionSource: "评估者",
         executorFeedback: "已按评估者意见修复变量命名",
         frozenPlannerInfo: "本轮任务标题: 任务A\nTag: FEAT\n",
         compactorUpstream: "上轮任务标题: 任务Z\n上轮任务Tag: OLD\n本轮任务标题: 任务A\n本轮任务Tag: FEAT\n",
       }
 
-      expect(buildUpstreamForRole("executor", state, '{"检查结果":"打回","问题列表":["请修复变量命名"]}')).toBe('{"检查结果":"打回","问题列表":["请修复变量命名"]}')
-      expect(buildUpstreamForRole("evaluator", state, "ignored")).toContain("评估者第1次打回")
-      expect(buildUpstreamForRole("evaluator", state, "ignored")).toContain("执行反馈: 已按评估者意见修复变量命名")
+      expect(buildUpstreamForRole("执行者", state, '{"检查结果":"打回","问题列表":["请修复变量命名"]}')).toBe('{"检查结果":"打回","问题列表":["请修复变量命名"]}')
+      expect(buildUpstreamForRole("评估者", state, "ignored")).toContain("评估者第1次打回")
+      expect(buildUpstreamForRole("评估者", state, "ignored")).toContain("执行反馈: 已按评估者意见修复变量命名")
 
       state.inRejectionLoop = false
-      expect(buildUpstreamForRole("planner", state, "ignored")).toBe("")
-      expect(buildUpstreamForRole("compactor", state, "ignored")).toBe(state.compactorUpstream)
-      expect(buildUpstreamForRole("Commitman", state, "ignored")).toContain("标题: 任务A")
-      expect(buildUpstreamForRole("QA", state, "ignored")).toBe(state.frozenPlannerInfo)
+      expect(buildUpstreamForRole("规划者", state, "ignored")).toBe("")
+      expect(buildUpstreamForRole("压缩决策员", state, "ignored")).toBe(state.compactorUpstream)
+      expect(buildUpstreamForRole("提交员", state, "ignored")).toContain("标题: 任务A")
+      expect(buildUpstreamForRole("质保员", state, "ignored")).toBe(state.frozenPlannerInfo)
     })
 
     it("derives rejection activity after counters have been updated", () => {
@@ -279,29 +279,29 @@ describe("PEE utils", () => {
         executorPractices: 1,
         totalRejectionLoops: 1,
         inRejectionLoop: true,
-        rejectionSource: "evaluator",
+        rejectionSource: "评估者",
       }
 
       expect(
         getRejectionActivityToRecord(
-          "evaluator",
+          "评估者",
           JSON.stringify({ 检查结果: "打回", 问题列表: ["问题"] }),
           state,
         ),
-      ).toEqual({ roleName: "evaluator", rejectionCount: 1 })
+      ).toEqual({ roleName: "评估者", rejectionCount: 1 })
 
       expect(
         getRejectionActivityToRecord(
-          "architect",
+          "架构师",
           JSON.stringify({ 检查结果: "打回", 架构问题: ["问题"], 重构建议: "建议" }),
-          { ...state, architectRejections: 2, rejectionSource: "architect" },
+          { ...state, architectRejections: 2, rejectionSource: "架构师" },
         ),
-      ).toEqual({ roleName: "architect", rejectionCount: 2 })
+      ).toEqual({ roleName: "架构师", rejectionCount: 2 })
 
-      expect(getRejectionActivityToRecord("executor", "plain text", state)).toBeNull()
+      expect(getRejectionActivityToRecord("执行者", "plain text", state)).toBeNull()
       expect(
         getRejectionActivityToRecord(
-          "evaluator",
+          "评估者",
           JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
           state,
         ),
@@ -310,7 +310,7 @@ describe("PEE utils", () => {
 
     it("falls back to last response when no frozen upstream is available", () => {
       const state = createRejectionState()
-      expect(buildUpstreamForRole("executor", state, "上一个角色输出")).toBe("上一个角色输出")
+      expect(buildUpstreamForRole("执行者", state, "上一个角色输出")).toBe("上一个角色输出")
     })
   })
 
@@ -357,7 +357,7 @@ describe("PEE utils", () => {
       expect(role.validateOutput(JSON.stringify({ 是否压缩: "false" })).valid).toBe(false)
     })
 
-    it("validates fixer-style activity schema across docAligner scissorhands qa and edgeqa", () => {
+    it("validates fixer-style activity schema across 注释与文档对齐员 冗余枝剪者 质保员 and 边缘质保员", () => {
       const valid = JSON.stringify({ 一句话动态: "检查无问题" })
       const invalid = JSON.stringify({ 一句话动态: "   " })
 
@@ -432,7 +432,7 @@ describe("PEE utils", () => {
     })
 
     it("adds sparse task scope into roundInfo for non-core roles", () => {
-      const roundInfo = buildRoundInfoWithSparseScope(1, 4, "architect", 2, {
+      const roundInfo = buildRoundInfoWithSparseScope(1, 4, "架构师", 2, {
         "任务A": "已提交，git哈希: abc123",
         "任务B": "无提交，原因: 测试",
       })
@@ -444,12 +444,12 @@ describe("PEE utils", () => {
     })
 
     it("keeps core roles dense without sparse scope", () => {
-      expect(buildRoundInfoWithSparseScope(0, 4, "planner", 0, {})).toContain("第1轮/共4轮")
-      expect(buildRoundInfoWithSparseScope(0, 4, "planner", 0, {})).not.toContain("稀疏介入角色")
+      expect(buildRoundInfoWithSparseScope(0, 4, "规划者", 0, {})).toContain("第1轮/共4轮")
+      expect(buildRoundInfoWithSparseScope(0, 4, "规划者", 0, {})).not.toContain("稀疏介入角色")
     })
 
     it("uses prompt-like wording when sparse scope is empty", () => {
-      const roundInfo = buildRoundInfoWithSparseScope(0, 4, "architect", 2, {})
+      const roundInfo = buildRoundInfoWithSparseScope(0, 4, "架构师", 2, {})
 
       expect(roundInfo).toContain("自你上次介入以来，暂无新增任务")
       expect(roundInfo).not.toContain("本角色为稀疏介入角色")
@@ -483,25 +483,25 @@ describe("PEE utils", () => {
 
     it("takes latest dispatchable interruption and clears queue", () => {
       const queue = [
-        makeInterrupt(INTERRUPTION_REASON.aborted, "planner"),
-        makeInterrupt(INTERRUPTION_REASON.pause, "executor"),
-        makeInterrupt(INTERRUPTION_REASON.rollback, "evaluator"),
+        makeInterrupt(INTERRUPTION_REASON.aborted, "规划者"),
+        makeInterrupt(INTERRUPTION_REASON.pause, "执行者"),
+        makeInterrupt(INTERRUPTION_REASON.rollback, "评估者"),
       ]
 
       const latest = takeLatestDispatchableInterruption(queue)
-      expect(latest?.roleName).toBe("evaluator")
+      expect(latest?.roleName).toBe("评估者")
       expect(latest?.reason).toBe(INTERRUPTION_REASON.rollback)
       expect(queue).toHaveLength(0)
     })
 
     it("enqueues rollback only once after resumed user message", () => {
       const queue: InterruptedMsgContext[] = []
-      enqueueRollbackInterruption(queue, "executor", "旧回复", "新的用户引导", new Date("2026-05-08T10:00:00.000Z"))
-      enqueueRollbackInterruption(queue, "executor", "旧回复", "另一条引导", new Date("2026-05-08T10:01:00.000Z"))
+      enqueueRollbackInterruption(queue, "执行者", "旧回复", "新的用户引导", new Date("2026-05-08T10:00:00.000Z"))
+      enqueueRollbackInterruption(queue, "执行者", "旧回复", "另一条引导", new Date("2026-05-08T10:01:00.000Z"))
 
       expect(queue).toHaveLength(1)
       expect(queue[0]).toMatchObject({
-        roleName: "executor",
+        roleName: "执行者",
         beforeMessage: "旧回复",
         receivedMessage: "新的用户引导",
         reason: INTERRUPTION_REASON.rollback,
@@ -509,10 +509,10 @@ describe("PEE utils", () => {
     })
 
     it("keeps resumed interruption scoped to validation before dispatch selection", () => {
-      const plan = planResumedValidation("planner", "恢复后的规划者输出")
+      const plan = planResumedValidation("规划者", "恢复后的规划者输出")
 
       expect(plan).toEqual({
-        currentRoleName: "planner",
+        currentRoleName: "规划者",
         resumedResponse: "恢复后的规划者输出",
       })
       expect(Object.hasOwn(plan, "selectedNextRoleName")).toBe(false)
@@ -521,10 +521,10 @@ describe("PEE utils", () => {
 
   describe("misc", () => {
     it("normalizes activity role names", () => {
-      expect(normalizeRoleName("ScissorHands")).toBe("ScissorHands")
-      expect(normalizeRoleName("QA")).toBe("QA")
-      expect(normalizeRoleName("EdgeQA")).toBe("EdgeQA")
-      expect(normalizeRoleName("executor")).toBe("executor")
+      expect(normalizeRoleName("冗余枝剪者")).toBe("冗余枝剪者")
+      expect(normalizeRoleName("质保员")).toBe("质保员")
+      expect(normalizeRoleName("边缘质保员")).toBe("边缘质保员")
+      expect(normalizeRoleName("执行者")).toBe("执行者")
     })
   })
 })

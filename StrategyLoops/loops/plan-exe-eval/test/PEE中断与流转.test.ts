@@ -22,14 +22,14 @@ describe("PEE interruption and flow semantics", () => {
       executorPractices: 1,
       totalRejectionLoops: 1,
       inRejectionLoop: true,
-      rejectionSource: "evaluator",
+      rejectionSource: "评估者",
     }
     const evaluatorResponse = JSON.stringify({
       检查结果: "打回",
       问题列表: ["变量命名不规范"],
     })
 
-    const upstream = buildUpstreamForRole("executor", rejectionState, extractRejectionUpstream(evaluatorResponse))
+    const upstream = buildUpstreamForRole("执行者", rejectionState, extractRejectionUpstream(evaluatorResponse))
     expect(upstream).toBe(evaluatorResponse)
   })
 
@@ -43,7 +43,7 @@ describe("PEE interruption and flow semantics", () => {
       frozenPlannerInfo: "本轮任务标题: 任务A\n留言: 正常推进\n",
     }
 
-    expect(buildUpstreamForRole("executor", rejectionState, "ignored")).toBe("本轮任务标题: 任务A\n留言: 正常推进\n")
+    expect(buildUpstreamForRole("执行者", rejectionState, "ignored")).toBe("本轮任务标题: 任务A\n留言: 正常推进\n")
   })
 
   it("includes executor feedback in evaluator and architect upstream during rejection loop", () => {
@@ -53,34 +53,34 @@ describe("PEE interruption and flow semantics", () => {
       executorPractices: 3,
       totalRejectionLoops: 3,
       inRejectionLoop: true,
-      rejectionSource: "architect",
+      rejectionSource: "架构师",
       executorFeedback: "已按领域边界拆分模块，测试仍待质保员补充。",
     }
 
-    expect(buildUpstreamForRole("evaluator", rejectionState, "ignored")).toContain("评估者第2次打回")
-    expect(buildUpstreamForRole("architect", rejectionState, "ignored")).toContain("架构师第1次打回")
-    expect(buildUpstreamForRole("architect", rejectionState, "ignored")).toContain("执行反馈: 已按领域边界拆分模块，测试仍待质保员补充。")
-    expect(buildUpstreamForRole("ScissorHands", rejectionState, "ignored")).toContain("执行者第3次实践")
+    expect(buildUpstreamForRole("评估者", rejectionState, "ignored")).toContain("评估者第2次打回")
+    expect(buildUpstreamForRole("架构师", rejectionState, "ignored")).toContain("架构师第1次打回")
+    expect(buildUpstreamForRole("架构师", rejectionState, "ignored")).toContain("执行反馈: 已按领域边界拆分模块，测试仍待质保员补充。")
+    expect(buildUpstreamForRole("冗余枝剪者", rejectionState, "ignored")).toContain("执行者第3次实践")
   })
 
   it("prefers latest rollback/new_message/pause interruption over older events", () => {
     const queue = [
-      createInterrupt(INTERRUPTION_REASON.pause, "planner", "旧暂停"),
-      createInterrupt(INTERRUPTION_REASON.new_message, "executor", "新的引导"),
-      createInterrupt(INTERRUPTION_REASON.rollback, "architect", "恢复后的回滚"),
+      createInterrupt(INTERRUPTION_REASON.pause, "规划者", "旧暂停"),
+      createInterrupt(INTERRUPTION_REASON.new_message, "执行者", "新的引导"),
+      createInterrupt(INTERRUPTION_REASON.rollback, "架构师", "恢复后的回滚"),
     ]
 
     const chosen = takeLatestDispatchableInterruption(queue)
-    expect(chosen?.roleName).toBe("architect")
+    expect(chosen?.roleName).toBe("架构师")
     expect(chosen?.receivedMessage).toBe("恢复后的回滚")
   })
 
   it("ignores aborted interruption at dispatch stage until rollback is enqueued", () => {
-    const queue = [createInterrupt(INTERRUPTION_REASON.aborted, "executor", "ESC")]
+    const queue = [createInterrupt(INTERRUPTION_REASON.aborted, "执行者", "ESC")]
     expect(takeLatestDispatchableInterruption(queue)).toBeNull()
     expect(queue).toHaveLength(1)
 
-    enqueueRollbackInterruption(queue, "executor", "上一次回复", "用户新的引导")
+    enqueueRollbackInterruption(queue, "执行者", "上一次回复", "用户新的引导")
     const chosen = takeLatestDispatchableInterruption(queue)
     expect(chosen?.reason).toBe(INTERRUPTION_REASON.rollback)
     expect(chosen?.receivedMessage).toBe("用户新的引导")
@@ -89,7 +89,7 @@ describe("PEE interruption and flow semantics", () => {
   it("preserves resumed user guidance when rollback is synthesized after abort", () => {
     const queue: InterruptedMsgContext[] = []
     const resumedResponse = "请不要继续重构，改为只补测试"
-    enqueueRollbackInterruption(queue, "architect", "旧的架构建议", resumedResponse)
+    enqueueRollbackInterruption(queue, "架构师", "旧的架构建议", resumedResponse)
 
     expect(queue[0]?.beforeMessage).toBe("旧的架构建议")
     expect(queue[0]?.receivedMessage).toBe(resumedResponse)
@@ -97,18 +97,18 @@ describe("PEE interruption and flow semantics", () => {
 
   it("plans resumed interruption by returning to the interrupted role for validation", () => {
     const resumedPlannerResponse = JSON.stringify({ 本轮任务标题: "任务A", 留言: "继续推进" })
-    const plan = planResumedValidation("planner", resumedPlannerResponse)
+    const plan = planResumedValidation("规划者", resumedPlannerResponse)
 
     expect(plan).toEqual({
-      currentRoleName: "planner",
+      currentRoleName: "规划者",
       resumedResponse: resumedPlannerResponse,
     })
   })
 
   it("does not decide next role before resumed output validation", () => {
-    const plan = planResumedValidation("planner", "恢复后的规划者输出")
+    const plan = planResumedValidation("规划者", "恢复后的规划者输出")
 
-    expect(plan.currentRoleName).toBe("planner")
+    expect(plan.currentRoleName).toBe("规划者")
     expect(Object.hasOwn(plan, "selectedNextRoleName")).toBe(false)
   })
 

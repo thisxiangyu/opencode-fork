@@ -102,14 +102,14 @@ describe("PEE main loop integration", () => {
     const makeSession = (role: IRole) => {
       if (sessions.has(role.name)) return sessions.get(role.name)!
       const scriptedResponses =
-        role.name === "planner" ? options.plannerResponses :
-        role.name === "compactor" ? (options.compactorResponses ?? [async () => JSON.stringify({ 是否压缩: false })]) :
-        role.name === "executor" ? (options.executorResponses ?? [async () => "执行完成"]) :
-        role.name === "evaluator" ? (options.evaluatorResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })]) :
-        role.name === "scissorHands" ? (options.scissorResponses ?? [async () => JSON.stringify({ 一句话动态: "检查无问题" })]) :
-        role.name === "architect" ? (options.architectResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })]) :
-        role.name === "QA" ? (options.qaResponses ?? [async () => qaResponse]) :
-        role.name === "edgeQA" ? (options.edgeQaResponses ?? [async () => qaResponse]) :
+        role.name === "规划者" ? options.plannerResponses :
+        role.name === "压缩决策员" ? (options.compactorResponses ?? [async () => JSON.stringify({ 是否压缩: false })]) :
+        role.name === "执行者" ? (options.executorResponses ?? [async () => "执行完成"]) :
+        role.name === "评估者" ? (options.evaluatorResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })]) :
+        role.name === "冗余枝剪者" ? (options.scissorResponses ?? [async () => JSON.stringify({ 一句话动态: "检查无问题" })]) :
+        role.name === "架构师" ? (options.architectResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })]) :
+        role.name === "质保员" ? (options.qaResponses ?? [async () => qaResponse]) :
+        role.name === "边缘质保员" ? (options.edgeQaResponses ?? [async () => qaResponse]) :
         (options.commitResponses ?? [async () => JSON.stringify({ 一句话动态: "无提交，原因: 测试模式" })])
       const session = new ScriptedSession(role, options.projectDir, scriptedResponses)
       sessions.set(role.name, session)
@@ -131,7 +131,7 @@ describe("PEE main loop integration", () => {
       return session
     })
     const createSession = vi.fn(async (role: IRole) => makeSession(role))
-    const relocateRole = vi.fn(options.relocateRole ?? (async (allRoles: IRole[]) => allRoles.find((role) => role.name === "edgeQA")!))
+    const relocateRole = vi.fn(options.relocateRole ?? (async (allRoles: IRole[]) => allRoles.find((role) => role.name === "边缘质保员")!))
 
     const runScheduleMapCli = vi.fn(async (_projectDir: string, args: string[]) => {
       const action = args[0]
@@ -224,21 +224,21 @@ describe("PEE main loop integration", () => {
         async () => "已根据新的用户引导补充了边缘测试",
       ],
       taskMap,
-      relocateRole: async (allRoles: IRole[]) => allRoles.find((role) => role.name === "edgeQA")!,
+      relocateRole: async (allRoles: IRole[]) => allRoles.find((role) => role.name === "边缘质保员")!,
       waitResponse: "用户改口：先只去找边缘用例",
-      interruptRoleName: "executor",
+      interruptRoleName: "执行者",
       interruptReason: INTERRUPTION_REASON.rollback,
       interruptMessage: "用户改口：先只去找边缘用例",
     })
 
     expect(setupProjectEnvironment).toHaveBeenCalledWith(projectDir, "test-start", expect.any(Function))
     expect(relocateRole).toHaveBeenCalled()
-    const executorSession = sessions.get("executor")
+    const executorSession = sessions.get("执行者")
     expect(executorSession).toBeDefined()
     const executorMessages = await executorSession!.getMessages()
     expect(executorMessages.some((message) => message.msgSource === MSG_SOURCE.system)).toBe(true)
     expect(relocateRole).toHaveBeenCalledTimes(1)
-    expect(activities.some((activity) => activity.角色 === "commitman")).toBe(true)
+    expect(activities.some((activity) => activity.角色 === "提交员")).toBe(true)
   })
 
   it("records evaluator rejection and routes executor through rejection loop with full json", async () => {
@@ -274,8 +274,8 @@ describe("PEE main loop integration", () => {
       taskMap,
     })
 
-    const executorSession = sessions.get("executor")
-    const evaluatorSession = sessions.get("evaluator")
+    const executorSession = sessions.get("执行者")
+    const evaluatorSession = sessions.get("评估者")
     expect(executorSession).toBeDefined()
     expect(evaluatorSession).toBeDefined()
     const executorMessages = await executorSession!.getMessages()
@@ -283,7 +283,7 @@ describe("PEE main loop integration", () => {
     expect(executorMessages.some((message) => message.content.includes('"问题列表":["缺测试"]'))).toBe(true)
     expect(evaluatorMessages.some((message) => message.content.includes("评估者第1次打回"))).toBe(true)
     expect(evaluatorMessages.some((message) => message.content.includes("执行反馈: 已按评估者意见补充边缘测试，暂无已知遗留风险。"))).toBe(true)
-    expect(activities.some((activity) => activity.角色 === "evaluator" && activity.消息 === "evaluator打回1次")).toBe(true)
+    expect(activities.some((activity) => activity.角色 === "评估者" && activity.消息 === "评估者打回1次")).toBe(true)
   })
 
   it("does not re-compact follower roles during rejection loops", async () => {
@@ -322,8 +322,8 @@ describe("PEE main loop integration", () => {
       taskMap,
     })
 
-    const executorSession = sessions.get("executor")!
-    const evaluatorSession = sessions.get("evaluator")!
+    const executorSession = sessions.get("执行者")!
+    const evaluatorSession = sessions.get("评估者")!
     expect(executorSession.getCompactHistoryCalls()).toEqual([true, false])
     expect(evaluatorSession.getCompactHistoryCalls()).toEqual([true, false])
   })
@@ -368,8 +368,8 @@ describe("PEE main loop integration", () => {
       taskMap,
     })
 
-    const executorSession = sessions.get("executor")
-    const evaluatorSession = sessions.get("evaluator")
+    const executorSession = sessions.get("执行者")
+    const evaluatorSession = sessions.get("评估者")
     expect(executorSession).toBeDefined()
     expect(evaluatorSession).toBeDefined()
     const executorMessages = await executorSession!.getMessages()
@@ -457,10 +457,10 @@ describe("PEE main loop integration", () => {
       taskMap,
     })
 
-    const executorSession = sessions.get("executor")
-    const evaluatorSession = sessions.get("evaluator")
-    const scissorSession = sessions.get("scissorHands")
-    const architectSession = sessions.get("architect")
+    const executorSession = sessions.get("执行者")
+    const evaluatorSession = sessions.get("评估者")
+    const scissorSession = sessions.get("冗余枝剪者")
+    const architectSession = sessions.get("架构师")
     expect(executorSession).toBeDefined()
     expect(evaluatorSession).toBeDefined()
     expect(scissorSession).toBeDefined()
@@ -475,7 +475,7 @@ describe("PEE main loop integration", () => {
     expect(evaluatorMessages.length).toBeGreaterThanOrEqual(2)
     expect(scissorMessages.length).toBeGreaterThanOrEqual(2)
     expect(architectMessages.length).toBeGreaterThanOrEqual(2)
-    expect(activities.some((activity) => activity.角色 === "architect" && activity.消息 === "architect打回1次")).toBe(true)
+    expect(activities.some((activity) => activity.角色 === "架构师" && activity.消息 === "架构师打回1次")).toBe(true)
   })
 
   it("revalidates resumed planner output before dispatching next role", async () => {
@@ -500,12 +500,12 @@ describe("PEE main loop integration", () => {
         async () => "是的",
       ],
       taskMap,
-      interruptRoleName: "planner",
+      interruptRoleName: "规划者",
       interruptReason: INTERRUPTION_REASON.rollback,
       interruptMessage: JSON.stringify({ 本轮任务标题: "测试任务", 留言: "先验证任务合法性" }),
     })
 
-    const plannerSession = sessions.get("planner")
+    const plannerSession = sessions.get("规划者")
     expect(plannerSession).toBeDefined()
     const plannerMessages = await plannerSession!.getMessages()
     expect(plannerMessages.some((message) => message.content.includes("一步步来，慢思考"))).toBe(true)
@@ -613,7 +613,7 @@ describe("PEE main loop integration", () => {
     })
 
     expect(setupProjectEnvironment).toHaveBeenCalledWith(projectDir, "test-start", expect.any(Function))
-    const plannerSession = sessions.get("planner")
+    const plannerSession = sessions.get("规划者")
     expect(plannerSession).toBeDefined()
     const plannerMessages = await plannerSession!.getMessages()
     // 最后一轮发送给规划者的消息应包含"所有轮次已耗尽"
@@ -667,7 +667,7 @@ describe("PEE main loop integration", () => {
       askUserResponse: "2", // 追加2轮
     })
 
-    const plannerSession = sessions.get("planner")
+    const plannerSession = sessions.get("规划者")
     expect(plannerSession).toBeDefined()
     const plannerMessages = await plannerSession!.getMessages()
     // maxCycles=1 runs cycle 0, then AskUser返回"2"，追加2轮后继续 (cycles 1, 2)
@@ -718,7 +718,7 @@ describe("PEE main loop integration", () => {
       getGitHead: mockGetGitHead,
     })
 
-    const executorSession = sessions.get("executor")
+    const executorSession = sessions.get("执行者")
     expect(executorSession).toBeDefined()
     const messages = await executorSession!.getMessages()
 
@@ -791,7 +791,7 @@ describe("PEE main loop integration", () => {
 
     const { sessions } = await runMainWithScript({
       projectDir,
-      commitAllowedRoles: [role("commitman"), role("executor")],
+      commitAllowedRoles: [role("提交员"), role("执行者")],
       plannerResponses: [
         async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "执行测试" }),
         async () => "收到",
@@ -806,7 +806,7 @@ describe("PEE main loop integration", () => {
       getGitHead: mockGetGitHead,
     })
 
-    const executorSession = sessions.get("executor")
+    const executorSession = sessions.get("执行者")
     const messages = await executorSession!.getMessages()
     // 执行者不应收到异常提交错误
     expect(messages.some(m => m.content.includes("不合规定的提前提交"))).toBe(false)
@@ -904,10 +904,10 @@ describe("PEE main loop integration", () => {
   it("adapts sparse-role assertions to current configured intervals", async () => {
     const projectDir = "/tmp/pee-sparse-filter-roles"
     const sparseRoles = [
-      { name: "scissorHands", role: new 冗余枝剪者() },
-      { name: "architect", role: new 架构师() },
-      { name: "QA", role: new 质保员() },
-      { name: "edgeQA", role: new 边缘质保员() },
+      { name: "冗余枝剪者", role: new 冗余枝剪者() },
+      { name: "架构师", role: new 架构师() },
+      { name: "质保员", role: new 质保员() },
+      { name: "边缘质保员", role: new 边缘质保员() },
     ]
     const maxInterval = Math.max(...sparseRoles.map((item) => item.role.介入间隔))
     const maxCycles = maxInterval + 1
@@ -1046,7 +1046,7 @@ describe("PEE main loop integration", () => {
     })
 
     // 评估者、架构师、压缩决策员均为 readonly，不应收到异常提交消息
-    for (const roleName of ["evaluator", "architect", "compactor"]) {
+    for (const roleName of ["评估者", "架构师", "压缩决策员"]) {
       const s = sessions.get(roleName)
       if (!s) continue
       const messages = await s.getMessages()
@@ -1070,13 +1070,13 @@ describe("PEE main loop integration", () => {
     ])
 
     // commitAllowedRoles 含执行者，执行者提交后基线应刷新，
-    // 后续 scissorHands/QA/edgeQA 不应被误判为异常提交
+    // 后续冗余枝剪者/质保员/边缘质保员 不应被误判为异常提交
     let gitHeadValue = "abc123def"
     const mockGetGitHead = vi.fn(async () => gitHeadValue)
 
     const { sessions } = await runMainWithScript({
       projectDir,
-      commitAllowedRoles: [role("commitman"), role("executor")],
+      commitAllowedRoles: [role("提交员"), role("执行者")],
       plannerResponses: [
         async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "执行测试" }),
         async () => "收到",
@@ -1092,7 +1092,7 @@ describe("PEE main loop integration", () => {
     })
 
     // 后续无权限 writable 角色不应收到异常提交错误
-    for (const roleName of ["scissorHands", "QA", "edgeQA"]) {
+    for (const roleName of ["冗余枝剪者", "质保员", "边缘质保员"]) {
       const s = sessions.get(roleName)
       if (!s) continue
       const messages = await s.getMessages()
@@ -1123,7 +1123,7 @@ describe("PEE main loop integration", () => {
       plannerResponses: [
         async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "不会执行到" }),
       ],
-      commitAllowedRoles: [role("commitman"), role("nonexistent")],
+      commitAllowedRoles: [role("提交员"), role("nonexistent")],
       taskMap,
     })).rejects.toThrow("commitAllowedRoles 包含无法匹配的角色")
   })
@@ -1170,7 +1170,7 @@ describe("PEE main loop integration", () => {
 
     const { sessions } = await runMainWithScript({
       projectDir,
-      commitAllowedRoles: [role("commitman"), role("executor")],
+      commitAllowedRoles: [role("提交员"), role("执行者")],
       plannerResponses: [
         async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "执行测试" }),
         async () => "收到",
@@ -1180,7 +1180,7 @@ describe("PEE main loop integration", () => {
       getGitHead: async () => "abc123def",
     })
 
-    const executorSession = sessions.get("executor")
+    const executorSession = sessions.get("执行者")
     expect(executorSession).toBeDefined()
     const messages = await executorSession!.getMessages()
     expect(messages.some(m => m.content.includes("当前策略配置允许你提交到仓库"))).toBe(true)
@@ -1251,7 +1251,7 @@ describe("PEE main loop integration", () => {
       taskMap,
     })
 
-    const compactorMessages = await sessions.get("compactor")!.getMessages()
+    const compactorMessages = await sessions.get("压缩决策员")!.getMessages()
     expect(compactorMessages[0]!.content).not.toContain("上轮任务标题")
     expect(compactorMessages[1]!.content).toContain("上轮任务标题: 第一轮任务")
     expect(compactorMessages[1]!.content).toContain("上轮任务Tag: feat, first")
@@ -1285,7 +1285,7 @@ describe("PEE main loop integration", () => {
       getGitHead: async () => "abc123def",
     })
 
-    const executorSession = sessions.get("executor")
+    const executorSession = sessions.get("执行者")
     expect(executorSession).toBeDefined()
     const messages = await executorSession!.getMessages()
     expect(messages.some(m => m.content.includes("当前策略配置未授予你提交权限"))).toBe(true)

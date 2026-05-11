@@ -172,31 +172,31 @@ export class PresetMockSession extends MockSession {
 
   private getDefaultResponse(): string {
     // 根据角色类型返回默认响应
-    if (this.role.name === "planner") {
+    if (this.role.name === "规划者") {
       return JSON.stringify({
         本轮任务标题: "测试任务",
         留言: "请执行测试任务"
       })
     }
-    if (this.role.name === "evaluator") {
+    if (this.role.name === "评估者") {
       return JSON.stringify({
         检查结果: "通过",
         问题列表: []
       })
     }
-    if (this.role.name === "architect") {
+    if (this.role.name === "架构师") {
       return JSON.stringify({
         检查结果: "通过",
         架构问题: [],
         重构建议: ""
       })
     }
-    if (this.role.name === "compactor") {
+    if (this.role.name === "压缩决策员") {
       return JSON.stringify({
         是否压缩: false
       })
     }
-    if (this.role.name === "docAligner" || this.role.name === "ScissorHands" || this.role.name === "QA" || this.role.name === "EdgeQA" || this.role.name === "Commitman") {
+    if (this.role.name === "注释与文档对齐员" || this.role.name === "冗余枝剪者" || this.role.name === "质保员" || this.role.name === "边缘质保员" || this.role.name === "提交员") {
       return JSON.stringify({
         一句话动态: "检查无问题"
       })

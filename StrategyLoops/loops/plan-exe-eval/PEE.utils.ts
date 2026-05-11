@@ -57,7 +57,7 @@ export interface RejectionState {
   executorPractices: number
   totalRejectionLoops: number
   inRejectionLoop: boolean
-  rejectionSource?: "evaluator" | "architect"
+  rejectionSource?: "评估者" | "架构师"
   executorFeedback?: string
   frozenPlannerInfo?: string
   compactorUpstream?: string
@@ -294,7 +294,7 @@ export function buildUpstreamForRole(
 ): string {
   // 打回循环中
   if (rejectionState.inRejectionLoop) {
-    if (roleName === "executor") {
+    if (roleName === "执行者") {
       return lastResponse // 执行者使用完整打回 JSON
     }
     // 其他角色使用打回循环信息
@@ -302,16 +302,16 @@ export function buildUpstreamForRole(
   }
 
   // 正常流程
-  if (roleName === "planner") {
+  if (roleName === "规划者") {
     // 规划者仅接收 roundInfo（空字符串，roundInfo 在 msgToBeSent 层面前置）
     return ""
   }
 
-  if (roleName === "compactor" && rejectionState.compactorUpstream) {
+  if (roleName === "压缩决策员" && rejectionState.compactorUpstream) {
     return rejectionState.compactorUpstream
   }
 
-  if (roleName === "Commitman" && rejectionState.frozenPlannerInfo) {
+  if (roleName === "提交员" && rejectionState.frozenPlannerInfo) {
     return buildCommitmanUpstream(rejectionState.frozenPlannerInfo)
   }
 
@@ -342,16 +342,16 @@ export function getRejectionActivityToRecord(
   roleName: string,
   response: string,
   rejectionState: RejectionState,
-): { roleName: "evaluator" | "architect"; rejectionCount: number } | null {
+): { roleName: "评估者" | "架构师"; rejectionCount: number } | null {
   const json = extractJSON(response)
   if (json?.检查结果 !== "打回") return null
 
-  if (roleName === "evaluator") {
-    return { roleName: "evaluator", rejectionCount: rejectionState.evaluatorRejections }
+  if (roleName === "评估者") {
+    return { roleName: "评估者", rejectionCount: rejectionState.evaluatorRejections }
   }
 
-  if (roleName === "architect") {
-    return { roleName: "architect", rejectionCount: rejectionState.architectRejections }
+  if (roleName === "架构师") {
+    return { roleName: "架构师", rejectionCount: rejectionState.architectRejections }
   }
 
   return null
