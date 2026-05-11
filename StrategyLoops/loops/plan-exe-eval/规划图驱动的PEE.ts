@@ -13,7 +13,8 @@ import { AskTo重新定位角色, 检查names重复, type IRole,
   MiniMax27HS,
   GPT54,
   GPT55,
-  Opus47} from "../../common/role"
+  Opus47,
+  KimiK26} from "../../common/role"
 import { LoopConfig } from "../../common/loopConfig"
 import { AbortError, INTERRUPTION_REASON, type InterruptedMsgContext, MSG_SOURCE } from "../../common/types"
 import type { ISession } from "../../common/session"
@@ -1576,9 +1577,12 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
       if (currentRole instanceof 规划者) {
         const usage = session.getTokenUsage()
         const threshold = (currentRole as 规划者).压缩阈值
-        if (usage?.input !== undefined && usage.input >= threshold) {
+        logFile.info(`[规划者-Token监控] session=${session.id}, token=${JSON.stringify(usage)}, 阈值=${threshold}`)
+        if (usage?.total !== undefined && usage.total >= threshold) {
           compactBeforeSend = true
-          logFile.info(`[规划者] token用量=${usage.input} >= 阈值=${threshold}，触发压缩`)
+          logFile.info(`[规划者] token总量=${usage.total} >= 阈值=${threshold}，触发压缩`)
+        } else {
+          logFile.info(`[规划者] token未达阈值: total=${usage?.total ?? "undefined"}, threshold=${threshold}`)
         }
       }
 
@@ -1586,15 +1590,23 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
       if (currentRole instanceof 压缩决策员) {
         const usage = session.getTokenUsage()
         const threshold = (currentRole as 压缩决策员).压缩阈值
-        if (usage?.input !== undefined && usage.input >= threshold) {
+        logFile.info(`[压缩决策员-Token监控] session=${session.id}, token=${JSON.stringify(usage)}, 阈值=${threshold}`)
+        if (usage?.total !== undefined && usage.total >= threshold) {
           compactBeforeSend = true
-          logFile.info(`[压缩决策员] token用量=${usage.input} >= 阈值=${threshold}，触发压缩`)
+          logFile.info(`[压缩决策员] token总量=${usage.total} >= 阈值=${threshold}，触发压缩`)
+        } else {
+          logFile.info(`[压缩决策员] token未达阈值: total=${usage?.total ?? "undefined"}, threshold=${threshold}`)
         }
       }
 
-      if (currentRole === 执行者instance && executorShouldCompact) {
-        compactBeforeSend = true
-        executorShouldCompact = false
+      if (currentRole === 执行者instance) {
+        const usage = session.getTokenUsage()
+        logFile.info(`[执行者-Token监控] session=${session.id}, token=${JSON.stringify(usage)}`)
+        if (executorShouldCompact) {
+          compactBeforeSend = true
+          executorShouldCompact = false
+          logFile.info(`[执行者] 压缩决策员指令: 触发压缩`)
+        }
       }
 
       // 【跟随压缩】非核心决策角色，跟随执行节点的压缩决策
