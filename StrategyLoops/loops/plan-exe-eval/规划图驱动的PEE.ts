@@ -1457,6 +1457,8 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     let executorShouldCompact = false
     /** 记录执行节点本轮是否压缩，供跟随角色同步决策 */
     let executorDidCompact = false
+    /** 最近一次已派发任务的完整视图。独立于打回状态，跨闭环保留给压缩决策员比较翻新度。 */
+    let lastDispatchedPlannerInfo: string | undefined
     /** 标记是否通过"项目已提前完成"路径退出循环 */
     let exitedViaEarlyCompletion = false
 
@@ -1795,11 +1797,12 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
           if (!rejectionState.inRejectionLoop && currentTaskTitle) {
             const latestOutput = extractJSON(response)
             const fullUpstream = await buildTaskUpstream(projectDir, latestOutput || { 本轮任务标题: currentTaskTitle }, runtimeDeps.runScheduleMapCli)
-            const previousPlannerInfo = rejectionState.frozenPlannerInfo
+            const previousPlannerInfo = lastDispatchedPlannerInfo
             rejectionState.frozenPlannerInfo = fullUpstream
             rejectionState.previousPlannerInfo = previousPlannerInfo
             // 构建压缩决策员专用upstream（上一轮与本轮的任务视图）
             rejectionState.compactorUpstream = buildCompactorUpstream(fullUpstream, rejectionState.previousPlannerInfo)
+            lastDispatchedPlannerInfo = fullUpstream
             consoleAndLogFile.info(`[upstream] 已构建完整上游信息（含依赖链），${fullUpstream.length} 字符`)
             consoleAndLogFile.info(`[upstream] 已构建压缩决策员专用信息，${rejectionState.compactorUpstream.length} 字符`)
           }

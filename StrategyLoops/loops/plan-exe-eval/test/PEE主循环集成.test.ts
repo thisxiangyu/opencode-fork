@@ -147,10 +147,11 @@ describe("PEE main loop integration", () => {
           return { stdout: JSON.stringify({ 成功: false, 任务: null }), stderr: "", exitCode: 0 }
         }
         if (action === "query-dependency-chain") {
+          const title = args[2]
           return {
             stdout: JSON.stringify({
               成功: true,
-              任务: options.taskMap.get("测试任务"),
+              任务: options.taskMap.get(title),
               依赖链: [],
             }),
             stderr: "",
@@ -1183,6 +1184,79 @@ describe("PEE main loop integration", () => {
     expect(executorSession).toBeDefined()
     const messages = await executorSession!.getMessages()
     expect(messages.some(m => m.content.includes("当前策略配置允许你提交到仓库"))).toBe(true)
+  })
+
+  it("keeps previous task snapshot for second-round compactor upstream", async () => {
+    const projectDir = "/tmp/pee-compactor-previous-task"
+    const taskMap = new Map<string, any>([
+      ["第一轮任务", {
+        ID: 1,
+        标题: "第一轮任务",
+        任务描述: "第一轮任务描述，用于验证压缩决策员能够拿到上一轮任务视图",
+        Tag: ["feat", "first"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+      ["第二轮任务", {
+        ID: 2,
+        标题: "第二轮任务",
+        任务描述: "第二轮任务描述，用于验证当前任务视图仍然正常构建",
+        Tag: ["feat", "second"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    const { sessions } = await runMainWithScript({
+      projectDir,
+      maxCycles: 2,
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "第一轮任务", 留言: "先做第一轮" }),
+        async () => JSON.stringify({ 本轮任务标题: "第二轮任务", 留言: "再做第二轮" }),
+        async () => "收到",
+      ],
+      compactorResponses: [
+        async () => JSON.stringify({ 是否压缩: false }),
+        async () => JSON.stringify({ 是否压缩: false }),
+      ],
+      executorResponses: [async () => "第一轮执行完成", async () => "第二轮执行完成"],
+      evaluatorResponses: [
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
+      ],
+      scissorResponses: [
+        async () => JSON.stringify({ 一句话动态: "第一轮冗余检查通过" }),
+        async () => JSON.stringify({ 一句话动态: "第二轮冗余检查通过" }),
+      ],
+      architectResponses: [
+        async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" }),
+        async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" }),
+      ],
+      qaResponses: [
+        async () => JSON.stringify({ 一句话动态: "第一轮质保通过" }),
+        async () => JSON.stringify({ 一句话动态: "第二轮质保通过" }),
+      ],
+      edgeQaResponses: [
+        async () => JSON.stringify({ 一句话动态: "第一轮边缘质保通过" }),
+        async () => JSON.stringify({ 一句话动态: "第二轮边缘质保通过" }),
+      ],
+      commitResponses: [
+        async () => JSON.stringify({ 一句话动态: "无提交，原因: 第一轮提交处理完成" }),
+        async () => JSON.stringify({ 一句话动态: "无提交，原因: 第二轮提交处理完成" }),
+      ],
+      taskMap,
+    })
+
+    const compactorMessages = await sessions.get("compactor")!.getMessages()
+    expect(compactorMessages[0]!.content).not.toContain("上轮任务标题")
+    expect(compactorMessages[1]!.content).toContain("上轮任务标题: 第一轮任务")
+    expect(compactorMessages[1]!.content).toContain("上轮任务Tag: feat, first")
+    expect(compactorMessages[1]!.content).toContain("本轮任务标题: 第二轮任务")
+    expect(compactorMessages[1]!.content).toContain("本轮任务Tag: feat, second")
   })
 
   it("injects runtime commit policy prompt for unauthorized writable role", async () => {
