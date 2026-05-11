@@ -127,11 +127,16 @@ export function buildCompactorUpstream(
     const 标题 = plannerInfo.match(/本轮任务标题[：:]\s*(.+?)(?:\n|$)/)?.[1]?.trim() ?? ""
     const 描述 = plannerInfo.match(/描述[：:]\s*(.+?)(?:\n|$)/)?.[1]?.trim() ?? ""
     const tag = plannerInfo.match(/Tag[：:]\s*(.+?)(?:\n|$)/)?.[1]?.trim() ?? ""
-    const 描述摘要 = 描述 ? 描述.slice(0, 60) : ""
+    const maxLen = 80
+    const 描述内容 = 描述
+      ? 描述.length > maxLen
+        ? 描述.slice(0, maxLen) + `....（折叠${描述.length - maxLen}字）`
+        : 描述
+      : ""
 
     let snapshot = `${label}标题: ${标题}\n`
     if (tag) snapshot += `${label}Tag: ${tag}\n`
-    if (描述摘要) snapshot += `${label}任务描述前60字: ${描述摘要}\n`
+    if (描述内容) snapshot += `${label}描述: ${描述内容}\n`
     return snapshot
   }
 

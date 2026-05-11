@@ -122,10 +122,32 @@ describe("PEE utils", () => {
 
       expect(upstream).toContain("上轮任务标题: 数据库设计")
       expect(upstream).toContain("上轮任务Tag: ARCH, DB")
-      expect(upstream).toContain("上轮任务任务描述前60字: 设计用户表和会话表，保证登录链路可落地")
+      expect(upstream).toContain("上轮任务描述: 设计用户表和会话表，保证登录链路可落地")
       expect(upstream).toContain("本轮任务标题: 实现登录功能")
       expect(upstream).toContain("本轮任务Tag: FEAT, AUTH")
-      expect(upstream).toContain("本轮任务任务描述前60字: 登录描述，补充更多上下文以验证长度截断逻辑不会影响短描述")
+      expect(upstream).toContain("本轮任务描述: 登录描述，补充更多上下文以验证长度截断逻辑不会影响短描述")
+    })
+
+    it("truncates long descriptions at 80 chars with fold suffix", () => {
+      const longDesc = "a".repeat(100)
+      const upstream = buildCompactorUpstream(
+        [
+          "本轮任务标题: 长任务",
+          `描述: ${longDesc}`,
+          "Tag: FEAT",
+        ].join("\n"),
+        [
+          "本轮任务标题: 上一任务",
+          `描述: ${longDesc}`,
+          "Tag: ARCH",
+        ].join("\n"),
+      )
+
+      // 80 chars + fold suffix
+      expect(upstream).toContain(`本轮任务描述: ${"a".repeat(80)}....（折叠20字）`)
+      expect(upstream).toContain(`上轮任务描述: ${"a".repeat(80)}....（折叠20字）`)
+      // 不应包含超出80字符的原始描述
+      expect(upstream).not.toContain(`描述: ${longDesc}`)
     })
 
     it("builds common upstream from real task query shape with all first-layer dependencies only", () => {
