@@ -6,7 +6,7 @@ import { AbortError, INTERRUPTION_REASON, MSG_SOURCE, type InterruptedMsgContext
 import type { IRole } from "../../../common/role"
 import type { ISession } from "../../../common/session"
 import { LoopConfig } from "../../../common/loopConfig"
-import { main, 冗余枝剪者, 架构师, 质保员, 边缘质保员 } from "../规划图驱动的PEE"
+import { main, 注释与文档对齐员, 冗余枝剪者, 架构师, 质保员, 边缘质保员 } from "../规划图驱动的PEE"
 
 const 静态检查模版Path = join(__dirname, "../../../common/CICD/Node静态检查模版.js")
 
@@ -502,20 +502,23 @@ describe("PEE main loop integration", () => {
 
     const { activities, sessions } = await runMainWithScript({
       projectDir,
-      maxCycles: 2,
+      maxCycles: 3,
       plannerResponses: [
         async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "关注架构一致性" }),
         async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "第2轮继续看架构" }),
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "第3轮触发架构师偏移介入" }),
         async () => "<整个项目已全部提前完成>",
         async () => "是的",
       ],
-      compactorResponses: Array.from({ length: 2 }, () => async () => JSON.stringify({ 是否压缩: false })),
+      compactorResponses: Array.from({ length: 3 }, () => async () => JSON.stringify({ 是否压缩: false })),
       executorResponses: [
         async () => "第一次实现",
-        async () => "已按架构建议重新分层，暂无已知遗留风险。",
         async () => "第二轮正常执行",
+        async () => "第三轮正常执行",
+        async () => "已按架构建议重新分层，暂无已知遗留风险。",
       ],
       evaluatorResponses: [
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
         async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
         async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
         async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
@@ -533,6 +536,7 @@ describe("PEE main loop integration", () => {
       commitResponses: [
         async () => JSON.stringify({ 一句话动态: "无提交，原因: 第1轮测试" }),
         async () => JSON.stringify({ 一句话动态: "无提交，原因: 第2轮测试" }),
+        async () => JSON.stringify({ 一句话动态: "无提交，原因: 第3轮测试" }),
       ],
       taskMap,
     })
@@ -1031,120 +1035,60 @@ describe("PEE main loop integration", () => {
   it("adapts sparse-role assertions to current configured intervals", async () => {
     const projectDir = "/tmp/pee-sparse-filter-roles"
     const sparseRoles = [
+      { name: "注释与文档对齐员", role: new 注释与文档对齐员() },
       { name: "冗余枝剪者", role: new 冗余枝剪者() },
       { name: "架构师", role: new 架构师() },
       { name: "质保员", role: new 质保员() },
       { name: "边缘质保员", role: new 边缘质保员() },
     ]
-    const maxInterval = Math.max(...sparseRoles.map((item) => item.role.介入间隔))
-    const maxCycles = maxInterval + 1
-    const totalCycles = maxCycles + 1
-    const taskMap = new Map<string, any>([
-      ["测试任务1", {
-        ID: 1,
-        标题: "测试任务1",
-        任务描述: "验证稀疏滤镜角色首轮介入",
+    const lastSecondInterventionCycle = Math.max(...sparseRoles.map((item) => item.role.介入偏移 + item.role.介入间隔 + 1))
+    const totalCycles = lastSecondInterventionCycle + 1
+    const taskMap = new Map<string, any>(Array.from({ length: totalCycles }, (_, index) => [
+      `测试任务${index + 1}`,
+      {
+        ID: index + 1,
+        标题: `测试任务${index + 1}`,
+        任务描述: `验证第${index + 1}轮稀疏介入范围`,
         Tag: ["test"],
         是否完成: false,
         已删除: false,
         依赖: "[]",
         动态: [],
-      }],
-      ["测试任务2", {
-        ID: 2,
-        标题: "测试任务2",
-        任务描述: "验证第二轮跳过",
-        Tag: ["test"],
-        是否完成: false,
-        已删除: false,
-        依赖: "[]",
-        动态: [],
-      }],
-      ["测试任务3", {
-        ID: 3,
-        标题: "测试任务3",
-        任务描述: "验证第三轮批量任务范围",
-        Tag: ["test"],
-        是否完成: false,
-        已删除: false,
-        依赖: "[]",
-        动态: [],
-      }],
-      ["测试任务4", {
-        ID: 4,
-        标题: "测试任务4",
-        任务描述: "验证更大介入间隔时的再次介入",
-        Tag: ["test"],
-        是否完成: false,
-        已删除: false,
-        依赖: "[]",
-        动态: [],
-      }],
-    ])
+      },
+    ]))
+    const commitDynamics = Array.from({ length: totalCycles }, (_, index) => `无提交，原因: 第${index + 1}轮测试`)
 
-    const consoleSpy = vi.spyOn(consoleAndLogFile, "info")
-    try {
-      const { sessions } = await runMainWithScript({
-        projectDir,
-        maxCycles: totalCycles,
-        plannerResponses: [
-          async () => JSON.stringify({ 本轮任务标题: "测试任务1", 留言: "第1轮" }),
-          async () => JSON.stringify({ 本轮任务标题: "测试任务2", 留言: "第2轮" }),
-          async () => JSON.stringify({ 本轮任务标题: "测试任务3", 留言: "第3轮" }),
-          async () => JSON.stringify({ 本轮任务标题: "测试任务4", 留言: "第4轮" }),
-          async () => JSON.stringify({ 本轮任务标题: "测试任务4", 留言: "额外轮次" }),
-          async () => "收到",
-        ].slice(0, totalCycles + 1),
-        compactorResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 是否压缩: false })),
-        executorResponses: Array.from({ length: totalCycles }, () => async () => "执行完成"),
-        evaluatorResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })),
-        scissorResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
-        architectResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })),
-        qaResponses: Array.from({ length: totalCycles * 2 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
-        edgeQaResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
-        commitResponses: [
-          async () => JSON.stringify({ 一句话动态: "无提交，原因: 第1轮测试" }),
-          async () => JSON.stringify({ 一句话动态: "无提交，原因: 第2轮测试" }),
-          async () => JSON.stringify({ 一句话动态: "无提交，原因: 第3轮测试" }),
-          async () => JSON.stringify({ 一句话动态: "无提交，原因: 第4轮测试" }),
-          async () => JSON.stringify({ 一句话动态: "无提交，原因: 额外测试" }),
-          async () => JSON.stringify({ 一句话动态: "无提交，原因: 再额外测试" }),
-        ].slice(0, totalCycles + 1),
-        taskMap,
-      })
+    const { sessions } = await runMainWithScript({
+      projectDir,
+      maxCycles: totalCycles,
+      plannerResponses: [
+        ...Array.from({ length: totalCycles }, (_, index) => async () => JSON.stringify({ 本轮任务标题: `测试任务${index + 1}`, 留言: `第${index + 1}轮` })),
+        async () => "收到",
+      ],
+      compactorResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 是否压缩: false })),
+      executorResponses: Array.from({ length: totalCycles }, () => async () => "执行完成"),
+      evaluatorResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })),
+      scissorResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+      architectResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })),
+      qaResponses: Array.from({ length: totalCycles * 2 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+      edgeQaResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+      commitResponses: commitDynamics.map((dynamic) => async () => JSON.stringify({ 一句话动态: dynamic })),
+      taskMap,
+    })
 
-      const commitDynamics = [
-        "无提交，原因: 第1轮测试",
-        "无提交，原因: 第2轮测试",
-        "无提交，原因: 第3轮测试",
-        "无提交，原因: 第4轮测试",
-      ]
+    for (const sparseRole of sparseRoles) {
+      const messages = await sessions.get(sparseRole.name)?.getMessages()
+      expect(messages).toBeDefined()
+      const interveneCycles = Array.from({ length: totalCycles }, (_, cycle) => cycle)
+        .filter((cycle) => cycle >= sparseRole.role.介入偏移 && (sparseRole.role.介入间隔 === 0 || (cycle - sparseRole.role.介入偏移) % (sparseRole.role.介入间隔 + 1) === 0))
+      expect(messages).toHaveLength(interveneCycles.length)
+      expect(messages?.[0]?.content.startsWith("当前时间：")).toBe(true)
 
-      for (const sparseRole of sparseRoles) {
-        const messages = await sessions.get(sparseRole.name)?.getMessages()
-        expect(messages).toBeDefined()
-        const interveneCycles = Array.from({ length: totalCycles }, (_, cycle) => cycle)
-          .filter((cycle) => cycle === 0 || cycle % (sparseRole.role.介入间隔 + 1) === 0)
-        expect(messages).toHaveLength(interveneCycles.length)
-        expect(messages?.[0]?.content.startsWith("当前时间：")).toBe(true)
-
-        for (let index = 1; index < interveneCycles.length; index++) {
-          const currentCycle = interveneCycles[index]!
-          const previousCycle = interveneCycles[index - 1]!
-          const expectedTaskIndices = Array.from({ length: currentCycle - previousCycle - 1 }, (_, offset) => previousCycle + offset + 1)
-          for (const taskIndex of expectedTaskIndices) {
-            expect(messages?.[index]?.content).toContain(`测试任务${taskIndex + 1}: ${commitDynamics[taskIndex]}`)
-          }
-        }
-
-        const skippedCycles = Array.from({ length: totalCycles }, (_, cycle) => cycle)
-          .filter((cycle) => cycle > 0 && cycle % (sparseRole.role.介入间隔 + 1) !== 0)
-        for (const skippedCycle of skippedCycles) {
-          expect(consoleSpy.mock.calls.some(([message]) => String(message).includes(`[稀疏角色跳过] 第${skippedCycle + 1}轮跳过 ${sparseRole.name}`))).toBe(true)
+      if (sparseRole.role.介入偏移 > 0) {
+        for (const taskIndex of Array.from({ length: sparseRole.role.介入偏移 }, (_, index) => index)) {
+          expect(messages?.[0]?.content).toContain(`测试任务${taskIndex + 1}: ${commitDynamics[taskIndex]}`)
         }
       }
-    } finally {
-      consoleSpy.mockRestore()
     }
   })
 

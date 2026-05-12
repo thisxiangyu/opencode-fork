@@ -119,16 +119,17 @@ export interface ISession {
   getTokenUsage(): TokenUsageInfo | undefined
 
   /**
-   * 获取累计 token 用量。
+   * 获取不随后端 compaction 回落的虚拟上下文 token 用量。
    *
    * 因为一些后端（如 opencode server）可能存在自动压缩与标称不同的问题，
    * 有可能出现像 gpt-5.5 这样 100 万上下文的模型在 23 万就被压缩的问题，
    * 导致策略循环中的角色压缩阈值永远不被触发。所以这里用一个字段来维护
-   * 一个更权威的 token 统计：自行累加每次 LLM 调用的 total；当 total 缺失时，
-   * 用 input + output + reasoning + cache.read + cache.write 还原本轮总量。
-   * 即使后端内部 compaction 让单轮上下文用量回落，该值仍持续累加。
+   * 一个更权威的单调统计：优先读取每次 LLM step 的 total；当 total 缺失时，
+   * 用 input + output + reasoning + cache.read + cache.write 还原本次观测总量。
+   * 该值只累计相邻观测的正向增量；如果后端内部 compaction 让观测总量回落，
+   * 只更新基线，不扣减累计值。
    *
-   * @returns 从会话创建以来的累计 token 数
+   * @returns 不随后端压缩回落的虚拟上下文 token 数
    */
   getCumulativeTokens(): number
 

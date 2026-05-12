@@ -498,14 +498,20 @@ export class OpenCodeSessionAdapter implements ISession {
   private latestTokenUsage: TokenUsageInfo | undefined
 
   /**
-   * 累计 token 用量。
+   * 不随后端 compaction 回落的虚拟上下文 token 用量。
    * 因为一些后端（如 opencode server）可能存在自动压缩与标称不同的问题，
    * 有可能出现像 gpt-5.5 这样 100 万上下文的模型在 23 万就被压缩的问题，
    * 导致策略循环中的角色压缩阈值永远不被触发。所以这里用一个字段来维护
-   * 一个更权威的 token 统计：每次 step-finish 时优先累加 total，缺失时用
-   * input + output + reasoning + cache.read + cache.write 还原本轮总量。
+   * 一个单调统计：只累计 step-finish total 相对上次观测值的正向增量；若 total
+   * 下降，视为后端压缩/重置，只更新基线，不扣减累计值。
    */
   private cumulativeTokens = 0
+
+  /** 最近一次观测到的上下文 token 总量，用于计算正向增量。 */
+  private lastContextTokenTotal: number | undefined
+
+  /** 已计入累计值的 step-finish part，避免事件重放或补丁重复计数。 */
+  private countedStepFinishIds = new Set<string>()
 
   /**
    * 由策略循环主动发起且已成功执行的压缩次数。
@@ -1119,15 +1125,22 @@ export class OpenCodeSessionAdapter implements ISession {
         cache: { read: part.tokens.cache.read, write: part.tokens.cache.write },
         cost: part.cost,
       }
-      // 累加本轮 token 总量，不受后端自动 compaction 导致的 total 回落影响。
-      const roundTokens = part.tokens.total ||
+      const stepFinishId = `${part.messageID}:${part.id}`
+      if (this.countedStepFinishIds.has(stepFinishId)) return
+      this.countedStepFinishIds.add(stepFinishId)
+
+      const contextTotal = part.tokens.total ||
         (part.tokens.input || 0) +
         (part.tokens.output || 0) +
         (part.tokens.reasoning || 0) +
         (part.tokens.cache?.read || 0) +
         (part.tokens.cache?.write || 0)
-      this.cumulativeTokens += roundTokens
-      logFile.info(`[Token累计] session=${this.id}, 本轮=${roundTokens}, 累计=${this.cumulativeTokens}, opencode报告total=${part.tokens.total}`)
+      const increment = this.lastContextTokenTotal === undefined
+        ? contextTotal
+        : Math.max(0, contextTotal - this.lastContextTokenTotal)
+      this.cumulativeTokens += increment
+      this.lastContextTokenTotal = contextTotal
+      logFile.info(`[Token累计] session=${this.id}, 观测=${contextTotal}, 增量=${increment}, 累计=${this.cumulativeTokens}, opencode报告total=${part.tokens.total}`)
       return
     }
 

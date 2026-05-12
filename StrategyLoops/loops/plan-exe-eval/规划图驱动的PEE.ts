@@ -6,7 +6,7 @@
  *          → 冗余枝剪者 → 架构师 → (打回执行者 OR 质保员)
  *          → 质保员 → 边缘质保员 → 提交员 → 规划者
  * 
- * 5+n 思想：介入间隔为0的角色是稠密工作者，介入间隔大于0的角色是稀疏工作者。以下5个角色最好都是稠密的：规划者、压缩决策员、执行者、评估者、提交员。其它角色可以安插、调整。
+ * 5+n 思想：介入间隔为0的角色是稠密工作者，介入间隔大于0的角色是稀疏工作者；介入偏移用于推迟首次介入。以下5个角色最好都是稠密的：规划者、压缩决策员、执行者、评估者、提交员。其它角色可以安插、调整。
  */
 import { consoleAndLogFile, LOG_DIR, logFile, LOG_COLOR, RESET } from "../../common/logger"
 import { AskTo重新定位角色, 检查names重复, type IRole,
@@ -195,6 +195,7 @@ export class 规划者 implements IRole {
   memory?: string | undefined
   name = "规划者"
   介入间隔 = 0
+  介入偏移 = 0
   disabledTools = ["question", "todowrite"]
 
   项目已提前完成sign = "<整个项目已全部提前完成>"
@@ -282,6 +283,7 @@ const 团队Prompt = "项目规划 - 团队围绕着规划图CLI推进任务。"
 export class 压缩决策员 implements IRole {
   name = "压缩决策员"
   介入间隔 = 0
+  介入偏移 = 0
   压缩阈值 = 1000 * 200
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个压缩决策员，负责在每轮执行前判断是否需要对执行者的会话进行压缩（compact）。
@@ -320,6 +322,7 @@ ${upstreamMsg}
 export class 注释与文档对齐员 implements IRole {
   name = "注释与文档对齐员"
   介入间隔 = 2
+  介入偏移 = 2
   压缩阈值 = 1000 * 200
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是注释与文档专项对齐员，你：
@@ -347,6 +350,7 @@ ${团队Prompt}` }
 export class 执行者 implements IRole {
   name = "执行者"
   介入间隔 = 0
+  介入偏移 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个执行者，负责落实每一轮任务。你首先应阅读项目WIKI，了解项目要求。
 
@@ -382,6 +386,7 @@ ${upstreamMsg}
 export class 评估者 implements IRole {
   name = "评估者"
   介入间隔 = 0
+  介入偏移 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { 
     return `你是一个评估者，负责代码Review、内容审查、指导优化。你专业而挑剔，常常能深度思考，洞察细微差错。
@@ -420,6 +425,7 @@ ${upstreamMsg}
 export class 冗余枝剪者 implements IRole {
   name = "冗余枝剪者"
   介入间隔 = 2
+  介入偏移 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个冗余枝剪者，负责寻找项目中：
     因前后逻辑覆盖、项目推进太快造成的不必要的冗余/误导性路径（代码、逻辑、文件、文件夹、资产等）
@@ -452,6 +458,7 @@ ${upstreamMsg}
 export class 架构师 implements IRole {
   name = "架构师"
   介入间隔 = 3
+  介入偏移 = 2
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { 
     return `你是一个架构师，负责从更高明的角度审视项目。你只做重构评估，不新增功能。
@@ -511,6 +518,7 @@ ${upstreamMsg}
 export class 质保员 implements IRole {
   name = "质保员"
   介入间隔 = 0
+  介入偏移 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个质保员，负责写测试、找bug/复现bug/记录bug。
 
@@ -542,6 +550,7 @@ ${upstreamMsg}
 export class 边缘质保员 implements IRole {
   name = "边缘质保员"
   介入间隔 = 2
+  介入偏移 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个边缘质保员，负责写测试、寻找质保员测试时未覆盖到的边缘情况。
 
@@ -579,6 +588,7 @@ ${upstreamMsg}
 export class 提交员 implements IRole {
   name = "提交员"
   介入间隔 = 0
+  介入偏移 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() {
     return `你是一个提交员，负责提交仓库。包括git仓库（如有）、svn仓库（如有）等等。
@@ -1413,15 +1423,13 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
 
   const 构建稀疏角色任务范围 = (role: IRole): 稀疏任务动态映射 => {
     const start = 稀疏角色已读游标.get(role.name) ?? 0
-    return 提交员任务动态日志.slice(start).reduce<稀疏任务动态映射>((acc, item) => {
-      acc[item.任务标题] = item.一句话动态
-      return acc
-    }, {})
+    //【设计阐述】首次真正介入前不推进游标，首次介入必须回看偏移期间的全部已提交任务；之后只读增量。
+    return 提交员任务动态日志.slice(start)
   }
 
   const shouldExecuteCurrentRole = (role: IRole, currentCycle: number): boolean => {
     if (rejectionState.inRejectionLoop) return true
-    return shouldRoleInterveneThisRound(role.介入间隔, currentCycle)
+    return shouldRoleInterveneThisRound(role.介入间隔, currentCycle, role.介入偏移 ?? 0)
   }
 
   const getSkippedRoleSuccessor = (role: IRole): IRole => {
@@ -1515,7 +1523,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
       while (cycle < runtimeDeps.loopConfig.maxCycles) {
       if (!shouldExecuteCurrentRole(currentRole, cycle)) {
         const nextRole = getSkippedRoleSuccessor(currentRole)
-        consoleAndLogFile.info(`[稀疏角色跳过] 第${cycle + 1}轮跳过 ${currentRole.name}，介入间隔=${currentRole.介入间隔}，下一角色=${nextRole.name}`)
+        consoleAndLogFile.info(`[稀疏角色跳过] 第${cycle + 1}轮跳过 ${currentRole.name}，介入间隔=${currentRole.介入间隔}，介入偏移=${currentRole.介入偏移 ?? 0}，下一角色=${nextRole.name}`)
         currentRole = nextRole
         continue
       }

@@ -6,7 +6,7 @@
 
 import { INTERRUPTION_REASON, type InterruptedMsgContext } from "../../common/types"
 
-export type 稀疏任务动态映射 = Record<string, string>
+export type 稀疏任务动态映射 = Array<{ 任务标题: string; 一句话动态: string }>
 
 // ============== JSON 解析 ==============
 
@@ -371,13 +371,17 @@ export function normalizeRoleName(currentRoleName: string): string {
 
 /**
  * 判断角色在本轮是否应该介入。
- * 介入间隔为2 → 等两回合后第3回合才介入（cycle=0首次介入，cycle=1/2跳过，cycle=3再介入）。
- * 介入间隔为3 → 等三回合后第4回合才介入，以此类推。
+ * 介入偏移为0时首轮可介入；介入偏移为1时首轮跳过，第二轮首次介入。
+ * 介入间隔为2且偏移为0 → cycle=0首次介入，cycle=1/2跳过，cycle=3再介入。
+ * 介入间隔为3且偏移为2 → cycle=0/1跳过，cycle=2首次介入，cycle=6再介入。
  */
-export function shouldRoleInterveneThisRound(介入间隔: number, cycle: number): boolean {
+export function shouldRoleInterveneThisRound(介入间隔: number, cycle: number, 介入偏移 = 0): boolean {
+  if (!Number.isInteger(介入偏移) || 介入偏移 < 0) {
+    throw new Error(`介入偏移必须是非负整数，当前值: ${介入偏移}`)
+  }
+  if (cycle < 介入偏移) return false
   if (介入间隔 === 0) return true
-  if (cycle === 0) return true
-  return cycle % (介入间隔 + 1) === 0
+  return (cycle - 介入偏移) % (介入间隔 + 1) === 0
 }
 
 // ============== roundInfo 构建 ==============
@@ -400,12 +404,12 @@ export function buildRoundInfoWithSparseScope(
 ): string {
   const base = buildRoundInfo(cycle, maxCycles)
   if (介入间隔 === 0) return base
-  const entries = Object.entries(任务动态映射)
-  if (entries.length === 0) {
+  if (任务动态映射.length === 0) {
     return base + `自你上次介入以来，暂无新增任务。请结合当前未提交变更和最近几次提交，自行判断是否还有值得检查的地方。\n\n`
   }
-  const scope = entries
-    .map(([任务标题, 一句话动态]) => `- ${任务标题}: ${一句话动态}`)
+  //【设计阐述】这里保留任务顺序输出，避免同名任务在首介入前被覆盖。
+  const scope = 任务动态映射
+    .map((item) => `- ${item.任务标题}: ${item.一句话动态}`)
     .join("\n")
   return base + `下面这些任务是自你上次介入以来新增的，请重点检查它们：\n${scope}\n\n`
 }

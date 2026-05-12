@@ -432,10 +432,10 @@ describe("PEE utils", () => {
     })
 
     it("adds sparse task scope into roundInfo for non-core roles", () => {
-      const roundInfo = buildRoundInfoWithSparseScope(1, 4, "架构师", 2, {
-        "任务A": "已提交，git哈希: abc123",
-        "任务B": "无提交，原因: 测试",
-      })
+      const roundInfo = buildRoundInfoWithSparseScope(1, 4, "架构师", 2, [
+        { 任务标题: "任务A", 一句话动态: "已提交，git哈希: abc123" },
+        { 任务标题: "任务B", 一句话动态: "无提交，原因: 测试" },
+      ])
 
       expect(roundInfo).toContain("第2轮/共4轮")
       expect(roundInfo).toContain("下面这些任务是自你上次介入以来新增的，请重点检查它们")
@@ -443,13 +443,23 @@ describe("PEE utils", () => {
       expect(roundInfo).toContain("任务B: 无提交，原因: 测试")
     })
 
+    it("keeps duplicate task titles in sparse scope", () => {
+      const roundInfo = buildRoundInfoWithSparseScope(2, 4, "架构师", 3, [
+        { 任务标题: "同名任务", 一句话动态: "无提交，原因: 第1轮" },
+        { 任务标题: "同名任务", 一句话动态: "无提交，原因: 第2轮" },
+      ])
+
+      expect(roundInfo).toContain("同名任务: 无提交，原因: 第1轮")
+      expect(roundInfo).toContain("同名任务: 无提交，原因: 第2轮")
+    })
+
     it("keeps core roles dense without sparse scope", () => {
-      expect(buildRoundInfoWithSparseScope(0, 4, "规划者", 0, {})).toContain("第1轮/共4轮")
-      expect(buildRoundInfoWithSparseScope(0, 4, "规划者", 0, {})).not.toContain("稀疏介入角色")
+      expect(buildRoundInfoWithSparseScope(0, 4, "规划者", 0, [])).toContain("第1轮/共4轮")
+      expect(buildRoundInfoWithSparseScope(0, 4, "规划者", 0, [])).not.toContain("稀疏介入角色")
     })
 
     it("uses prompt-like wording when sparse scope is empty", () => {
-      const roundInfo = buildRoundInfoWithSparseScope(0, 4, "架构师", 2, {})
+      const roundInfo = buildRoundInfoWithSparseScope(0, 4, "架构师", 2, [])
 
       expect(roundInfo).toContain("自你上次介入以来，暂无新增任务")
       expect(roundInfo).not.toContain("本角色为稀疏介入角色")
@@ -457,12 +467,31 @@ describe("PEE utils", () => {
   })
 
   describe("sparse role scheduling", () => {
-    it("always runs first round, keeps core dense, and waits full gaps between sparse interventions", () => {
+    it("keeps core dense, supports first-intervention offsets, and waits full gaps", () => {
       expect(shouldRoleInterveneThisRound(0, 0)).toBe(true)
       expect(shouldRoleInterveneThisRound(2, 0)).toBe(true)
       expect(shouldRoleInterveneThisRound(2, 1)).toBe(false)
       expect(shouldRoleInterveneThisRound(2, 2)).toBe(false)
       expect(shouldRoleInterveneThisRound(2, 3)).toBe(true)
+      expect(shouldRoleInterveneThisRound(3, 0, 2)).toBe(false)
+      expect(shouldRoleInterveneThisRound(3, 1, 2)).toBe(false)
+      expect(shouldRoleInterveneThisRound(3, 2, 2)).toBe(true)
+      expect(shouldRoleInterveneThisRound(3, 5, 2)).toBe(false)
+      expect(shouldRoleInterveneThisRound(3, 6, 2)).toBe(true)
+      expect(() => shouldRoleInterveneThisRound(2, 0, -1)).toThrow("介入偏移必须是非负整数")
+    })
+
+    it("configures role intervention offsets explicitly", () => {
+      expect(new 注释与文档对齐员().介入偏移).toBe(2)
+      expect(new 架构师().介入偏移).toBe(2)
+      expect(new 规划者().介入偏移).toBe(0)
+      expect(new 压缩决策员().介入偏移).toBe(0)
+      expect(new 执行者().介入偏移).toBe(0)
+      expect(new 评估者().介入偏移).toBe(0)
+      expect(new 冗余枝剪者().介入偏移).toBe(0)
+      expect(new 质保员().介入偏移).toBe(0)
+      expect(new 边缘质保员().介入偏移).toBe(0)
+      expect(new 提交员().介入偏移).toBe(0)
     })
   })
 
