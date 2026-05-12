@@ -513,6 +513,9 @@ export class OpenCodeSessionAdapter implements ISession {
   /** 已计入累计值的 step-finish part，避免事件重放或补丁重复计数。 */
   private countedStepFinishIds = new Set<string>()
 
+  /** step-finish 去重只需要覆盖最近事件，避免长会话无限增长。 */
+  private readonly maxCountedStepFinishIds = 5_000
+
   /**
    * 由策略循环主动发起且已成功执行的压缩次数。
    * 与后端自身的自动压缩无关，仅统计 compactHistory=true 且 summarize 成功的调用。
@@ -1128,6 +1131,10 @@ export class OpenCodeSessionAdapter implements ISession {
       const stepFinishId = `${part.messageID}:${part.id}`
       if (this.countedStepFinishIds.has(stepFinishId)) return
       this.countedStepFinishIds.add(stepFinishId)
+      if (this.countedStepFinishIds.size > this.maxCountedStepFinishIds) {
+        const oldest = this.countedStepFinishIds.values().next().value
+        if (oldest) this.countedStepFinishIds.delete(oldest)
+      }
 
       const contextTotal = part.tokens.total ||
         (part.tokens.input || 0) +

@@ -1226,6 +1226,22 @@ async function buildTaskUpstream(
   return upstream
 }
 
+function shouldRequestCompaction(cumulative: number, threshold: number, compactCount: number): boolean {
+  return threshold > 0 && Math.floor(cumulative / threshold) > compactCount
+}
+
+function shouldCompactByRoleThreshold(session: ISession, roleName: string, threshold: number): boolean {
+  const cumulative = session.getCumulativeTokens()
+  const compactCount = session.get主动压缩次数()
+  logFile.info(`[${roleName}-Token监控] session=${session.id}, 累计token=${cumulative}, 主动压缩次数=${compactCount}, opencode=${JSON.stringify(session.getTokenUsage())}, 阈值=${threshold}`)
+  if (shouldRequestCompaction(cumulative, threshold, compactCount)) {
+    logFile.info(`[${roleName}] 累计token=${cumulative} 已跨过第${compactCount + 1}个阈值档位，请求主动压缩`)
+    return true
+  }
+  logFile.info(`[${roleName}] token未达阈值: 累计=${cumulative}, 阈值=${threshold}, 主动压缩次数=${compactCount}`)
+  return false
+}
+
 
 
 export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
@@ -1583,44 +1599,17 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
 
       // 【规划者压缩】累计 token 每跨过一个阈值档位，触发一次策略主动压缩
       if (currentRole instanceof 规划者) {
-        const cumulative = session.getCumulativeTokens()
-        const threshold = (currentRole as 规划者).压缩阈值
-        const compactCount = session.get主动压缩次数()
-        logFile.info(`[规划者-Token监控] session=${session.id}, 累计token=${cumulative}, 主动压缩次数=${compactCount}, opencode=${JSON.stringify(session.getTokenUsage())}, 阈值=${threshold}`)
-        if (threshold > 0 && Math.floor(cumulative / threshold) > compactCount) {
-          compactBeforeSend = true
-          logFile.info(`[规划者] 累计token=${cumulative} 已跨过第${compactCount + 1}个阈值档位，请求主动压缩`)
-        } else {
-          logFile.info(`[规划者] token未达阈值: 累计=${cumulative}, 阈值=${threshold}, 主动压缩次数=${compactCount}`)
-        }
+        if (shouldCompactByRoleThreshold(session, currentRole.name, currentRole.压缩阈值)) compactBeforeSend = true
       }
 
       // 【压缩决策员压缩】累计 token 每跨过一个阈值档位，触发一次策略主动压缩
       if (currentRole instanceof 压缩决策员) {
-        const cumulative = session.getCumulativeTokens()
-        const threshold = (currentRole as 压缩决策员).压缩阈值
-        const compactCount = session.get主动压缩次数()
-        logFile.info(`[压缩决策员-Token监控] session=${session.id}, 累计token=${cumulative}, 主动压缩次数=${compactCount}, opencode=${JSON.stringify(session.getTokenUsage())}, 阈值=${threshold}`)
-        if (threshold > 0 && Math.floor(cumulative / threshold) > compactCount) {
-          compactBeforeSend = true
-          logFile.info(`[压缩决策员] 累计token=${cumulative} 已跨过第${compactCount + 1}个阈值档位，请求主动压缩`)
-        } else {
-          logFile.info(`[压缩决策员] token未达阈值: 累计=${cumulative}, 阈值=${threshold}, 主动压缩次数=${compactCount}`)
-        }
+        if (shouldCompactByRoleThreshold(session, currentRole.name, currentRole.压缩阈值)) compactBeforeSend = true
       }
 
       // 【注释与文档对齐员压缩】累计 token 每跨过一个阈值档位，触发一次策略主动压缩
       if (currentRole instanceof 注释与文档对齐员) {
-        const cumulative = session.getCumulativeTokens()
-        const threshold = (currentRole as 注释与文档对齐员).压缩阈值
-        const compactCount = session.get主动压缩次数()
-        logFile.info(`[注释与文档对齐员-Token监控] session=${session.id}, 累计token=${cumulative}, 主动压缩次数=${compactCount}, opencode=${JSON.stringify(session.getTokenUsage())}, 阈值=${threshold}`)
-        if (threshold > 0 && Math.floor(cumulative / threshold) > compactCount) {
-          compactBeforeSend = true
-          logFile.info(`[注释与文档对齐员] 累计token=${cumulative} 已跨过第${compactCount + 1}个阈值档位，请求主动压缩`)
-        } else {
-          logFile.info(`[注释与文档对齐员] token未达阈值: 累计=${cumulative}, 阈值=${threshold}, 主动压缩次数=${compactCount}`)
-        }
+        if (shouldCompactByRoleThreshold(session, currentRole.name, currentRole.压缩阈值)) compactBeforeSend = true
       }
 
       if (currentRole === 执行者instance) {
