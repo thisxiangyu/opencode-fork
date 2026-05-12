@@ -425,7 +425,7 @@ ${upstreamMsg}
 export class 冗余枝剪者 implements IRole {
   name = "冗余枝剪者"
   介入间隔 = 2
-  介入偏移 = 0
+  介入偏移 = 2
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个冗余枝剪者，负责寻找项目中：
     因前后逻辑覆盖、项目推进太快造成的不必要的冗余/误导性路径（代码、逻辑、文件、文件夹、资产等）
@@ -550,7 +550,7 @@ ${upstreamMsg}
 export class 边缘质保员 implements IRole {
   name = "边缘质保员"
   介入间隔 = 2
-  介入偏移 = 0
+  介入偏移 = 1
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是一个边缘质保员，负责写测试、寻找质保员测试时未覆盖到的边缘情况。
 
