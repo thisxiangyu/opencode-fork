@@ -6,7 +6,7 @@
  *          → 冗余枝剪者 → 架构师 → (打回执行者 OR 质保员)
  *          → 质保员 → 边缘质保员 → 提交员 → 规划者
  * 
- * 5+n 思想：介入间隔为0的角色是稠密工作者，介入间隔大于0的角色是稀疏工作者。以下5个角色必须稠密：规划者、压缩决策员、执行者、评估者、提交员。其它角色可以安插、调整。
+ * 5+n 思想：介入间隔为0的角色是稠密工作者，介入间隔大于0的角色是稀疏工作者。以下5个角色最好都是稠密的：规划者、压缩决策员、执行者、评估者、提交员。其它角色可以安插、调整。
  */
 import { consoleAndLogFile, LOG_DIR, logFile, LOG_COLOR, RESET } from "../../common/logger"
 import { AskTo重新定位角色, 检查names重复, type IRole,
@@ -2046,7 +2046,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
       const 规划者session = await getOrCreateSession(规划者instance)
       await 规划者session.sendMsg({
         msgSource: MSG_SOURCE.system,
-        content: `${finalRoundInfo}所有轮次已耗尽。\n\n输入任意数字n，继续跑n轮。点击回车退出。`,
+        content: `${finalRoundInfo}已经是最后一轮，但项目依然没有完成。请按照此前约定，汇报进度、差距、滞后原因、下一步推进建议、工作改善方案。`,
       }, false)
       const userInput = await runtimeDeps.askUser!(`所有轮次已耗尽。输入任意数字n继续跑n轮，点击回车退出: `)
       const n = parseInt(userInput.trim(), 10)
