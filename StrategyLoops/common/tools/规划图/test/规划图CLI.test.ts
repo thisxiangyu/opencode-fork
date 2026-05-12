@@ -1095,7 +1095,7 @@ describe("查询规划图视图 - 动态折叠", () => {
     expect(result).toContain("第一条新动态")
     expect(result).not.toContain("第二条动态消息内容比较长一些")
     expect(result).not.toContain("第三条旧动态")
-    expect(result).toContain("(..折叠2个动态)")
+    expect(result).toContain("(..折叠1个动态)")
   })
 
   test("动态字数阈值仅统计消息内容，不统计序号时间角色前缀", () => {
@@ -1111,14 +1111,15 @@ describe("查询规划图视图 - 动态折叠", () => {
     const result = 查询规划图_返回视图(10, undefined, undefined, 1000, 5)
     expect(result).toContain("第一条新")
     expect(result).not.toContain("第一条新动态")
-    expect(result).toContain("(..折叠3个动态)")
+    expect(result).toContain("(..折叠2个动态)")
   })
 
   test("动态折叠仅折叠超出部分", () => {
     const result = 查询规划图_返回视图(10, undefined, undefined, 1000, 15)
     expect(result).toContain("第一条新动态")
     expect(result).not.toContain("第二条动态消息内容比较长一些")
-    expect(result).toContain("(..折叠2个动态)")
+    expect(result).toContain("第二条动态消息内")
+    expect(result).toContain("(..折叠1个动态)")
   })
 
   test("动态消息总字数未超过阈值时全部显示", () => {

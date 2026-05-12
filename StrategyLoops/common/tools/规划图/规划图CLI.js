@@ -470,13 +470,11 @@ const 规划图 = {
           const timeStr = formatDateTime({ isoString: d.时间UTC, showYear: false, showPeriod: false, showTime: true, showSeconds: false });
           const 消息字数 = d.消息.length;
           if (累计消息字数 + 消息字数 > 动态字数阈值) {
-            if (动态行.length === 0) {
-              const 可显示字数 = 动态字数阈值;
-              if (可显示字数 > 0) {
-                动态行.push(`  ${i + 1}.「${timeStr} ${d.角色}：${d.消息.slice(0, 可显示字数)}」`);
-              }
+            const 剩余空间 = 动态字数阈值 - 累计消息字数;
+            if (剩余空间 > 0) {
+              动态行.push(`  ${i + 1}.「${timeStr} ${d.角色}：${d.消息.slice(0, 剩余空间)}」`);
             }
-            已折叠数 = task.动态.length - i;
+            已折叠数 = task.动态.length - 动态行.length;
             break;
           }
           累计消息字数 += 消息字数;
@@ -892,13 +890,11 @@ function 查询规划图_返回视图(一次性聚焦数量上限, 从, 到, 描
         const timeStr = formatDateTime({ isoString: d.时间UTC, showYear: false, showPeriod: false, showTime: true, showSeconds: false });
         const 消息字数 = d.消息.length;
         if (累计消息字数 + 消息字数 > 任务动态字数展示阈值) {
-          if (动态行.length === 0) {
-            const 可显示字数 = 任务动态字数展示阈值;
-            if (可显示字数 > 0) {
-              动态行.push(`${动态前缀}${i + 1}.「${timeStr} ${d.角色}：${d.消息.slice(0, 可显示字数)}」`);
-            }
+          const 剩余空间 = 任务动态字数展示阈值 - 累计消息字数;
+          if (剩余空间 > 0) {
+            动态行.push(`${动态前缀}${i + 1}.「${timeStr} ${d.角色}：${d.消息.slice(0, 剩余空间)}」`);
           }
-          已折叠数 = task.动态.length - i;
+          已折叠数 = task.动态.length - 动态行.length;
           break;
         }
         累计消息字数 += 消息字数;
