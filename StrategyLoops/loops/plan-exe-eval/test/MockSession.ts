@@ -18,6 +18,8 @@ export class MockSession implements ISession {
   private messageCallbacks: Array<(msg: SessionMessage) => void> = []
   private receiveState: MessageReceiveState = MessageReceiveState.IDLE
   private tokenUsage: TokenUsageInfo | undefined = undefined
+  private cumulativeTokens = 0
+  private 主动压缩次数 = 0
 
   constructor(role: IRole, directory: string = "/tmp/mock-project", id?: string) {
     this.role = role
@@ -35,6 +37,16 @@ export class MockSession implements ISession {
 
   setTokenUsage(usage: TokenUsageInfo): void {
     this.tokenUsage = usage
+    this.cumulativeTokens = usage.total ??
+      (usage.input || 0) +
+      (usage.output || 0) +
+      (usage.reasoning || 0) +
+      (usage.cache?.read || 0) +
+      (usage.cache?.write || 0)
+  }
+
+  setCumulativeTokens(tokens: number): void {
+    this.cumulativeTokens = tokens
   }
 
   onInterruption(callback: (msg: InterruptedMsgContext) => void): void {
@@ -58,6 +70,7 @@ export class MockSession implements ISession {
   }
 
   async sendMsg(message: SessionMessage, compactHistory?: boolean): Promise<string> {
+    if (compactHistory) this.increment主动压缩次数()
     this.messages.push(message)
     for (const callback of this.messageCallbacks) {
       callback(message)
@@ -88,6 +101,18 @@ export class MockSession implements ISession {
 
   getTokenUsage(): TokenUsageInfo | undefined {
     return this.tokenUsage
+  }
+
+  getCumulativeTokens(): number {
+    return this.cumulativeTokens
+  }
+
+  get主动压缩次数(): number {
+    return this.主动压缩次数
+  }
+
+  increment主动压缩次数(): void {
+    this.主动压缩次数++
   }
 
   // 用于测试的辅助方法

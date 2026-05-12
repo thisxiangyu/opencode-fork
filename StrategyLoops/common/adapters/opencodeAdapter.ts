@@ -498,6 +498,23 @@ export class OpenCodeSessionAdapter implements ISession {
   private latestTokenUsage: TokenUsageInfo | undefined
 
   /**
+   * 累计 token 用量。
+   * 因为一些后端（如 opencode server）可能存在自动压缩与标称不同的问题，
+   * 有可能出现像 gpt-5.5 这样 100 万上下文的模型在 23 万就被压缩的问题，
+   * 导致策略循环中的角色压缩阈值永远不被触发。所以这里用一个字段来维护
+   * 一个更权威的 token 统计：每次 step-finish 时优先累加 total，缺失时用
+   * input + output + reasoning + cache.read + cache.write 还原本轮总量。
+   */
+  private cumulativeTokens = 0
+
+  /**
+   * 由策略循环主动发起且已成功执行的压缩次数。
+   * 与后端自身的自动压缩无关，仅统计 compactHistory=true 且 summarize 成功的调用。
+   * 初始值为 0，每次策略主动压缩成功后递增。
+   */
+  private 主动压缩次数 = 0
+
+  /**
    * 最后一条用户消息的 ID
    * 用于判断新消息是否是用户生成的
    */
@@ -754,6 +771,7 @@ export class OpenCodeSessionAdapter implements ISession {
         modelID: model.modelID,
         auto: false,
       })
+      this.increment主动压缩次数()
       logFile.info(`[压缩] 压缩完成，继续发送消息`)
     }
 
@@ -984,6 +1002,20 @@ export class OpenCodeSessionAdapter implements ISession {
     return this.latestTokenUsage
   }
 
+  getCumulativeTokens(): number {
+    return this.cumulativeTokens
+  }
+
+  get主动压缩次数(): number {
+    return this.主动压缩次数
+  }
+
+  /** 由会话适配器在主动压缩成功后递增计数。 */
+  increment主动压缩次数(): void {
+    this.主动压缩次数++
+    logFile.info(`[主动压缩计数] session=${this.id}, 次数=${this.主动压缩次数}`)
+  }
+
   // ==================== 私有方法 ====================
 
   /**
@@ -1087,6 +1119,15 @@ export class OpenCodeSessionAdapter implements ISession {
         cache: { read: part.tokens.cache.read, write: part.tokens.cache.write },
         cost: part.cost,
       }
+      // 累加本轮 token 总量，不受后端自动 compaction 导致的 total 回落影响。
+      const roundTokens = part.tokens.total ||
+        (part.tokens.input || 0) +
+        (part.tokens.output || 0) +
+        (part.tokens.reasoning || 0) +
+        (part.tokens.cache?.read || 0) +
+        (part.tokens.cache?.write || 0)
+      this.cumulativeTokens += roundTokens
+      logFile.info(`[Token累计] session=${this.id}, 本轮=${roundTokens}, 累计=${this.cumulativeTokens}, opencode报告total=${part.tokens.total}`)
       return
     }
 

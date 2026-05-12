@@ -14,6 +14,7 @@ class SetupOnlySession implements ISession {
   id: string
   role: IRole
   directory: string
+  private 主动压缩次数 = 0
 
   constructor(role: IRole, directory: string) {
     this.id = `${role.name}-setup-only`
@@ -30,6 +31,9 @@ class SetupOnlySession implements ISession {
   async waitForInterruption(): Promise<string> { return "" }
   async getMessages(): Promise<SessionMessage[]> { return [] }
   getTokenUsage() { return undefined }
+  getCumulativeTokens() { return 0 }
+  get主动压缩次数() { return this.主动压缩次数 }
+  increment主动压缩次数() { this.主动压缩次数++ }
   async waitForUserMessage(): Promise<string> { return "" }
   async sendMsg(): Promise<string> { throw new Error("setup test should stop before sending messages") }
 }

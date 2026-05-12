@@ -207,7 +207,7 @@ export class 规划者 implements IRole {
     }
     return false
   }
-  压缩阈值 = 1000 * 330
+  压缩阈值 = 1000 * 200
 
   knowledgeDomainPrompt() { return `你作为规划者接手项目 。你对最终结果负责。
     
@@ -463,18 +463,17 @@ export class 架构师 implements IRole {
 【确保架构完美】架构不好，果断要求重构。
 
 【局部整体性视角】多查看diff（关注暂存区、工作区以及整体变动），跳出来看跨文件关系，查看历史，多问自己：
+  这个函数是否在别的位置已经被实现过了？
+  目前的做法是局部解决还是全局最优解？
   文件是否放在了正确的文件夹？
   代码块是否放在了正确的文件？
   这次变动是否引入了冗余？
-  是否有更优雅的实现？
   是否有更合理的分层？
   是否有更清晰的模块划分？
   有哪些未来可拓展的产品点（当前实现是否满足该点的拓展要求）？
-  是否有更高明的设计？
 
   ${架构评审()}
 
-  逐行查找 - 过度设计（过度设计是原罪，简单清晰是最好的）
   原则 - 规划图权威，你的重构不应该违背规划图的规划意图。这要求你必须小心谨慎，真实理解了规划图的路线图意图。
   ${团队Prompt}
   ` 
@@ -1573,29 +1572,31 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
       consoleAndLogFile.infoC(LOG_COLOR.GREEN, `>>> ${currentRole.name}`)
       session.setCurrentContext(currentRole.name)
 
-      // 【规划者压缩】基于 session token 用量与阈值比较，自动触发
+      // 【规划者压缩】累计 token 每跨过一个阈值档位，触发一次策略主动压缩
       if (currentRole instanceof 规划者) {
-        const usage = session.getTokenUsage()
+        const cumulative = session.getCumulativeTokens()
         const threshold = (currentRole as 规划者).压缩阈值
-        logFile.info(`[规划者-Token监控] session=${session.id}, token=${JSON.stringify(usage)}, 阈值=${threshold}`)
-        if (usage?.total !== undefined && usage.total >= threshold) {
+        const compactCount = session.get主动压缩次数()
+        logFile.info(`[规划者-Token监控] session=${session.id}, 累计token=${cumulative}, 主动压缩次数=${compactCount}, opencode=${JSON.stringify(session.getTokenUsage())}, 阈值=${threshold}`)
+        if (threshold > 0 && Math.floor(cumulative / threshold) > compactCount) {
           compactBeforeSend = true
-          logFile.info(`[规划者] token总量=${usage.total} >= 阈值=${threshold}，触发压缩`)
+          logFile.info(`[规划者] 累计token=${cumulative} 已跨过第${compactCount + 1}个阈值档位，请求主动压缩`)
         } else {
-          logFile.info(`[规划者] token未达阈值: total=${usage?.total ?? "undefined"}, threshold=${threshold}`)
+          logFile.info(`[规划者] token未达阈值: 累计=${cumulative}, 阈值=${threshold}, 主动压缩次数=${compactCount}`)
         }
       }
 
-      // 【压缩决策员压缩】基于 session token 用量与阈值比较，自动触发
+      // 【压缩决策员压缩】累计 token 每跨过一个阈值档位，触发一次策略主动压缩
       if (currentRole instanceof 压缩决策员) {
-        const usage = session.getTokenUsage()
+        const cumulative = session.getCumulativeTokens()
         const threshold = (currentRole as 压缩决策员).压缩阈值
-        logFile.info(`[压缩决策员-Token监控] session=${session.id}, token=${JSON.stringify(usage)}, 阈值=${threshold}`)
-        if (usage?.total !== undefined && usage.total >= threshold) {
+        const compactCount = session.get主动压缩次数()
+        logFile.info(`[压缩决策员-Token监控] session=${session.id}, 累计token=${cumulative}, 主动压缩次数=${compactCount}, opencode=${JSON.stringify(session.getTokenUsage())}, 阈值=${threshold}`)
+        if (threshold > 0 && Math.floor(cumulative / threshold) > compactCount) {
           compactBeforeSend = true
-          logFile.info(`[压缩决策员] token总量=${usage.total} >= 阈值=${threshold}，触发压缩`)
+          logFile.info(`[压缩决策员] 累计token=${cumulative} 已跨过第${compactCount + 1}个阈值档位，请求主动压缩`)
         } else {
-          logFile.info(`[压缩决策员] token未达阈值: total=${usage?.total ?? "undefined"}, threshold=${threshold}`)
+          logFile.info(`[压缩决策员] token未达阈值: 累计=${cumulative}, 阈值=${threshold}, 主动压缩次数=${compactCount}`)
         }
       }
 
@@ -1605,7 +1606,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         if (executorShouldCompact) {
           compactBeforeSend = true
           executorShouldCompact = false
-          logFile.info(`[执行者] 压缩决策员指令: 触发压缩`)
+          logFile.info(`[执行者] 压缩决策员指令: 请求主动压缩`)
         }
       }
 

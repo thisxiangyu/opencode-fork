@@ -22,6 +22,8 @@ class ScriptedSession implements ISession {
   private interruptionCallbacks: Array<(msg: InterruptedMsgContext) => void> = []
   private scriptedResponses: Array<() => Promise<string>>
   private waitResponse = ""
+  private cumulativeTokens = 0
+  private 主动压缩次数 = 0
 
   constructor(role: IRole, directory: string, scriptedResponses: Array<() => Promise<string>>) {
     this.role = role
@@ -42,10 +44,18 @@ class ScriptedSession implements ISession {
   async waitForInterruption(): Promise<string> { return "" }
   async getMessages(): Promise<SessionMessage[]> { return this.messages }
   getTokenUsage() { return undefined }
+  getCumulativeTokens() { return this.cumulativeTokens }
+  get主动压缩次数() { return this.主动压缩次数 }
+  increment主动压缩次数() { this.主动压缩次数++ }
+
+  setCumulativeTokens(tokens: number): void {
+    this.cumulativeTokens = tokens
+  }
 
   getCompactHistoryCalls(): boolean[] { return [...this.compactHistoryCalls] }
 
   async sendMsg(message: SessionMessage, compactHistory?: boolean): Promise<string> {
+    if (compactHistory) this.increment主动压缩次数()
     this.messages.push(message)
     this.compactHistoryCalls.push(compactHistory === true)
     const next = this.scriptedResponses.shift()
@@ -94,6 +104,7 @@ describe("PEE main loop integration", () => {
     getGitHead?: (projectDir: string) => Promise<string | null>
     commitAllowedRoles?: IRole[]
     maxCycles?: number
+    cumulativeTokensByRole?: Record<string, number>
   }) {
     const sessions = new Map<string, ScriptedSession>()
     const activities: Array<{ 标题: string; 角色: string; 消息: string }> = []
@@ -113,6 +124,7 @@ describe("PEE main loop integration", () => {
         role.name === "边缘质保员" ? (options.edgeQaResponses ?? [async () => qaResponse]) :
         (options.commitResponses ?? [async () => JSON.stringify({ 一句话动态: "无提交，原因: 测试模式" })])
       const session = new ScriptedSession(role, options.projectDir, scriptedResponses)
+      session.setCumulativeTokens(options.cumulativeTokensByRole?.[role.name] ?? 0)
       sessions.set(role.name, session)
       return session
     }
@@ -327,6 +339,71 @@ describe("PEE main loop integration", () => {
     const evaluatorSession = sessions.get("评估者")!
     expect(executorSession.getCompactHistoryCalls()).toEqual([true, false])
     expect(evaluatorSession.getCompactHistoryCalls()).toEqual([true, false])
+    expect(executorSession.get主动压缩次数()).toBe(1)
+    expect(evaluatorSession.get主动压缩次数()).toBe(1)
+  })
+
+  it("compacts planner once per cumulative token threshold band", async () => {
+    const projectDir = "/tmp/pee-planner-cumulative-threshold"
+    const taskMap = new Map<string, any>([
+      ["第一轮任务", {
+        ID: 1,
+        标题: "第一轮任务",
+        任务描述: "验证规划者累计 token 阈值压缩",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+      ["第二轮任务", {
+        ID: 2,
+        标题: "第二轮任务",
+        任务描述: "验证同一阈值档位不重复压缩",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    const { sessions } = await runMainWithScript({
+      projectDir,
+      maxCycles: 2,
+      cumulativeTokensByRole: { 规划者: 200_000 },
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "第一轮任务", 留言: "先执行第一轮" }),
+        async () => JSON.stringify({ 本轮任务标题: "第二轮任务", 留言: "再执行第二轮" }),
+        async () => "收到",
+      ],
+      compactorResponses: [
+        async () => JSON.stringify({ 是否压缩: false }),
+        async () => JSON.stringify({ 是否压缩: false }),
+      ],
+      executorResponses: [async () => "第一轮执行完成", async () => "第二轮执行完成"],
+      evaluatorResponses: [
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
+      ],
+      scissorResponses: [async () => JSON.stringify({ 一句话动态: "冗余检查通过" })],
+      architectResponses: [async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })],
+      qaResponses: [
+        async () => JSON.stringify({ 一句话动态: "第一轮文档检查通过" }),
+        async () => JSON.stringify({ 一句话动态: "第一轮质保通过" }),
+        async () => JSON.stringify({ 一句话动态: "第二轮质保通过" }),
+      ],
+      edgeQaResponses: [async () => JSON.stringify({ 一句话动态: "边缘质保通过" })],
+      commitResponses: [
+        async () => JSON.stringify({ 一句话动态: "无提交，原因: 第一轮提交处理完成" }),
+        async () => JSON.stringify({ 一句话动态: "无提交，原因: 第二轮提交处理完成" }),
+      ],
+      taskMap,
+    })
+
+    const plannerSession = sessions.get("规划者")!
+    expect(plannerSession.getCompactHistoryCalls().slice(0, 2)).toEqual([true, false])
+    expect(plannerSession.get主动压缩次数()).toBe(1)
   })
 
   it("asks executor to fix static check failures before moving to evaluator", async () => {
