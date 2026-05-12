@@ -631,6 +631,7 @@ export interface PEEMainDeps {
   askUser?: (prompt: string) => Promise<string>
   runScheduleMapCli?: typeof runScheduleMapCli
   getGitHead?: (projectDir: string) => Promise<string | null>
+  getGitIsAncestor?: (projectDir: string, ancestor: string, descendant: string) => Promise<boolean>
   /**
    * 允许提交到仓库的角色列表。
    *
@@ -720,6 +721,16 @@ async function getGitHead(projectDir: string): Promise<string | null> {
       resolve(code === 0 ? stdout.trim() : null)
     })
     child.on("error", () => resolve(null))
+  })
+}
+
+async function getGitIsAncestor(projectDir: string, ancestor: string, descendant: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn("git", ["-C", projectDir, "merge-base", "--is-ancestor", ancestor, descendant], {
+      stdio: ["ignore", "ignore", "ignore"],
+    })
+    child.on("close", (code) => resolve(code === 0))
+    child.on("error", () => resolve(false))
   })
 }
 
@@ -1252,9 +1263,11 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     askUser,
     runScheduleMapCli,
     getGitHead,
+    getGitIsAncestor,
     ...deps,
   }
   const _getGitHead = runtimeDeps.getGitHead!
+  const _getGitIsAncestor = runtimeDeps.getGitIsAncestor!
 
   let 规划者instance = new 规划者() as IRole
   let 压缩决策员instance = new 压缩决策员() as IRole
@@ -1823,12 +1836,21 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
             consoleAndLogFile.info(`[${currentRole.name}] 授权基线已刷新，HEAD=${authorizedBaseline.substring(0, 8)}`)
           } else {
             let commitRetries = 0
+            let abnormalCommitHead: string | undefined
             while (true) {
               const currentHead = await _getGitHead(projectDir)
               if (currentHead === null) {
                 throw new Error(`[提交权限检测] 无法在角色 ${currentRole.name} 的提交校验阶段读取 git HEAD，不能判断是否存在异常提交。`)
               }
               if (currentHead === authorizedBaseline) break
+
+              if (!abnormalCommitHead) {
+                abnormalCommitHead = currentHead
+              } else if (currentHead !== abnormalCommitHead && await _getGitIsAncestor(projectDir, currentHead, abnormalCommitHead)) {
+                authorizedBaseline = currentHead
+                consoleAndLogFile.info(`[${currentRole.name}] 检测到异常提交已回退，授权基线同步为 HEAD=${authorizedBaseline.substring(0, 8)}`)
+                break
+              }
 
               commitRetries++
               consoleAndLogFile.warn(`[${currentRole.name}] 检测到异常提交 (${commitRetries}/${MAX_COMMIT_HARNESS_RETRIES})，基线=${authorizedBaseline.substring(0, 8)}，当前=${currentHead?.substring(0, 8) ?? "null"}`)

@@ -105,6 +105,7 @@ describe("PEE main loop integration", () => {
     commitAllowedRoles?: IRole[]
     maxCycles?: number
     cumulativeTokensByRole?: Record<string, number>
+    getGitIsAncestor?: (projectDir: string, ancestor: string, descendant: string) => Promise<boolean>
   }) {
     const sessions = new Map<string, ScriptedSession>()
     const activities: Array<{ 标题: string; 角色: string; 消息: string }> = []
@@ -193,6 +194,7 @@ describe("PEE main loop integration", () => {
       askUser: vi.fn(async () => options.askUserResponse ?? ""),
       runScheduleMapCli,
       getGitHead: options.getGitHead ?? (async () => "abc123def"),
+      getGitIsAncestor: options.getGitIsAncestor ?? (async () => false),
       commitAllowedRoles: options.commitAllowedRoles,
     })
 
@@ -861,6 +863,52 @@ describe("PEE main loop integration", () => {
 
     // 验证 getGitHead 被多次调用（基线 + 检测 + 重检）
     expect(mockGetGitHead.mock.calls.length).toBeGreaterThanOrEqual(3)
+  })
+
+  it("accepts abnormal commit rollback to an ancestor of the first abnormal head", async () => {
+    const projectDir = "/tmp/pee-abnormal-commit-soft-reset-to-parent"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证无权限提交软回退到异常提交父级后不反复误报",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    let gitHeadValue = "baseline-a"
+    const mockGetGitHead = vi.fn(async () => gitHeadValue)
+    const mockGetGitIsAncestor = vi.fn(async (_projectDir: string, ancestor: string, descendant: string) => {
+      return ancestor === "parent-b" && descendant === "commit-c"
+    })
+
+    const { sessions } = await runMainWithScript({
+      projectDir,
+      plannerResponses: [
+        async () => {
+          gitHeadValue = "commit-c"
+          return JSON.stringify({ 本轮任务标题: "测试任务", 留言: "触发规划者提前提交" })
+        },
+        async () => {
+          gitHeadValue = "parent-b"
+          return "已撤回"
+        },
+        async () => "收到",
+      ],
+      taskMap,
+      getGitHead: mockGetGitHead,
+      getGitIsAncestor: mockGetGitIsAncestor,
+    })
+
+    const plannerSession = sessions.get("规划者")
+    expect(plannerSession).toBeDefined()
+    const messages = await plannerSession!.getMessages()
+    expect(messages.filter(m => m.content.includes("不合规定的提前提交"))).toHaveLength(1)
+    expect(mockGetGitIsAncestor).toHaveBeenCalledWith(projectDir, "parent-b", "commit-c")
   })
 
   it("throws when abnormal commit fix exceeds max retries", async () => {
