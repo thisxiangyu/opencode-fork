@@ -110,9 +110,12 @@ export class 任务 {
 
 export class 任务依赖 {
   "依赖任务ID"?: number
-  "依赖任务"!: string
   "原因"!: string
 }
+
+export type 任务依赖输入 = 任务依赖 | { 依赖任务: string, 原因: string, 依赖任务ID?: number }
+
+type 旧格式任务依赖 = 任务依赖 & { 依赖任务?: string }
 
 export class 动态记录 {
   时间UTC!: string
@@ -139,7 +142,7 @@ function 校验同级依赖规则(
     if (依赖任务) {
       const 依赖任务优先级 = 解析任务行(依赖任务).优先级序号 ?? 0
       if (优先级序号 <= 依赖任务优先级) {
-        return { 成功: false, 消息: `同级任务情况下，前者(优先级序号更小)不能依赖后者（优先级序号更大），请重新从整体依赖设计出发，权衡任务《${任务标题}》和《${dep.依赖任务}》的优先级，判断是否是错误的优先级规划或错误的依赖关系。如果重要任务一定要提前做，也可以考虑采取将这个重要任务拆成两个任务：一个开发时过渡性任务、一个正式态完善/补足任务， 让开发时过渡提前做完，形成更细的任务顺序：过渡性任务->依赖过渡性任务的任务->正式态完善/补足` }
+        return { 成功: false, 消息: `同级任务情况下，前者(优先级序号更小)不能依赖后者（优先级序号更大），请重新从整体依赖设计出发，权衡任务《${任务标题}》和《${依赖展示标题(dep)}》的优先级，判断是否是错误的优先级规划或错误的依赖关系。如果重要任务一定要提前做，也可以考虑采取将这个重要任务拆成两个任务：一个开发时过渡性任务、一个正式态完善/补足任务， 让开发时过渡提前做完，形成更细的任务顺序：过渡性任务->依赖过渡性任务的任务->正式态完善/补足` }
       }
     }
   }
@@ -257,6 +260,7 @@ export function initDb(项目名: string, 数据库目录?: string) {
       动态 TEXT
     )
   `)
+  迁移依赖为ID存储()
   return db
 }
 
@@ -397,6 +401,80 @@ export function 解析任务行(raw: 任务Row | 任务): 任务 {
   }
 }
 
+function 查询依赖任务标题(依赖任务ID: number): string | null {
+  const task = 获取规划图Db().prepare(
+    "SELECT 标题 FROM 规划图 WHERE id = ?"
+  ).get(依赖任务ID) as { 标题: string } | undefined
+  return task?.标题 ?? null
+}
+
+function 依赖展示标题(dep: 旧格式任务依赖): string {
+  if (typeof dep.依赖任务ID === "number") return 查询依赖任务标题(dep.依赖任务ID) ?? `ID:${dep.依赖任务ID}`
+  return dep.依赖任务?.trim() || "（未知依赖）"
+}
+
+function 解析依赖任务ID(dep: 任务依赖输入): { 成功: true, 依赖任务ID: number } | { 成功: false, 消息: string } {
+  if (typeof dep.依赖任务ID === "number" && Number.isInteger(dep.依赖任务ID) && dep.依赖任务ID > 0) {
+    const depTask = 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE id = ? AND 是否删除 = 0").get(dep.依赖任务ID) as { id: number } | undefined
+    if (!depTask) return { 成功: false, 消息: `依赖任务ID「${dep.依赖任务ID}」不存在` }
+    return { 成功: true, 依赖任务ID: depTask.id }
+  }
+
+  if (!("依赖任务" in dep) || typeof dep.依赖任务 !== "string") return { 成功: false, 消息: "依赖任务ID不能为空" }
+  const depTitle = dep.依赖任务.trim()
+  if (!depTitle) return { 成功: false, 消息: "依赖任务ID不能为空" }
+  const depTask = 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(depTitle) as { id: number } | undefined
+  if (!depTask) return { 成功: false, 消息: `依赖任务「${depTitle}」不存在` }
+  return { 成功: true, 依赖任务ID: depTask.id }
+}
+
+function 规范化依赖列表(依赖: 任务依赖输入[]): { 成功: true, 依赖: 任务依赖[] } | { 成功: false, 消息: string } {
+  const normalized: 任务依赖[] = []
+  for (const dep of 依赖) {
+    const resolved = 解析依赖任务ID(dep)
+    if (!resolved.成功) return resolved
+    normalized.push({ 依赖任务ID: resolved.依赖任务ID, 原因: dep.原因 })
+  }
+  return { 成功: true, 依赖: normalized }
+}
+
+function 迁移依赖为ID存储(): void {
+  const rows = 获取规划图Db().prepare(
+    "SELECT id, 依赖 FROM 规划图 WHERE 依赖 IS NOT NULL AND TRIM(依赖) != ''"
+  ).all() as { id: number, 依赖: string }[]
+
+  for (const row of rows) {
+    let deps: 旧格式任务依赖[]
+    try {
+      const parsed = JSON.parse(row.依赖) as unknown
+      if (!Array.isArray(parsed)) continue
+      deps = parsed as 旧格式任务依赖[]
+    } catch {
+      continue
+    }
+
+    let changed = false
+    const migrated = (deps as 旧格式任务依赖[]).map(dep => {
+      if (typeof dep.依赖任务ID === "number" && Number.isInteger(dep.依赖任务ID) && dep.依赖任务ID > 0) {
+        changed = changed || dep.依赖任务 !== undefined
+        return { 依赖任务ID: dep.依赖任务ID, 原因: dep.原因 }
+      }
+      if (typeof dep.依赖任务 === "string" && dep.依赖任务.trim()) {
+        const task = 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE 标题 = ?").get(dep.依赖任务.trim()) as { id: number } | undefined
+        if (task) {
+          changed = true
+          return { 依赖任务ID: task.id, 原因: dep.原因 }
+        }
+      }
+      return dep
+    })
+
+    if (changed) {
+      获取规划图Db().prepare("UPDATE 规划图 SET 依赖 = ? WHERE id = ?").run(JSON.stringify(migrated), row.id)
+    }
+  }
+}
+
 export const 规划图 = {
   添加任务(
     添加到哪个父任务之下: string | null,
@@ -404,7 +482,7 @@ export const 规划图 = {
     标题: string,
     优先级序号: number,
     任务类型Tag: 任务Tag,
-    依赖: 任务依赖[] = [],
+    依赖: 任务依赖输入[] = [],
     其它Tag: string[] = [],
   ): 任务操作结果 {
     const 标题trim = 标题.trim()
@@ -437,18 +515,11 @@ export const 规划图 = {
     }
 
     // 处理依赖：验证依赖任务存在，并转换为id存储
-    for (const dep of 依赖) {
-      if (typeof dep.依赖任务 !== "string") return { 成功: false, 消息: "依赖任务不能为空" }
-      const depTitle = dep.依赖任务.trim()
-      if (!depTitle) return { 成功: false, 消息: "依赖任务不能为空" }
-      const depTask = 获取规划图Db().prepare("SELECT id, 标题 FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(depTitle) as { id: number, 标题: string } | undefined
-      if (!depTask) return { 成功: false, 消息: `依赖任务「${depTitle}」不存在` }
-      dep.依赖任务ID = depTask.id
-      dep.依赖任务 = depTask.标题
-    }
+    const 依赖规范化结果 = 规范化依赖列表(依赖)
+    if (!依赖规范化结果.成功) return 依赖规范化结果
 
     const 实际优先级序号 = 计算实际优先级序号(父任务ID, 优先级序号)
-    const 依赖校验结果 = 校验同级依赖规则(标题trim, 父任务ID, 实际优先级序号, 依赖)
+    const 依赖校验结果 = 校验同级依赖规则(标题trim, 父任务ID, 实际优先级序号, 依赖规范化结果.依赖)
     if (依赖校验结果) return 依赖校验结果
     const mileStone = 检测里程碑(父任务ID)
     const 所有Tag = [...new Set([其它Tag, 任务类型Tag, mileStone].flat().filter((t): t is string => t !== null))]
@@ -459,13 +530,13 @@ export const 规划图 = {
     // 插入任务获取自增id
     const insertResult = 获取规划图Db().prepare(
       "INSERT INTO 规划图 (标题, 父任务ID, Tag, 任务描述, 是否完成, 创建时间UTC, 优先级序号, 依赖, 是否删除, 动态) VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, ?)"
-    ).run(标题trim, 父任务ID, JSON.stringify(所有Tag), 任务描述.trim(), 创建时间UTC, 实际优先级序号, JSON.stringify(依赖), JSON.stringify([]))
+    ).run(标题trim, 父任务ID, JSON.stringify(所有Tag), 任务描述.trim(), 创建时间UTC, 实际优先级序号, JSON.stringify(依赖规范化结果.依赖), JSON.stringify([]))
 
     const newTaskId = insertResult.lastInsertRowid as number
 
     const isRoot = 父任务ID === null
     const 父任务标题信息 = isRoot ? "" : `（父任务：${添加到哪个父任务之下}）`
-    const 依赖提醒 = 依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，依赖链是极为重要的，不要忽视隐性依赖）" : ""
+    const 依赖提醒 = 依赖规范化结果.依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，依赖链是极为重要的，不要忽视隐性依赖）" : ""
 
     return {
       成功: true,
@@ -528,7 +599,7 @@ export const 规划图 = {
       const tagsStr = task.Tag?.join('、') ?? ''
       const 依赖信息 = task.依赖 ? JSON.parse(task.依赖) : []
       const 依赖Str = Array.isArray(依赖信息) && 依赖信息.length > 0
-        ? 依赖信息.map((d: 任务依赖) => d.依赖任务).join('、')
+        ? 依赖信息.map((d: 旧格式任务依赖) => 依赖展示标题(d)).join('、')
         : '无'
 
       const 描述原文 = task.任务描述 ?? 'N/A'
@@ -614,11 +685,18 @@ export const 规划图 = {
     /**
      * 解析任务的依赖 JSON，返回依赖任务详情数组。
      */
-    function 获取依赖任务(依赖JSON: string | undefined): { 依赖任务ID: number, 标题: string, 原因: string }[] {
+    function 获取依赖任务(依赖JSON: string | undefined): { 依赖任务ID: number, 原因: string }[] {
       if (!依赖JSON) return []
       try {
-        const deps = JSON.parse(依赖JSON) as 任务依赖[]
-        return deps.map(d => ({ 依赖任务ID: d.依赖任务ID!, 标题: d["依赖任务"], 原因: d["原因"] }))
+        const deps = JSON.parse(依赖JSON) as 旧格式任务依赖[]
+        return deps
+          .map(d => {
+            if (typeof d.依赖任务ID === "number") return { 依赖任务ID: d.依赖任务ID, 原因: d.原因 }
+            if (!d.依赖任务?.trim()) return null
+            const depTask = 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(d.依赖任务.trim()) as { id: number } | undefined
+            return depTask ? { 依赖任务ID: depTask.id, 原因: d.原因 } : null
+          })
+          .filter((d): d is { 依赖任务ID: number, 原因: string } => d !== null)
       } catch {
         return []
       }
@@ -627,14 +705,14 @@ export const 规划图 = {
     /**
      * 递归构建某一层依赖。返回该层所有依赖的详情列表。
      */
-    function 递归收集依赖(depInfos: { 依赖任务ID: number, 标题: string, 原因: string }[], depthRemaining: number): {
+    function 递归收集依赖(depInfos: { 依赖任务ID: number, 原因: string }[], depthRemaining: number): {
       层: number
       依赖: { 标题: string, 原因: string, 动态: 动态记录[] }[]
     }[] {
       if (depthRemaining <= 0 || depInfos.length === 0) return []
 
       const currentLayer: { 标题: string, 原因: string, 动态: 动态记录[] }[] = []
-      const nextDepInfos: { 依赖任务ID: number, 标题: string, 原因: string }[] = []
+      const nextDepInfos: { 依赖任务ID: number, 原因: string }[] = []
 
       for (const dep of depInfos) {
         if (visited.has(dep.依赖任务ID)) continue
@@ -703,7 +781,7 @@ export const 规划图 = {
     return { 成功: true, 消息: `已将任务「${旧标题trim}」更名为「${新标题trim}」（ID：${existing.id}不变，父子关系和依赖关系不受影响）` }
   },
 
-  改依赖(标题: string, 新依赖: 任务依赖[]): 任务操作结果 {
+  改依赖(标题: string, 新依赖: 任务依赖输入[]): 任务操作结果 {
     const 标题trim = 标题.trim()
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" }
     const existing = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
@@ -711,20 +789,13 @@ export const 规划图 = {
     const existingTask = 解析任务行(existing)
 
     // 处理依赖：验证依赖任务存在，并转换为id存储
-    for (const dep of 新依赖) {
-      if (typeof dep.依赖任务 !== "string") return { 成功: false, 消息: "依赖任务不能为空" }
-      const depTitle = dep.依赖任务.trim()
-      if (!depTitle) return { 成功: false, 消息: "依赖任务不能为空" }
-      const depTask = 获取规划图Db().prepare("SELECT id, 标题 FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(depTitle) as { id: number, 标题: string } | undefined
-      if (!depTask) return { 成功: false, 消息: `依赖任务「${depTitle}」不存在` }
-      dep.依赖任务ID = depTask.id
-      dep.依赖任务 = depTask.标题
-    }
+    const 依赖规范化结果 = 规范化依赖列表(新依赖)
+    if (!依赖规范化结果.成功) return 依赖规范化结果
 
-    const 依赖校验结果 = 校验同级依赖规则(标题trim, existingTask.父任务ID ?? null, existingTask.优先级序号 ?? 0, 新依赖)
+    const 依赖校验结果 = 校验同级依赖规则(标题trim, existingTask.父任务ID ?? null, existingTask.优先级序号 ?? 0, 依赖规范化结果.依赖)
     if (依赖校验结果) return 依赖校验结果
-    获取规划图Db().prepare("UPDATE 规划图 SET 依赖 = ? WHERE id = ?").run(JSON.stringify(新依赖), existing.id)
-    const 依赖提醒 = 新依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，依赖链是极为重要的，不要忽视隐性依赖）" : ""
+    获取规划图Db().prepare("UPDATE 规划图 SET 依赖 = ? WHERE id = ?").run(JSON.stringify(依赖规范化结果.依赖), existing.id)
+    const 依赖提醒 = 依赖规范化结果.依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，依赖链是极为重要的，不要忽视隐性依赖）" : ""
     return { 成功: true, 消息: `已更新任务「${标题trim}」的依赖${依赖提醒}` }
   },
 
@@ -746,7 +817,7 @@ export const 规划图 = {
       const otherTask = 解析任务行(other)
       if (otherTask.id === existing.id || !otherTask.依赖) continue
       try {
-        const otherDeps: 任务依赖[] = JSON.parse(otherTask.依赖)
+        const otherDeps = JSON.parse(otherTask.依赖) as 任务依赖[]
         const depOnThis = otherDeps.find(d => d.依赖任务ID === existing.id)
         if (depOnThis) {
           const otherPri = otherTask.优先级序号 ?? 0
@@ -762,7 +833,7 @@ export const 规划图 = {
 
     if (existingTask.依赖) {
       try {
-        const selfDeps: 任务依赖[] = JSON.parse(existingTask.依赖)
+        const selfDeps = JSON.parse(existingTask.依赖) as 任务依赖[]
         const 自身依赖校验 = 校验同级依赖规则(标题trim, 父任务ID, 实际优先级序号, selfDeps)
         if (自身依赖校验) return 自身依赖校验
       } catch { /* skip invalid JSON */ }
@@ -1048,7 +1119,7 @@ export function 查询规划图_返回视图(一次性聚焦数量上限: number
     const tagsStr = task.Tag?.join('、') ?? ''
     const 依赖信息 = task.依赖 ? JSON.parse(task.依赖) : []
     const 依赖Str = Array.isArray(依赖信息) && 依赖信息.length > 0
-      ? 依赖信息.map((d: 任务依赖) => d.依赖任务).join('、')
+        ? 依赖信息.map((d: 旧格式任务依赖) => 依赖展示标题(d)).join('、')
       : '无'
 
     const 描述原文 = task.任务描述 ?? 'N/A'
@@ -1220,10 +1291,10 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "写入Key错误" })
       process.exit(1)
     }
-    let 依赖: 任务依赖[] = []
+    let 依赖: 任务依赖输入[] = []
     let 其它Tag: string[] = []
     try {
-      依赖 = flags.依赖 ? JSON.parse(flags.依赖) as 任务依赖[] : []
+      依赖 = flags.依赖 ? JSON.parse(flags.依赖) as 任务依赖输入[] : []
       其它Tag = flags.其它Tag ? JSON.parse(flags.其它Tag) as string[] : []
     } catch (e) {
       outputResult({ 成功: false, 消息: `JSON参数解析失败: ${e instanceof Error ? e.message : String(e)}` })
@@ -1390,9 +1461,9 @@ async function runCli() {
       outputResult({ 成功: false, 消息: "写入Key错误" })
       process.exit(1)
     }
-    let 新依赖: 任务依赖[]
+    let 新依赖: 任务依赖输入[]
     try {
-      新依赖 = JSON.parse(flags.新依赖) as 任务依赖[]
+      新依赖 = JSON.parse(flags.新依赖) as 任务依赖输入[]
     } catch (e) {
       outputResult({ 成功: false, 消息: `JSON参数解析失败: ${e instanceof Error ? e.message : String(e)}` })
       process.exit(1)

@@ -16,6 +16,7 @@ import {
   加载根任务,
   任务Tag,
   type 任务依赖,
+  type 任务依赖输入,
   type 动态记录,
   getDb,
   规划图dbPath,
@@ -90,7 +91,7 @@ describe("1. 添加任务", () => {
   })
 
   test("添加带依赖的任务", () => {
-    const deps: 任务依赖[] = [{ 依赖任务: "子任务B", 原因: "需要先完成B" }]
+    const deps: 任务依赖输入[] = [{ 依赖任务: "子任务B", 原因: "需要先完成B" }]
     const result = 规划图.添加任务(
       "根任务A",
       "这是子任务C的描述，依赖B",
@@ -159,13 +160,13 @@ describe("1.1 同级任务依赖校验", () => {
 
   test("同级任务后者依赖前者应成功", () => {
     规划图.添加任务("根任务X", "任务A描述", "任务A", 0, 任务Tag.FEAT)
-    const deps: 任务依赖[] = [{ 依赖任务: "任务A", 原因: "需要先做A" }]
+    const deps: 任务依赖输入[] = [{ 依赖任务: "任务A", 原因: "需要先做A" }]
     const result = 规划图.添加任务("根任务X", "任务B描述", "任务B", 1, 任务Tag.FEAT, deps)
     expect(result.成功).toBe(true)
   })
 
   test("同级任务前者依赖后者应失败", () => {
-    const deps: 任务依赖[] = [{ 依赖任务: "任务B", 原因: "错误依赖" }]
+    const deps: 任务依赖输入[] = [{ 依赖任务: "任务B", 原因: "错误依赖" }]
     const result = 规划图.添加任务("根任务X", "任务C描述", "任务C", 0, 任务Tag.FEAT, deps)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("同级任务情况下，前者(优先级序号更小)不能依赖后者")
@@ -176,7 +177,7 @@ describe("1.1 同级任务依赖校验", () => {
   test("跨父任务的依赖不受限制", () => {
     规划图.添加任务(null, "根2描述", "根任务Y", 0, 任务Tag.MILESTONE)
     规划图.添加任务("根任务Y", "跨级任务D描述", "跨级任务D", 5, 任务Tag.FEAT)
-    const deps: 任务依赖[] = [{ 依赖任务: "跨级任务D", 原因: "跨父依赖" }]
+    const deps: 任务依赖输入[] = [{ 依赖任务: "跨级任务D", 原因: "跨父依赖" }]
     const result = 规划图.添加任务("根任务X", "跨级任务E描述", "跨级任务E", 0, 任务Tag.FEAT, deps)
     expect(result.成功).toBe(true)
   })
@@ -184,7 +185,7 @@ describe("1.1 同级任务依赖校验", () => {
   test("添加任务时混合依赖应检测出第一个无效同级", () => {
     规划图.添加任务("根任务X", "高优描述", "高优任务P", 2, 任务Tag.FEAT)
     规划图.添加任务("根任务X", "低优描述", "低优任务Q", 5, 任务Tag.FEAT)
-    const mixedDeps: 任务依赖[] = [
+    const mixedDeps: 任务依赖输入[] = [
       { 依赖任务: "低优任务Q", 原因: "无效-前者依赖后者" },
       { 依赖任务: "高优任务P", 原因: "有效-后者依赖前者" },
     ]
@@ -197,7 +198,7 @@ describe("1.1 同级任务依赖校验", () => {
 
   test("新增任务同优先级插入并依赖该已有任务应失败", () => {
     规划图.添加任务("根任务X", "已有任务S", "已有任务S", 2, 任务Tag.FEAT)
-    const deps: 任务依赖[] = [{ 依赖任务: "已有任务S", 原因: "同优先级插入依赖" }]
+    const deps: 任务依赖输入[] = [{ 依赖任务: "已有任务S", 原因: "同优先级插入依赖" }]
     const result = 规划图.添加任务("根任务X", "新增同优任务T", "新增同优任务T", 2, 任务Tag.FEAT, deps)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("同级任务情况下，前者(优先级序号更小)不能依赖后者")
@@ -206,14 +207,14 @@ describe("1.1 同级任务依赖校验", () => {
   })
 
   test("添加任务依赖不存在的任务应失败", () => {
-    const deps: 任务依赖[] = [{ 依赖任务: "不存在的依赖目标", 原因: "测试" }]
+    const deps: 任务依赖输入[] = [{ 依赖任务: "不存在的依赖目标", 原因: "测试" }]
     const result = 规划图.添加任务("根任务X", "描述", "依赖不存在任务", 5, 任务Tag.FEAT, deps)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("不存在")
   })
 
   test("根任务添加依赖不受同级限制", () => {
-    const deps: 任务依赖[] = [{ 依赖任务: "根任务Y", 原因: "根任务依赖" }]
+    const deps: 任务依赖输入[] = [{ 依赖任务: "根任务Y", 原因: "根任务依赖" }]
     const result = 规划图.添加任务(null, "新根任务描述", "新根任务Z", 0, 任务Tag.FEAT, deps)
     expect(result.成功).toBe(true)
   })
@@ -459,7 +460,7 @@ describe("8. 改标题", () => {
     clearAllTasks()
     规划图.添加任务(null, "描述1", "旧标题任务", 0, 任务Tag.FEAT)
     规划图.添加任务("旧标题任务", "子任务描述", "旧标题的子任务", 0, 任务Tag.DETAIL)
-    const deps: 任务依赖[] = [{ 依赖任务: "旧标题任务", 原因: "依赖它" }]
+    const deps: 任务依赖输入[] = [{ 依赖任务: "旧标题任务", 原因: "依赖它" }]
     规划图.添加任务(null, "描述2", "引用旧标题的任务", 1, 任务Tag.FIX, deps)
   })
 
@@ -485,12 +486,18 @@ describe("8. 改标题", () => {
     const deps = JSON.parse(refTask[0].依赖!) as 任务依赖[]
     // 依赖基于ID存储，依赖任务ID保持不变
     expect(deps[0].依赖任务ID).toBeDefined()
-    // 依赖任务标题不变（仅存储时记录，不随目标任务更名而更新）
-    expect(deps[0].依赖任务).toBe("旧标题任务")
+    // 依赖关系只存ID，不存标题快照；标题仅在查询视图里按ID回查展示
+    expect("依赖任务" in deps[0]).toBe(false)
     // 但通过ID能正确找到更名后的任务
     const actualTask = 规划图.按标题查("新标题任务")
     expect(actualTask).toHaveLength(1)
     expect(actualTask[0].id).toBe(deps[0].依赖任务ID)
+  })
+
+  test("查询视图中的依赖标题按ID回查当前标题", () => {
+    const view = 查询规划图_返回视图(20, undefined, undefined, 9999, 9999)
+    expect(view).toContain("依赖: 新标题任务")
+    expect(view).not.toContain("依赖: 旧标题任务")
   })
 
   test("新标题已存在应失败", () => {
@@ -518,7 +525,7 @@ describe("9. 改依赖", () => {
   })
 
   test("修改依赖成功", () => {
-    const newDeps: 任务依赖[] = [
+    const newDeps: 任务依赖输入[] = [
       { 依赖任务: "依赖目标A", 原因: "新原因A" },
       { 依赖任务: "依赖目标B", 原因: "新原因B" },
     ]
@@ -527,21 +534,66 @@ describe("9. 改依赖", () => {
     const found = 规划图.按标题查("待改依赖任务")
     const deps = JSON.parse(found[0].依赖!) as 任务依赖[]
     expect(deps).toHaveLength(2)
-    expect(deps[0].依赖任务).toBe("依赖目标A")
-    expect(deps[1].依赖任务).toBe("依赖目标B")
+    expect("依赖任务" in deps[0]).toBe(false)
+    expect("依赖任务" in deps[1]).toBe(false)
+    expect(deps[0].依赖任务ID).toBe(规划图.按标题查("依赖目标A")[0].id)
+    expect(deps[1].依赖任务ID).toBe(规划图.按标题查("依赖目标B")[0].id)
   })
 
   test("依赖任务不存在应失败", () => {
-    const newDeps: 任务依赖[] = [{ 依赖任务: "不存在的任务", 原因: "原因" }]
+    const newDeps: 任务依赖输入[] = [{ 依赖任务: "不存在的任务", 原因: "原因" }]
     const result = 规划图.改依赖("待改依赖任务", newDeps)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("不存在")
   })
 
   test("不存在的任务应失败", () => {
-    const newDeps: 任务依赖[] = []
+    const newDeps: 任务依赖输入[] = []
     const result = 规划图.改依赖("不存在的任务", newDeps)
     expect(result.成功).toBe(false)
+  })
+})
+
+describe("9.0 依赖旧数据迁移", () => {
+  beforeAll(() => {
+    clearAllTasks()
+    规划图.添加任务(null, "旧依赖目标描述", "旧依赖目标", 0, 任务Tag.FEAT)
+    const target = 规划图.按标题查("旧依赖目标")[0]
+    getDb().prepare(
+      "INSERT INTO 规划图 (标题, 父任务ID, Tag, 任务描述, 是否完成, 创建时间UTC, 优先级序号, 依赖, 是否删除, 动态) VALUES (?, NULL, ?, ?, 0, ?, 1, ?, 0, ?)"
+    ).run(
+      "旧格式依赖任务",
+      JSON.stringify([任务Tag.FIX]),
+      "旧格式依赖任务描述",
+      new Date().toISOString(),
+      JSON.stringify([{ 依赖任务: "旧依赖目标", 原因: "旧版本仅按标题存储" }]),
+      JSON.stringify([]),
+    )
+    getDb().prepare(
+      "INSERT INTO 规划图 (标题, 父任务ID, Tag, 任务描述, 是否完成, 创建时间UTC, 优先级序号, 依赖, 是否删除, 动态) VALUES (?, NULL, ?, ?, 0, ?, 2, ?, 0, ?)"
+    ).run(
+      "冗余标题依赖任务",
+      JSON.stringify([任务Tag.FIX]),
+      "冗余标题依赖任务描述",
+      new Date().toISOString(),
+      JSON.stringify([{ 依赖任务ID: target.id, 依赖任务: "旧依赖目标", 原因: "已有ID但冗余标题" }]),
+      JSON.stringify([]),
+    )
+    initDb("test")
+  })
+
+  test("初始化时将title-only依赖迁移为ID-only", () => {
+    const deps = JSON.parse(规划图.按标题查("旧格式依赖任务")[0].依赖!) as 任务依赖[]
+    expect(deps).toEqual([{ 依赖任务ID: 规划图.按标题查("旧依赖目标")[0].id, 原因: "旧版本仅按标题存储" }])
+  })
+
+  test("初始化时移除已有ID依赖中的冗余标题字段", () => {
+    const deps = JSON.parse(规划图.按标题查("冗余标题依赖任务")[0].依赖!) as 任务依赖[]
+    expect(deps).toEqual([{ 依赖任务ID: 规划图.按标题查("旧依赖目标")[0].id, 原因: "已有ID但冗余标题" }])
+  })
+
+  test("迁移后查询视图仍显示可读标题", () => {
+    expect(查询规划图_返回视图(20, undefined, undefined, 9999, 9999)).toContain("依赖: 旧依赖目标")
   })
 })
 
@@ -555,13 +607,13 @@ describe("9.1 改依赖同级依赖校验", () => {
   })
 
   test("改依赖：后者依赖前者应成功", () => {
-    const deps: 任务依赖[] = [{ 依赖任务: "改依赖任务A", 原因: "正确依赖" }]
+    const deps: 任务依赖输入[] = [{ 依赖任务: "改依赖任务A", 原因: "正确依赖" }]
     const result = 规划图.改依赖("改依赖任务B", deps)
     expect(result.成功).toBe(true)
   })
 
   test("改依赖：前者依赖后者应失败", () => {
-    const deps: 任务依赖[] = [{ 依赖任务: "改依赖任务C", 原因: "错误依赖" }]
+    const deps: 任务依赖输入[] = [{ 依赖任务: "改依赖任务C", 原因: "错误依赖" }]
     const result = 规划图.改依赖("改依赖任务A", deps)
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("同级任务情况下，前者(优先级序号更小)不能依赖后者")
@@ -572,7 +624,7 @@ describe("9.1 改依赖同级依赖校验", () => {
   test("改依赖：跨父任务依赖不受限制", () => {
     规划图.添加任务(null, "另一根描述", "另一根任务", 0, 任务Tag.MILESTONE)
     规划图.添加任务("另一根任务", "跨级任务D描述", "改依赖跨级任务D", 5, 任务Tag.FEAT)
-    const deps: 任务依赖[] = [{ 依赖任务: "改依赖跨级任务D", 原因: "跨父依赖" }]
+    const deps: 任务依赖输入[] = [{ 依赖任务: "改依赖跨级任务D", 原因: "跨父依赖" }]
     const result = 规划图.改依赖("改依赖任务A", deps)
     expect(result.成功).toBe(true)
   })
@@ -580,7 +632,7 @@ describe("9.1 改依赖同级依赖校验", () => {
   test("改依赖：混合依赖应检测出第一个无效同级", () => {
     规划图.添加任务("改依赖根任务", "高优E1", "改依赖高优E1", 3, 任务Tag.FEAT)
     规划图.添加任务("改依赖根任务", "低优E2", "改依赖低优E2", 6, 任务Tag.FEAT)
-    const mixedDeps: 任务依赖[] = [
+    const mixedDeps: 任务依赖输入[] = [
       { 依赖任务: "改依赖低优E2", 原因: "无效-前者依赖后者" },
       { 依赖任务: "改依赖跨级任务D", 原因: "有效-跨父依赖" },
     ]
@@ -592,7 +644,7 @@ describe("9.1 改依赖同级依赖校验", () => {
   })
 
   test("改依赖：根任务依赖不受同级限制", () => {
-    const deps: 任务依赖[] = [{ 依赖任务: "另一根任务", 原因: "根任务依赖" }]
+    const deps: 任务依赖输入[] = [{ 依赖任务: "另一根任务", 原因: "根任务依赖" }]
     const result = 规划图.改依赖("改依赖根任务", deps)
     expect(result.成功).toBe(true)
   })
@@ -659,7 +711,7 @@ describe("9.2 改优先级", () => {
     clearAllTasks()
     规划图.添加任务(null, "根描述", "依赖校验根", 0, 任务Tag.MILESTONE)
     规划图.添加任务("依赖校验根", "任务A描述", "依赖校验A", 0, 任务Tag.FEAT)
-    const deps: 任务依赖[] = [{ 依赖任务: "依赖校验A", 原因: "依赖A" }]
+    const deps: 任务依赖输入[] = [{ 依赖任务: "依赖校验A", 原因: "依赖A" }]
     规划图.添加任务("依赖校验根", "任务B描述", "依赖校验B", 1, 任务Tag.FEAT, deps)
     const result = 规划图.改优先级("依赖校验A", 5)
     expect(result.成功).toBe(false)
@@ -716,7 +768,7 @@ describe("9.2 改优先级", () => {
     clearAllTasks()
     规划图.添加任务(null, "根描述", "自依赖根", 0, 任务Tag.MILESTONE)
     规划图.添加任务("自依赖根", "A描述", "自依赖A", 0, 任务Tag.FEAT)
-    const deps: 任务依赖[] = [{ 依赖任务: "自依赖A", 原因: "依赖A" }]
+    const deps: 任务依赖输入[] = [{ 依赖任务: "自依赖A", 原因: "依赖A" }]
     规划图.添加任务("自依赖根", "B描述", "自依赖B", 1, 任务Tag.FEAT, deps)
     const result = 规划图.改优先级("自依赖B", 0)
     expect(result.成功).toBe(false)

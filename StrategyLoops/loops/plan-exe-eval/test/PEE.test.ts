@@ -379,25 +379,25 @@ describe("PEE utils", () => {
     it("passes when all direct dependencies are completed", () => {
       const result = validateDependencies(
         "当前任务",
-        [{ 依赖任务: "前置任务", 原因: "依赖" }],
-        (key) => (key === "title:前置任务" ? { 是否完成: true } : undefined),
+        [{ 依赖任务ID: 3, 原因: "依赖" }],
+        (key) => (key === "id:3" ? { 是否完成: true } : undefined),
       )
       expect(result.valid).toBe(true)
     })
 
     it("fails on malformed, missing, deleted and incomplete dependencies", () => {
       expect(validateDependencies("当前任务", [{ 原因: "坏数据" }], () => undefined).valid).toBe(false)
-      expect(validateDependencies("当前任务", [{ 依赖任务: "缺失任务" }], () => undefined).error).toContain("不存在")
+      expect(validateDependencies("当前任务", [{ 原因: "缺失ID" }], () => undefined).error).toContain("缺少\"依赖任务ID\"")
+      expect(validateDependencies("当前任务", [{ 依赖任务ID: 1 }], () => undefined).error).toContain("不存在")
       expect(
-        validateDependencies("当前任务", [{ 依赖任务: "已删除任务" }], () => ({ 已删除: true, 是否完成: true })).error,
+        validateDependencies("当前任务", [{ 依赖任务ID: 2 }], () => ({ 已删除: true, 是否完成: true })).error,
       ).toContain("已被删除")
       expect(
-        validateDependencies("当前任务", [{ 依赖任务: "未完成任务" }], () => ({ 是否完成: false })).error,
+        validateDependencies("当前任务", [{ 依赖任务ID: 3 }], () => ({ 是否完成: false })).error,
         ).toContain("未完成")
     })
 
-    it("builds dependency display name from title, fallback title and id", () => {
-      expect(getDependencyDisplayName({ 依赖任务: "前置任务" }, "忽略的回查标题")).toBe("前置任务")
+    it("builds dependency display name from resolved title and id", () => {
       expect(getDependencyDisplayName({ 依赖任务ID: 3 }, "回查标题")).toBe("回查标题")
       expect(getDependencyDisplayName({ 依赖任务ID: 7 })).toBe("ID:7")
     })

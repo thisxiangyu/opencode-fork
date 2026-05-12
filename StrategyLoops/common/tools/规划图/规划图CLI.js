@@ -27,6 +27,8 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// common/tools/规划图/规划图CLI.ts
 var CLI_exports = {};
 __export(CLI_exports, {
   TIME_PERIODS: () => TIME_PERIODS,
@@ -55,10 +57,10 @@ var import_better_sqlite3 = __toESM(require("better-sqlite3"));
 var import_path = require("path");
 var import_fs = require("fs");
 var import_url = require("url");
-const import_meta = {};
-const scriptDir = import_meta.url ? (0, import_path.dirname)((0, import_url.fileURLToPath)(import_meta.url)) : __dirname;
-const WRITE_KEY_HASH = 0x9ee19172f78b1ecen;
-const TIME_PERIODS = [
+var import_meta = {};
+var scriptDir = import_meta.url ? (0, import_path.dirname)((0, import_url.fileURLToPath)(import_meta.url)) : __dirname;
+var WRITE_KEY_HASH = 0x9ee19172f78b1ecen;
+var TIME_PERIODS = [
   "早晨",
   // 5:00-7:59
   "上午",
@@ -95,7 +97,7 @@ function formatDateTime(options) {
   const timeStr = options.showTime ? ` ${date.getHours().toString().padStart(2, "0")}:${date.getMinutes().toString().padStart(2, "0")}${options.showSeconds ? `:${date.getSeconds().toString().padStart(2, "0")}` : ""}` : "";
   return `${yearStr}${month}月${day}日${periodStr}${timeStr}`;
 }
-const 任务Tag = {
+var 任务Tag = {
   DETAIL: "detail",
   ADD: "add",
   FEAT: "feat",
@@ -110,7 +112,7 @@ const 任务Tag = {
   MERGE: "merge",
   MILESTONE: "milestone"
 };
-const 合法的Tag列表 = Object.values(任务Tag);
+var 合法的Tag列表 = Object.values(任务Tag);
 function 校验Tag合法性(tag) {
   return 合法的Tag列表.includes(tag);
 }
@@ -122,7 +124,7 @@ function 校验所有Tag(tags) {
   }
   return null;
 }
-class 任务 {
+var 任务 = class {
   id;
   标题;
   父任务ID;
@@ -134,17 +136,16 @@ class 任务 {
   依赖;
   已删除 = false;
   动态 = [];
-}
-class 任务依赖 {
+};
+var 任务依赖 = class {
   "依赖任务ID";
-  "依赖任务";
   "原因";
-}
-class 动态记录 {
+};
+var 动态记录 = class {
   时间UTC;
   角色;
   消息;
-}
+};
 function 校验同级依赖规则(任务标题, 父任务ID, 优先级序号, 依赖) {
   if (依赖.length === 0 || 父任务ID === null) return null;
   const 同级任务 = 获取规划图Db().prepare(
@@ -155,7 +156,7 @@ function 校验同级依赖规则(任务标题, 父任务ID, 优先级序号, �
     if (依赖任务) {
       const 依赖任务优先级 = 解析任务行(依赖任务).优先级序号 ?? 0;
       if (优先级序号 <= 依赖任务优先级) {
-        return { 成功: false, 消息: `同级任务情况下，前者(优先级序号更小)不能依赖后者（优先级序号更大），请重新从整体依赖设计出发，权衡任务《${任务标题}》和《${dep.依赖任务}》的优先级，判断是否是错误的优先级规划或错误的依赖关系。如果重要任务一定要提前做，也可以考虑采取将这个重要任务拆成两个任务：一个开发时过渡性任务、一个正式态完善/补足任务， 让开发时过渡提前做完，形成更细的任务顺序：过渡性任务->依赖过渡性任务的任务->正式态完善/补足` };
+        return { 成功: false, 消息: `同级任务情况下，前者(优先级序号更小)不能依赖后者（优先级序号更大），请重新从整体依赖设计出发，权衡任务《${任务标题}》和《${依赖展示标题(dep)}》的优先级，判断是否是错误的优先级规划或错误的依赖关系。如果重要任务一定要提前做，也可以考虑采取将这个重要任务拆成两个任务：一个开发时过渡性任务、一个正式态完善/补足任务， 让开发时过渡提前做完，形成更细的任务顺序：过渡性任务->依赖过渡性任务的任务->正式态完善/补足` };
       }
     }
   }
@@ -209,9 +210,9 @@ function 级联更新字段(父任务ID, 字段, 值) {
   }
   获取规划图Db().prepare(`UPDATE 规划图 SET ${字段} = ? WHERE id = ?`).run(值, 父任务ID);
 }
-let db;
-let 规划图dbPath;
-let 当前项目名;
+var db;
+var 规划图dbPath;
+var 当前项目名;
 function 获取规划图Db() {
   if (!db) throw new Error("规划图数据库未初始化，请先调用 initDb()");
   return db;
@@ -239,6 +240,7 @@ function initDb(项目名, 数据库目录) {
       动态 TEXT
     )
   `);
+  迁移依赖为ID存储();
   return db;
 }
 function initDbStrict(项目名) {
@@ -358,7 +360,72 @@ function 解析任务行(raw) {
     动态
   };
 }
-const 规划图 = {
+function 查询依赖任务标题(依赖任务ID) {
+  const task = 获取规划图Db().prepare(
+    "SELECT 标题 FROM 规划图 WHERE id = ?"
+  ).get(依赖任务ID);
+  return task?.标题 ?? null;
+}
+function 依赖展示标题(dep) {
+  if (typeof dep.依赖任务ID === "number") return 查询依赖任务标题(dep.依赖任务ID) ?? `ID:${dep.依赖任务ID}`;
+  return dep.依赖任务?.trim() || "（未知依赖）";
+}
+function 解析依赖任务ID(dep) {
+  if (typeof dep.依赖任务ID === "number" && Number.isInteger(dep.依赖任务ID) && dep.依赖任务ID > 0) {
+    const depTask2 = 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE id = ? AND 是否删除 = 0").get(dep.依赖任务ID);
+    if (!depTask2) return { 成功: false, 消息: `依赖任务ID「${dep.依赖任务ID}」不存在` };
+    return { 成功: true, 依赖任务ID: depTask2.id };
+  }
+  if (!("依赖任务" in dep) || typeof dep.依赖任务 !== "string") return { 成功: false, 消息: "依赖任务ID不能为空" };
+  const depTitle = dep.依赖任务.trim();
+  if (!depTitle) return { 成功: false, 消息: "依赖任务ID不能为空" };
+  const depTask = 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(depTitle);
+  if (!depTask) return { 成功: false, 消息: `依赖任务「${depTitle}」不存在` };
+  return { 成功: true, 依赖任务ID: depTask.id };
+}
+function 规范化依赖列表(依赖) {
+  const normalized = [];
+  for (const dep of 依赖) {
+    const resolved = 解析依赖任务ID(dep);
+    if (!resolved.成功) return resolved;
+    normalized.push({ 依赖任务ID: resolved.依赖任务ID, 原因: dep.原因 });
+  }
+  return { 成功: true, 依赖: normalized };
+}
+function 迁移依赖为ID存储() {
+  const rows = 获取规划图Db().prepare(
+    "SELECT id, 依赖 FROM 规划图 WHERE 依赖 IS NOT NULL AND TRIM(依赖) != ''"
+  ).all();
+  for (const row of rows) {
+    let deps;
+    try {
+      const parsed = JSON.parse(row.依赖);
+      if (!Array.isArray(parsed)) continue;
+      deps = parsed;
+    } catch {
+      continue;
+    }
+    let changed = false;
+    const migrated = deps.map((dep) => {
+      if (typeof dep.依赖任务ID === "number" && Number.isInteger(dep.依赖任务ID) && dep.依赖任务ID > 0) {
+        changed = changed || dep.依赖任务 !== void 0;
+        return { 依赖任务ID: dep.依赖任务ID, 原因: dep.原因 };
+      }
+      if (typeof dep.依赖任务 === "string" && dep.依赖任务.trim()) {
+        const task = 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE 标题 = ?").get(dep.依赖任务.trim());
+        if (task) {
+          changed = true;
+          return { 依赖任务ID: task.id, 原因: dep.原因 };
+        }
+      }
+      return dep;
+    });
+    if (changed) {
+      获取规划图Db().prepare("UPDATE 规划图 SET 依赖 = ? WHERE id = ?").run(JSON.stringify(migrated), row.id);
+    }
+  }
+}
+var 规划图 = {
   添加任务(添加到哪个父任务之下, 任务描述, 标题, 优先级序号, 任务类型Tag, 依赖 = [], 其它Tag = []) {
     const 标题trim = 标题.trim();
     if (!标题trim) return { 成功: false, 消息: "标题不能为空" };
@@ -381,17 +448,10 @@ const 规划图 = {
     if (softDeleted) {
       获取规划图Db().prepare("DELETE FROM 规划图 WHERE 标题 = ? AND 是否删除 = 1").run(标题trim);
     }
-    for (const dep of 依赖) {
-      if (typeof dep.依赖任务 !== "string") return { 成功: false, 消息: "依赖任务不能为空" };
-      const depTitle = dep.依赖任务.trim();
-      if (!depTitle) return { 成功: false, 消息: "依赖任务不能为空" };
-      const depTask = 获取规划图Db().prepare("SELECT id, 标题 FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(depTitle);
-      if (!depTask) return { 成功: false, 消息: `依赖任务「${depTitle}」不存在` };
-      dep.依赖任务ID = depTask.id;
-      dep.依赖任务 = depTask.标题;
-    }
+    const 依赖规范化结果 = 规范化依赖列表(依赖);
+    if (!依赖规范化结果.成功) return 依赖规范化结果;
     const 实际优先级序号 = 计算实际优先级序号(父任务ID, 优先级序号);
-    const 依赖校验结果 = 校验同级依赖规则(标题trim, 父任务ID, 实际优先级序号, 依赖);
+    const 依赖校验结果 = 校验同级依赖规则(标题trim, 父任务ID, 实际优先级序号, 依赖规范化结果.依赖);
     if (依赖校验结果) return 依赖校验结果;
     const mileStone = 检测里程碑(父任务ID);
     const 所有Tag = [...new Set([其它Tag, 任务类型Tag, mileStone].flat().filter((t) => t !== null))];
@@ -400,11 +460,11 @@ const 规划图 = {
     const 创建时间UTC = (/* @__PURE__ */ new Date()).toISOString();
     const insertResult = 获取规划图Db().prepare(
       "INSERT INTO 规划图 (标题, 父任务ID, Tag, 任务描述, 是否完成, 创建时间UTC, 优先级序号, 依赖, 是否删除, 动态) VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, ?)"
-    ).run(标题trim, 父任务ID, JSON.stringify(所有Tag), 任务描述.trim(), 创建时间UTC, 实际优先级序号, JSON.stringify(依赖), JSON.stringify([]));
+    ).run(标题trim, 父任务ID, JSON.stringify(所有Tag), 任务描述.trim(), 创建时间UTC, 实际优先级序号, JSON.stringify(依赖规范化结果.依赖), JSON.stringify([]));
     const newTaskId = insertResult.lastInsertRowid;
     const isRoot = 父任务ID === null;
     const 父任务标题信息 = isRoot ? "" : `（父任务：${添加到哪个父任务之下}）`;
-    const 依赖提醒 = 依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，依赖链是极为重要的，不要忽视隐性依赖）" : "";
+    const 依赖提醒 = 依赖规范化结果.依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，依赖链是极为重要的，不要忽视隐性依赖）" : "";
     return {
       成功: true,
       消息: `已添加${isRoot ? "根任务" : "子任务"}「${标题trim}」${父任务标题信息}（优先级：${实际优先级序号}，ID：${newTaskId}）${依赖提醒}`
@@ -453,7 +513,7 @@ const 规划图 = {
     for (const task of parsedTasks) {
       const tagsStr = task.Tag?.join("、") ?? "";
       const 依赖信息 = task.依赖 ? JSON.parse(task.依赖) : [];
-      const 依赖Str = Array.isArray(依赖信息) && 依赖信息.length > 0 ? 依赖信息.map((d) => d.依赖任务).join("、") : "无";
+      const 依赖Str = Array.isArray(依赖信息) && 依赖信息.length > 0 ? 依赖信息.map((d) => 依赖展示标题(d)).join("、") : "无";
       const 描述原文 = task.任务描述 ?? "N/A";
       const 描述展示 = 描述原文.length > 描述字数阈值 ? 描述原文.slice(0, 描述字数阈值) + `(..折叠${描述原文.length - 描述字数阈值}字)` : 描述原文;
       lines.push(`${task.标题}`);
@@ -528,7 +588,12 @@ const 规划图 = {
       if (!依赖JSON) return [];
       try {
         const deps = JSON.parse(依赖JSON);
-        return deps.map((d) => ({ 依赖任务ID: d.依赖任务ID, 标题: d["依赖任务"], 原因: d["原因"] }));
+        return deps.map((d) => {
+          if (typeof d.依赖任务ID === "number") return { 依赖任务ID: d.依赖任务ID, 原因: d.原因 };
+          if (!d.依赖任务?.trim()) return null;
+          const depTask = 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(d.依赖任务.trim());
+          return depTask ? { 依赖任务ID: depTask.id, 原因: d.原因 } : null;
+        }).filter((d) => d !== null);
       } catch {
         return [];
       }
@@ -594,19 +659,12 @@ const 规划图 = {
     const existing = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim);
     if (!existing) return { 成功: false, 消息: `任务「${标题trim}」不存在` };
     const existingTask = 解析任务行(existing);
-    for (const dep of 新依赖) {
-      if (typeof dep.依赖任务 !== "string") return { 成功: false, 消息: "依赖任务不能为空" };
-      const depTitle = dep.依赖任务.trim();
-      if (!depTitle) return { 成功: false, 消息: "依赖任务不能为空" };
-      const depTask = 获取规划图Db().prepare("SELECT id, 标题 FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(depTitle);
-      if (!depTask) return { 成功: false, 消息: `依赖任务「${depTitle}」不存在` };
-      dep.依赖任务ID = depTask.id;
-      dep.依赖任务 = depTask.标题;
-    }
-    const 依赖校验结果 = 校验同级依赖规则(标题trim, existingTask.父任务ID ?? null, existingTask.优先级序号 ?? 0, 新依赖);
+    const 依赖规范化结果 = 规范化依赖列表(新依赖);
+    if (!依赖规范化结果.成功) return 依赖规范化结果;
+    const 依赖校验结果 = 校验同级依赖规则(标题trim, existingTask.父任务ID ?? null, existingTask.优先级序号 ?? 0, 依赖规范化结果.依赖);
     if (依赖校验结果) return 依赖校验结果;
-    获取规划图Db().prepare("UPDATE 规划图 SET 依赖 = ? WHERE id = ?").run(JSON.stringify(新依赖), existing.id);
-    const 依赖提醒 = 新依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，依赖链是极为重要的，不要忽视隐性依赖）" : "";
+    获取规划图Db().prepare("UPDATE 规划图 SET 依赖 = ? WHERE id = ?").run(JSON.stringify(依赖规范化结果.依赖), existing.id);
+    const 依赖提醒 = 依赖规范化结果.依赖.length === 0 ? "（当前依赖数量为0，请掂量是否有未考虑周到的隐性依赖，依赖链是极为重要的，不要忽视隐性依赖）" : "";
     return { 成功: true, 消息: `已更新任务「${标题trim}」的依赖${依赖提醒}` };
   },
   改优先级(标题, 新优先级序号) {
@@ -872,7 +930,7 @@ function 查询规划图_返回视图(一次性聚焦数量上限, 从, 到, 描
     const 序号Str = 构建序号路径(task);
     const tagsStr = task.Tag?.join("、") ?? "";
     const 依赖信息 = task.依赖 ? JSON.parse(task.依赖) : [];
-    const 依赖Str = Array.isArray(依赖信息) && 依赖信息.length > 0 ? 依赖信息.map((d) => d.依赖任务).join("、") : "无";
+    const 依赖Str = Array.isArray(依赖信息) && 依赖信息.length > 0 ? 依赖信息.map((d) => 依赖展示标题(d)).join("、") : "无";
     const 描述原文 = task.任务描述 ?? "N/A";
     const 描述展示 = 描述原文.length > 描述字数展示阈值 ? 描述原文.slice(0, 描述字数展示阈值) + `(..折叠${描述原文.length - 描述字数展示阈值}字)` : 描述原文;
     lines.push(`${序号Str}.${task.标题}`);
@@ -912,7 +970,7 @@ function 查询规划图_返回视图(一次性聚焦数量上限, 从, 到, 描
   }
   return lines.join("\n");
 }
-const CLI_COMMANDS = {
+var CLI_COMMANDS = {
   help: "显示帮助信息",
   init: "初始化数据库 --项目 <项目名> --WRITE_KEY <Key>",
   add: "添加任务 --标题 <标题> --描述 <描述> [--父任务 <父任务>] [--优先级 <序号>] [--Tag <Tag>] [--依赖 <JSON>] [--其它Tag <JSON>] --WRITE_KEY <Key>",

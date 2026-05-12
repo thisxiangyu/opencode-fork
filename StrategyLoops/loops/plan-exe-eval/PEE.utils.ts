@@ -503,7 +503,6 @@ export function planResumedValidation(
 
 export interface TaskDependency {
   依赖任务ID?: number
-  依赖任务?: string
   原因?: string
 }
 
@@ -513,7 +512,6 @@ export interface TaskStatus {
 }
 
 export function getDependencyDisplayName(dependency: TaskDependency, resolvedTitle?: string): string {
-  if (dependency.依赖任务?.trim()) return dependency.依赖任务.trim()
   if (resolvedTitle?.trim()) return resolvedTitle.trim()
   if (dependency.依赖任务ID) return `ID:${dependency.依赖任务ID}`
   return "（未知依赖）"
@@ -527,20 +525,20 @@ export function validateDependencies(
   dependencies: TaskDependency[],
   getTaskStatus: (key: string) => TaskStatus | undefined
 ): { valid: boolean; error?: string } {
-  // 检查依赖项结构
+  // 检查依赖项结构。依赖关系以ID为准，标题只用于旧数据兼容和展示。
   for (let i = 0; i < dependencies.length; i++) {
     const dep = dependencies[i]
-    if (!dep || (!dep.依赖任务?.trim() && !dep.依赖任务ID)) {
+    if (!dep || !dep.依赖任务ID) {
       return {
         valid: false,
-        error: `任务"${taskTitle}"的第${i + 1}条依赖缺少"依赖任务"或"依赖任务ID"`
+        error: `任务"${taskTitle}"的第${i + 1}条依赖缺少"依赖任务ID"`
       }
     }
   }
 
   // 检查依赖是否完成（只检查一层）
   for (const dep of dependencies) {
-    const key = dep.依赖任务ID ? `id:${dep.依赖任务ID}` : `title:${dep.依赖任务}`
+    const key = `id:${dep.依赖任务ID}`
     const status = getTaskStatus(key)
     const title = getDependencyDisplayName(dep)
 

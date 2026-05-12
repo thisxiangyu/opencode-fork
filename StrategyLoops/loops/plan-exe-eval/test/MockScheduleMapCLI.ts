@@ -152,7 +152,7 @@ export class MockScheduleMapCLI {
           }
 
           // 解析依赖
-          let dependencies: { 依赖任务ID?: number; 依赖任务: string; 原因: string }[] = []
+          let dependencies: { 依赖任务ID?: number; 原因: string }[] = []
           if (task.依赖) {
             try {
               dependencies = JSON.parse(task.依赖)
@@ -165,9 +165,7 @@ export class MockScheduleMapCLI {
             const depsAtLevel: { 标题: string; 原因: string; 动态?: { 角色: string; 消息: string }[] }[] = []
 
             for (const dep of dependencies) {
-              const depTask = dep.依赖任务ID
-                ? this.tasksById.get(dep.依赖任务ID)
-                : this.tasks.get(dep.依赖任务)
+              const depTask = dep.依赖任务ID ? this.tasksById.get(dep.依赖任务ID) : undefined
 
               if (depTask) {
                 depsAtLevel.push({
@@ -183,11 +181,9 @@ export class MockScheduleMapCLI {
             }
 
             // 准备下一层依赖
-            const nextDeps: { 依赖任务ID?: number; 依赖任务: string; 原因: string }[] = []
+            const nextDeps: { 依赖任务ID?: number; 原因: string }[] = []
             for (const dep of dependencies) {
-              const depTask = dep.依赖任务ID
-                ? this.tasksById.get(dep.依赖任务ID)
-                : this.tasks.get(dep.依赖任务)
+              const depTask = dep.依赖任务ID ? this.tasksById.get(dep.依赖任务ID) : undefined
               if (depTask?.依赖) {
                 try {
                   nextDeps.push(...JSON.parse(depTask.依赖))

@@ -253,7 +253,7 @@ export class 规划者 implements IRole {
   systemPrompt(upstreamMsg: string) { return `
   统筹开始。
   请先查看任务动态，尽到规划者对项目推进有用的各种综合职责。
-  最后根据当前仓库情况，派发新一轮任务。仅派发末端任务，不派发高层次任务。
+  最后视察仓库提交、当前实现情况，派发新一轮任务。仅派发末端任务，不派发高层次任务。
 ` }
   accessMode: "readonly" | "writable" = "writable"
   model = GPT55
@@ -1087,7 +1087,7 @@ async function validatePlannerDispatch(
     }
 
     // 2. 解析依赖（损坏或非数组结构均视为不通过）
-    let dependencies: { 依赖任务ID?: number; 依赖任务: string; 原因: string }[] = []
+    let dependencies: { 依赖任务ID?: number; 原因: string }[] = []
     if (task.依赖) {
       let parsed: unknown
       try {
@@ -1108,30 +1108,25 @@ async function validatePlannerDispatch(
         }, false)
         continue
       }
-      dependencies = parsed as { 依赖任务ID?: number; 依赖任务: string; 原因: string }[]
+      dependencies = parsed as { 依赖任务ID?: number; 原因: string }[]
     }
 
-    // 3. 校验每个依赖项结构，必须有 依赖任务 或 依赖任务ID
+    // 3. 校验每个依赖项结构。依赖关系以ID为准；标题只作为查询视图的可读展示。
     if (dependencies.length > 0) {
-      const malformed = dependencies.findIndex(dep => !dep || (!dep.依赖任务?.trim() && !dep.依赖任务ID))
+      const malformed = dependencies.findIndex(dep => !dep || !dep.依赖任务ID)
       if (malformed !== -1) {
-        consoleAndLogFile.warn(`[派发验证] 任务"${title}"的第${malformed + 1}条依赖缺少"依赖任务"或"依赖任务ID"，阻止派发`)
+        consoleAndLogFile.warn(`[派发验证] 任务"${title}"的第${malformed + 1}条依赖缺少"依赖任务ID"，阻止派发`)
         response = await session.sendMsg({
           msgSource: MSG_SOURCE.system,
-          content: `任务"${title}"的第${malformed + 1}条依赖数据不完整（缺少"依赖任务"或"依赖任务ID"字段），可能是规划图数据损坏。请检查并修复，或重新派发。`,
+          content: `任务"${title}"的第${malformed + 1}条依赖数据不完整（缺少"依赖任务ID"字段），可能是规划图旧数据未迁移或数据损坏。请检查并修复，或重新派发。`,
         }, false)
         continue
       }
     }
 
-    // 4. 检查依赖是否全部完成且未被删除（优先用ID查询，ID更稳定；无ID则用标题）
+    // 4. 检查依赖是否全部完成且未被删除（仅用稳定ID查询）
     if (dependencies.length > 0) {
-      const checks = dependencies.map(dep => {
-        if (dep.依赖任务ID) {
-          return queryTaskByIdFull(projectDir, dep.依赖任务ID, runCli)
-        }
-        return queryTaskByTitleFull(projectDir, dep.依赖任务, runCli)
-      })
+      const checks = dependencies.map(dep => queryTaskByIdFull(projectDir, dep.依赖任务ID!, runCli))
       const results = await Promise.all(checks)
 
       const incompleteDeps: string[] = []
@@ -1140,7 +1135,7 @@ async function validatePlannerDispatch(
         const dep = dependencies[i]
         if (!dep) continue
         if (!depTask || depTask.已删除 || !depTask.是否完成) {
-          incompleteDeps.push(getDependencyDisplayName(dep))
+          incompleteDeps.push(getDependencyDisplayName(dep, typeof depTask?.标题 === "string" ? depTask.标题 : undefined))
         }
       }
 
@@ -2043,7 +2038,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
       const 规划者session = await getOrCreateSession(规划者instance)
       await 规划者session.sendMsg({
         msgSource: MSG_SOURCE.system,
-        content: `${finalRoundInfo}已经是最后一轮，但项目依然没有完成。请按照此前约定，汇报进度、差距、滞后原因、下一步推进建议、工作改善方案。`,
+        content: `${finalRoundInfo}已经是最后一轮，但项目依然没有完成。请按照此前约定，向用户汇报进度、差距、滞后原因、下一步推进建议、工作改善方案。本轮无需派发任务。`,
       }, false)
       const userInput = await runtimeDeps.askUser!(`所有轮次已耗尽。输入任意数字n继续跑n轮，点击回车退出: `)
       const n = parseInt(userInput.trim(), 10)
