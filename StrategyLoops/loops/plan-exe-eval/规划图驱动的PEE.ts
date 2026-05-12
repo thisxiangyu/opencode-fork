@@ -320,6 +320,7 @@ ${upstreamMsg}
 export class 注释与文档对齐员 implements IRole {
   name = "注释与文档对齐员"
   介入间隔 = 2
+  压缩阈值 = 1000 * 200
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是注释与文档专项对齐员，你：
 【理解WIKI】确保你完全理解了REPO_WIKI中对注释和文档的要求，建议多举几个例子想想每步该怎么做。
@@ -1597,6 +1598,20 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
           logFile.info(`[压缩决策员] 累计token=${cumulative} 已跨过第${compactCount + 1}个阈值档位，请求主动压缩`)
         } else {
           logFile.info(`[压缩决策员] token未达阈值: 累计=${cumulative}, 阈值=${threshold}, 主动压缩次数=${compactCount}`)
+        }
+      }
+
+      // 【注释与文档对齐员压缩】累计 token 每跨过一个阈值档位，触发一次策略主动压缩
+      if (currentRole instanceof 注释与文档对齐员) {
+        const cumulative = session.getCumulativeTokens()
+        const threshold = (currentRole as 注释与文档对齐员).压缩阈值
+        const compactCount = session.get主动压缩次数()
+        logFile.info(`[注释与文档对齐员-Token监控] session=${session.id}, 累计token=${cumulative}, 主动压缩次数=${compactCount}, opencode=${JSON.stringify(session.getTokenUsage())}, 阈值=${threshold}`)
+        if (threshold > 0 && Math.floor(cumulative / threshold) > compactCount) {
+          compactBeforeSend = true
+          logFile.info(`[注释与文档对齐员] 累计token=${cumulative} 已跨过第${compactCount + 1}个阈值档位，请求主动压缩`)
+        } else {
+          logFile.info(`[注释与文档对齐员] token未达阈值: 累计=${cumulative}, 阈值=${threshold}, 主动压缩次数=${compactCount}`)
         }
       }
 
