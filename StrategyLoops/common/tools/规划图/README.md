@@ -25,8 +25,6 @@ $env:SCHEDULEMAP_PROJECT_NAME="<项目名>"; node 规划图CLI.js <命令> [选�
 
 #  查询
 
-# 查询命令不需要 WRITE_KEY；如果因复用命令模板额外传入 --WRITE_KEY，会被忽略。
-
 # 最常用（描述截断到35字，动态消息截断到135字）
 node 规划图CLI.js query --数量 20 --描述字数阈值 35 --动态字数阈值 135
 
@@ -98,7 +96,7 @@ node 规划图CLI.js update-parent --标题 <子任务标题> --新父任务 <�
 
 #  动态
 
-# 添加一条动态（动态面向所有角色开放，不需要 WRITE_KEY；额外传入 --WRITE_KEY 会被忽略）
+# 添加一条动态（动态面向所有角色开放，不需要 WRITE_KEY）
 node 规划图CLI.js add-activity --标题 <标题> --角色 <角色名> --消息 <消息内容>
 
 
