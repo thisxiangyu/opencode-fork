@@ -1007,7 +1007,7 @@ function 查询规划图_返回视图(一次性聚焦数量上限, 从, 到, 描
     const 依赖Str = Array.isArray(依赖信息) && 依赖信息.length > 0 ? 依赖信息.map((d) => 依赖展示标题(d)).join("、") : "无";
     const 描述原文 = task.任务描述 ?? "N/A";
     const 描述展示 = 描述原文.length > 描述字数展示阈值 ? 描述原文.slice(0, 描述字数展示阈值) + `(..折叠${描述原文.length - 描述字数展示阈值}字)` : 描述原文;
-    lines.push(`${序号Str}.${task.标题}`);
+    lines.push(`${序号Str}《${task.标题}》`);
     lines.push(`${prefix} 创建时间: ${task.创建时间UTC ? formatDateTime({ isoString: task.创建时间UTC, showYear: false, showPeriod: true, showTime: true, showSeconds: false }) : "N/A"}`);
     lines.push(`${prefix} (${tagsStr})${描述展示}`);
     lines.push(`${prefix} 依赖: ${依赖Str}`);
