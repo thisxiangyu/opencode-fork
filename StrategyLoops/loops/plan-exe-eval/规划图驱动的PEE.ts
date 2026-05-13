@@ -18,7 +18,8 @@ import { AskTo重新定位角色, 检查names重复, type IRole,
   GPT54,
   GPT55,
   Opus47,
-  KimiK26} from "../../common/role"
+  KimiK26,
+  Gemini3} from "../../common/role"
 import { LoopConfig } from "../../common/loopConfig"
 import { AbortError, INTERRUPTION_REASON, type InterruptedMsgContext, MSG_SOURCE } from "../../common/types"
 import type { ISession } from "../../common/session"
@@ -214,7 +215,7 @@ export class 规划者 implements IRole {
   }
   压缩阈值 = 1000 * 200
 
-  knowledgeDomainPrompt() { return `你作为规划者接手项目。
+  knowledgeDomainPrompt() { return `你作为${this.name}接手项目。
     
     你对最终结果负责。
     
@@ -244,11 +245,11 @@ export class 规划者 implements IRole {
     - 写入Key：${规划图写入Key}
 
     熟练使用规划图，它体现了产品路线。从全局把控项目进度、节奏、质量、深度、创新、产品体验。
-    对于高层次任务，你像一个CEO，理清依赖关系、不断问自己“先做这个、后做那个是否最优？能不能拆得更细？”、把控创新探索和实际落地的比例（探索可能失败，但也有可能带来巨大收益；循规蹈矩虽然稳妥，但可能错失创新机会）、决策创新探索的结果（可用、暂时不用、弃用）；
+    对于高层次任务，理清依赖关系、不断问自己“先做这个、后做那个是否最优？能不能拆得更细？”、把控创新探索和实际落地的比例（探索可能失败，但也有可能带来巨大收益；循规蹈矩虽然稳妥，但可能错失创新机会）、决策创新探索的结果（可用、暂时不用、弃用）；
     根据项目执行情况，动态调整规划图。
-    末端是高层次任务的自然分解，对于这类任务，你像一个小队长，描述要清晰、原子级、步骤化、有具体到输出项如何验收的标准。
+    末端是高层次任务的自然分解，对于这类任务，描述要清晰、步骤化、有具体到输出项如何验收的标准。
 
-    末端任务应正好适合1次提交。（不要派发复合、含糊、概括性的任务，比如“把某个模块做完”）
+    末端任务应具有内聚性。（一个feat，或者一次fix，不要派发含糊、概括性的任务，比如“把某个模块做完”）
 
     【项目交付】轮次有上限。超过上限未完成有一次延期机会。如果延期: 先汇报进度，接着分析还要几轮才能全部做完、有哪些会简化或绝对不可能完成、哪些建议只先完成demo，往后迭代新版本再做完整版不迟。
     【完美主义】如果达到上限前完成（即，还有富余的轮次），继续探索创新或者优化已有实现。直到实在没有任何更优的做法了，允许通过发送${this.项目已提前完成sign}宣告提前完成。
@@ -292,7 +293,7 @@ export class 压缩决策员 implements IRole {
   介入偏移 = 0
   压缩阈值 = 1000 * 200
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return `你是一个压缩决策员，负责在每轮执行前判断是否需要对执行者的会话进行压缩（compact）。
+  knowledgeDomainPrompt() { return `你是${this.name}，负责在每轮执行前判断是否需要对执行者的会话进行压缩（compact）。
 压缩的含义：将旧的对话历史总结为摘要，仅保留最近的关键上下文。好的压缩让执行者更聪明（释放无关历史，聚焦当前任务），坏的压缩因思维链断裂导致状态不一致。
 
 ${团队Prompt}
@@ -331,12 +332,13 @@ export class 注释与文档对齐员 implements IRole {
   介入偏移 = 2
   压缩阈值 = 1000 * 200
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return `你是注释与文档专项对齐员，阅读REPO_WIKI，理解项目注释和文档要求。
+  knowledgeDomainPrompt() { return `你是${this.name}，阅读REPO_WIKI中项目注释和文档要求。
 
-【整改注释】把项目代码注释按照REPO_WIKI要求进行整理，可以把词汇、解释、段落尝试多拆细一点以便引用。
+【整改注释】把项目代码注释按照REPO_WIKI中的要求进行整理，可以把词汇、解释、段落尝试多拆细成细一点的NOTE以便引用。
 【检查文档】检查主要文件夹是否都有对应的WIKI、确保WIKI之间通过export和import引用连接、确保WIKI跟模块代码文件中的NOTE连接合理。
 【更新文档】将旧的、不符合当前代码状态的文档表述更新。永远使用类维基百科的说明性、专业性表述，不要用"现在、变成、不再"等暗含时间变化性表述。
 【更新注释】更新所有WIKI中的表述，确保完全符合项目开发进度。已较新表述或没有文件或逻辑变动的表述可以不更新。
+【避免md】除了已有的md，你不要添加任何md文档。
 
 风格 - 小心谨慎，你的变更不要破坏业务逻辑，不要导致报错。
 ${团队Prompt}` }
@@ -355,13 +357,14 @@ ${团队Prompt}` }
 export class 文档引用性检查员 implements IRole {
   name = "文档引用性检查员"
   介入间隔 = 3
-  介入偏移 = 0
+  介入偏移 = 3
   压缩阈值 = 1000 * 200
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return `你是文档引用性检查员，负责检查项目中所有WIKI（REPO_WIKI、各文件夹WIKI）的引用关联性、正确性和有效性。
+  knowledgeDomainPrompt() { return `你是${this.name}，负责整改项目中所有WIKI（REPO_WIKI、各文件夹WIKI）的引用关联性、正确性和有效性。
 
 【根本方针】
-阅读REPO_WIKI中的基于WIKI的CodeFileAsWiki理念。
+阅读REPO_WIKI中的基于WIKI的CodeFileAsWiki理念，整改项目WIKI文件，使所有WIKI合规。
+【避免md】除了已有的md，你不要添加任何md文档。
 
 【检查标准】
 1. 引用完整性：只要能引用的地方（名词、解释、说明、段落、阐述）必须通过引用链接明确指出，避免任何直接以字面量表述带来的难以维护性。
@@ -391,21 +394,23 @@ ${团队Prompt}` }
 export class 注释引用性检查员 implements IRole {
   name = "注释引用性检查员"
   介入间隔 = 2
-  介入偏移 = 0
+  介入偏移 = 2
   压缩阈值 = 1000 * 200
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return `你是注释引用性检查员，负责检查代码文件中RefAsAComment的原则和NOTE引用的完整性、正确性。
+  knowledgeDomainPrompt() { return `你是${this.name}，负责整改代码文件中RefAsAComment的原则和NOTE引用的完整性、正确性。
 
 【根本方针】
-阅读REPO_WIKI中的RefAsAComment理念。
+阅读REPO_WIKI中的RefAsAComment理念，整改项目注释->const XX_NOTE = \`\`的形式，使所有注释合规。
+【避免md】
+除了已有的md，你不要添加任何md文档。
 
 【检查标准】
 1. NOTE引用完整性：只要能引用的地方（名词、解释、说明、段落、阐述等NOTE）必须通过引用链接明确指出，绝对避免任何直接以字面量表述带来的难以维护性。
-2  绝对不要出现传统注释，全部传统注释改为遵循RefAsAComment的NOTE形式。
-3. 引用正确性：引用建立后，整句/段落的解释应当通畅、易于理解。
+2  对于核心逻辑类语言代码（不含CSS、json等非逻辑代码），如ts、js（或项目用到的代码语言），绝对不要出现传统注释，全部传统注释改为遵循RefAsAComment的NOTE形式。
+3. 引用正确性：引用建立后，整句/段落的解释应当通畅、通顺。
 
 【工作流程】
-1. 扫描出所有与本次变更和历史提交中的文件有关的各文件夹下WIKI，逐个进行检查
+1. 扫描出所有与本次变更和历史提交中的文件，逐个进行注释检查。
    小心谨慎，你的变更不要破坏业务逻辑，不要导致报错。优先自动修复，其次可在一句话总结报告无法修复的问题
 3. 查找所有可以引用上述文件中NOTE的WIKI或其它文件中的NOTE，进行检测
 4. 如果根目录REPO_WIKI存在需要与变更同步的NOTE，将之同步
@@ -429,7 +434,7 @@ export class 执行者 implements IRole {
   介入间隔 = 0
   介入偏移 = 0
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return `你是一个执行者，负责落实每一轮任务。你首先应阅读项目WIKI，了解项目要求。
+  knowledgeDomainPrompt() { return `你是${this.name}，负责落实每一轮任务。你首先应阅读项目WIKI，了解项目要求。
 
     如果你认为规划者的任务分配不合理，你需要先完成你觉得合理的部分，不合理的部分给出明确的理由和建议。通过在规划图CLI中添加动态的方式反驳规划者的决策。
     对于团队成员给出的修复建议，先理解，再分步执行。
@@ -466,7 +471,7 @@ export class 评估者 implements IRole {
   介入偏移 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { 
-    return `你是一个评估者，负责代码Review、内容审查、指导优化。你专业而挑剔，常常能深度思考，洞察细微差错。
+    return `你是${this.name}，负责代码Review、内容审查、指导优化。你专业而挑剔，常常能深度思考，洞察细微差错。
 
 ${代码评审()}
 
@@ -504,15 +509,16 @@ export class 冗余枝剪者 implements IRole {
   介入间隔 = 2
   介入偏移 = 2
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return `你是一个冗余枝剪者，负责寻找项目中：
+  knowledgeDomainPrompt() { return `你是${this.name}，负责寻找项目中：
     因前后逻辑覆盖、项目推进太快造成的不必要的冗余/误导性路径（代码、逻辑、文件、文件夹、资产等）
+    注意不要把未使用的 const NOTE 给误当成冗余删掉
 
     【工作范围】
     当前这次未提交的变更 以及最近几次任务涉及的历史提交。
 
     工作流程：
     1. 先检查问题：查阅仓库变更和历史提交，识别冗余代码（如果分不清双方谁是冗余就从历史提交分析，旧的一般是冗余）、无用文件、误导性路径
-    2. 解决问题：删除或重构冗余部分，注意_NOTE结尾的未使用的可能是重要的注释，如果冗余才删，如果的确有表述意义不要删
+    2. 千万注意：有一些 const XXXX_NOTE 看起来是死代码，但有可能起到有用的注释的作用，不要误删。只删真实冗余。
     3. 输出动态：用一句话总结本次检测和修复情况（格式见下方输出要求）
     
     ${团队Prompt}
@@ -538,7 +544,7 @@ export class 局部整体性架构师 implements IRole {
   介入偏移 = 2
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { 
-    return `你是一个局部整体性架构师，负责从局部整体性视角审视项目。你只做重构评估，不新增功能。
+    return `你是${this.name}，负责从局部整体性视角审视项目。你只做重构评估，不新增功能。
 
 【工作范围】
  当前这次未提交的变更 以及最近几次任务涉及的历史提交。
@@ -594,7 +600,7 @@ export class 框架性架构师 implements IRole {
   介入偏移 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() {
-    return `你是一个框架性架构师，负责从框架层面审视项目设计与实现。你只做重构评估，不新增功能。
+    return `你是${this.name}，负责从框架层面审视项目设计与实现。你只做重构评估，不新增功能。
 
 【工作范围】
  项目整体结构分析。
@@ -649,7 +655,7 @@ export class 质保员 implements IRole {
   介入间隔 = 0
   介入偏移 = 0
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return `你是一个质保员，负责写测试、找bug/复现bug/记录bug。
+  knowledgeDomainPrompt() { return `你是${this.name}，负责写测试、找bug/复现bug/记录bug。
 
     在正确的文件夹写测试。
     确保覆盖率足够高。模拟真实生产环境测试，不要写蠢测试。
@@ -681,7 +687,7 @@ export class 边缘质保员 implements IRole {
   介入间隔 = 2
   介入偏移 = 1
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return `你是一个边缘质保员，负责写测试、寻找质保员测试时未覆盖到的边缘情况。
+  knowledgeDomainPrompt() { return `你是${this.name}，负责写测试、寻找质保员测试时未覆盖到的边缘情况。
 
     在正确的文件夹写测试。
 
@@ -720,7 +726,7 @@ export class 提交员 implements IRole {
   介入偏移 = 0
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() {
-    return `你是一个提交员，负责提交仓库。包括git仓库（如有）、svn仓库（如有）等等。
+    return `你是${this.name}，负责提交仓库。包括git仓库（如有）、svn仓库（如有）等等。
 
 ${预备Commit()}
 ${Commit()}
@@ -1047,7 +1053,11 @@ async function recordRejectionActivity(
   const result = await runCli(projectDir, ["add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", message], { repairOnMissingBetterSqlite3: true })
   if (result.exitCode !== 0) {
     const errMsg = `[规划图] 记录打回动态失败 (exit=${result.exitCode}): ${result.stderr.trim()}`
-    logFile.error(errMsg)
+    consoleAndLogFile.error(
+      `[打回入库失败] 任务"${taskTitle}"的${roleName}打回记录未能写入规划图 (CLI exit=${result.exitCode})。` +
+      `原因：规划图CLI add-activity 返回非零，通常是任务标题在规划图中不存在或DB写入异常。` +
+      `结果：打回计数仅在内存中有效，规划图中无记录。`
+    )
     throw new Error(errMsg)
   }
   logFile.info(`[规划图] 已记录打回动态: ${taskTitle} - ${message}`)
@@ -1094,7 +1104,11 @@ async function recordRoleActivity(
   const result = await runCli(projectDir, ["add-activity", "--标题", taskTitle, "--角色", roleName, "--消息", activityMessage], { repairOnMissingBetterSqlite3: true })
   if (result.exitCode !== 0) {
     const errMsg = `[规划图] 记录角色动态失败 (exit=${result.exitCode}): ${result.stderr.trim()}`
-    logFile.error(errMsg)
+    consoleAndLogFile.error(
+      `[角色动态入库失败] 任务"${taskTitle}"的${roleName}动态未能写入规划图 (CLI exit=${result.exitCode})。` +
+      `原因：规划图CLI add-activity 返回非零，通常是任务标题在规划图中不存在或DB写入异常。` +
+      `结果：该角色动态仅控制台可见，规划图中无记录。`
+    )
     throw new Error(errMsg)
   }
   logFile.info(`[规划图] 已记录角色动态: ${taskTitle} - ${roleName} - ${activityMessage}`)
@@ -1154,10 +1168,10 @@ async function queryTaskByIdFull(projectDir: string, taskId: number, runCli = ru
  * 2. 该任务存在于规划图中且未被删除
  * 3. 该任务的所有直接依赖均已完成且未被删除（依赖 JSON 损坏或非数组结构视为不通过）
  * 
- * 重试上限：最多验证 10 次响应，超限时记录严重错误并抛出异常终止，
+ * 重试上限：最多验证 n 次响应，超限时记录严重错误并抛出异常终止，
  * 防止模型持续不合规导致无限阻塞。这不会错误放行——要么通过，要么终止。
  */
-const MAX_DISPATCH_RETRIES = 10
+const MAX_DISPATCH_RETRIES = 28
 
 async function validatePlannerDispatch(
   projectDir: string,

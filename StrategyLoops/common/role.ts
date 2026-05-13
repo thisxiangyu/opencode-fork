@@ -112,3 +112,4 @@ export const  GPT55 = { providerID: "openai", modelID: "gpt-5.5" }
 export const  GPT54 = { providerID: "openai", modelID: "gpt-5.4" }
 export const  Opus47 = { providerID: "anthropic", modelID: "claude-opus-4-7" }
 export const  KimiK26 = { providerID: "moonshotai", modelID: "kimi-k2.6" }
+export const  Gemini3 = { providerID: "gemini", modelID: "gemini-3-pro-preview" }

@@ -3,14 +3,14 @@
  * 适合需要开放式决策的较大型项目。
  */
 import { type IRole } from "../../common/role"
-import { 执行者 } from "./规划图驱动的PEE";
+import { 执行者, 规划者 } from "./规划图驱动的PEE";
 
 
-const 执行者调度器: {
-  可调度的执行者: 执行者[];
+const 小组并发调度器: {
+  可调度的小组长: 规划者[];
 
 } = {
-  可调度的执行者: [],
+  可调度的小组长: [],
 };
 
 export class 管理者 implements IRole {
@@ -25,7 +25,7 @@ export class 管理者 implements IRole {
 ${upstreamMsg}
 ---
 
-把任务交给合适的人、新的任务交给新的人、重大重构交给新的人` }
+把任务交给合适的小组、新的任务交给新的小组、重大重构交给新的小组` }
   accessMode: "readonly" | "writable" = "readonly"
   model = { providerID: "minimax-cn-coding-plan", modelID: "MiniMax-M2.7-highspeed" }
 
