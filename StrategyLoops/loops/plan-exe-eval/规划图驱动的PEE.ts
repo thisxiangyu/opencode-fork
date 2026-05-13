@@ -109,7 +109,7 @@ const makeAI网站开发Start_REPO_WIKI =   `
   \`
   `
 
-const config = new LoopConfig({ maxCycles: 60 , startPrompt: makeAI网站开发Start_REPO_WIKI })
+const config = new LoopConfig({ maxCycles: 108 , startPrompt: makeAI网站开发Start_REPO_WIKI })
 
 /** 输出格式校验最大重试次数 */
 const OUTPUT_MAX_FORMAT_RETRIES = 3
@@ -763,6 +763,7 @@ export interface PEEMainDeps {
   loopConfig: LoopConfig
   askUser?: (prompt: string) => Promise<string>
   delay?: (ms: number) => Promise<void>
+  now?: () => number
   runScheduleMapCli?: typeof runScheduleMapCli
   getGitHead?: (projectDir: string) => Promise<string | null>
   getGitIsAncestor?: (projectDir: string, ancestor: string, descendant: string) => Promise<boolean>
@@ -1171,7 +1172,7 @@ async function queryTaskByIdFull(projectDir: string, taskId: number, runCli = ru
  * 重试上限：最多验证 n 次响应，超限时记录严重错误并抛出异常终止，
  * 防止模型持续不合规导致无限阻塞。这不会错误放行——要么通过，要么终止。
  */
-const MAX_DISPATCH_RETRIES = 28
+const MAX_DISPATCH_RETRIES = 80
 
 async function validatePlannerDispatch(
   projectDir: string,
@@ -1401,24 +1402,30 @@ function formatDelayRemaining(ms: number): string {
   return `${minutes}分钟${seconds}秒`
 }
 
-async function delayStrategyStart(askUserFn: (prompt: string) => Promise<string>, delay: (ms: number) => Promise<void>): Promise<void> {
+async function askStrategyStartDelayMs(askUserFn: (prompt: string) => Promise<string>): Promise<number> {
   const answer = (await askUserFn(`[策略启动] 输入延时启动分钟数后回车（允许小数）；直接回车立即开始: `)).trim()
   if (!answer) {
     consoleAndLogFile.info(`[策略启动] 立即开始`)
-    return
+    return 0
   }
 
   const minutes = Number(answer)
   if (!Number.isFinite(minutes) || minutes < 0) {
     consoleAndLogFile.warn(`[策略启动] 输入无效，已立即开始: ${answer}`)
-    return
+    return 0
   }
   if (minutes === 0) {
     consoleAndLogFile.info(`[策略启动] 立即开始`)
-    return
+    return 0
   }
 
-  let remainingMs = minutes * 60 * 1000
+  return minutes * 60 * 1000
+}
+
+async function delayStrategyStart(delayMs: number, delay: (ms: number) => Promise<void>): Promise<void> {
+  let remainingMs = delayMs
+  if (remainingMs === 0) return
+
   consoleAndLogFile.info(`[策略启动] 倒计时 ${formatDelayRemaining(remainingMs)} 后开始`)
   while (remainingMs > 0) {
     const stepMs = Math.min(remainingMs, 60 * 1000)
@@ -1427,6 +1434,23 @@ async function delayStrategyStart(askUserFn: (prompt: string) => Promise<string>
     if (remainingMs > 0) consoleAndLogFile.info(`[策略启动] 剩余 ${formatDelayRemaining(remainingMs)}`)
   }
   consoleAndLogFile.info(`[策略启动] 延时结束，开始执行`)
+}
+
+async function askRequiredStopDurationMs(askUserFn: (prompt: string) => Promise<string>): Promise<number | undefined> {
+  const answer = (await askUserFn(`[策略启动] 输入一个数字n并回车设置必须终止时间，计时n分钟后如果循环所有轮次还没有跑完自动提前结束。直接按下回车不设置终止时间（即无限可用时间）: `)).trim()
+  if (!answer) {
+    consoleAndLogFile.info(`[策略启动] 未设置必须终止时间`)
+    return undefined
+  }
+
+  const minutes = Number(answer)
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    consoleAndLogFile.warn(`[策略启动] 必须终止时间输入无效，已按无限可用时间处理: ${answer}`)
+    return undefined
+  }
+
+  consoleAndLogFile.info(`[策略启动] 必须终止时间已设置为 ${formatDelayRemaining(minutes * 60 * 1000)} 后`)
+  return minutes * 60 * 1000
 }
 
 
@@ -1441,6 +1465,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     loopConfig: config,
     askUser,
     delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now: () => Date.now(),
     runScheduleMapCli,
     getGitHead,
     getGitIsAncestor,
@@ -1709,7 +1734,10 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
   const entrySession: ISession = await runtimeDeps.selectOrCreateSession(规划者instance)
   const projectDir = entrySession.directory
   await runtimeDeps.setupProjectEnvironment(projectDir, runtimeDeps.loopConfig.startPrompt, runtimeDeps.askUser)
-  await delayStrategyStart(runtimeDeps.askUser!, runtimeDeps.delay!)
+  const strategyStartDelayMs = await askStrategyStartDelayMs(runtimeDeps.askUser!)
+  const requiredStopDurationMs = await askRequiredStopDurationMs(runtimeDeps.askUser!)
+  await delayStrategyStart(strategyStartDelayMs, runtimeDeps.delay!)
+  const requiredStopDeadline = requiredStopDurationMs === undefined ? undefined : runtimeDeps.now!() + requiredStopDurationMs
 
   /**
    * 合法提交基线。
@@ -1777,12 +1805,16 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     outer: while (true) {
       // 内层循环：正常轮次执行
       while (cycle < runtimeDeps.loopConfig.maxCycles) {
-      if (!shouldExecuteCurrentRole(currentRole, cycle)) {
-        const nextRole = getSkippedRoleSuccessor(currentRole)
-        consoleAndLogFile.info(`[稀疏角色跳过] 第${cycle + 1}轮跳过 ${currentRole.name}，介入间隔=${currentRole.介入间隔}，介入偏移=${currentRole.介入偏移 ?? 0}，下一角色=${nextRole.name}`)
-        currentRole = nextRole
-        continue
-      }
+        if (requiredStopDeadline !== undefined && runtimeDeps.now!() >= requiredStopDeadline) {
+          consoleAndLogFile.warn(`[必须终止时间] 已到达设置的终止时间，自动提前结束策略循环`)
+          break outer
+        }
+        if (!shouldExecuteCurrentRole(currentRole, cycle)) {
+          const nextRole = getSkippedRoleSuccessor(currentRole)
+          consoleAndLogFile.info(`[稀疏角色跳过] 第${cycle + 1}轮跳过 ${currentRole.name}，介入间隔=${currentRole.介入间隔}，介入偏移=${currentRole.介入偏移 ?? 0}，下一角色=${nextRole.name}`)
+          currentRole = nextRole
+          continue
+        }
 
       // 【中断消费语义】
       // 这里统一消费四种中断语义：

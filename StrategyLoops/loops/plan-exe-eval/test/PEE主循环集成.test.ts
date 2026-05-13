@@ -100,9 +100,11 @@ describe("PEE main loop integration", () => {
     failOnActivityRole?: string
     askUserResponse?: string
     startDelayResponse?: string
+    requiredStopResponse?: string
     failSetup?: boolean
     failQueryByTitle?: boolean
     staticCheckMaxRetries?: number
+    now?: () => number
     getGitHead?: (projectDir: string) => Promise<string | null>
     commitAllowedRoles?: IRole[]
     maxCycles?: number
@@ -203,11 +205,14 @@ describe("PEE main loop integration", () => {
       loopConfig: new LoopConfig({ maxCycles: options.maxCycles ?? 1, startPrompt: "test-start", staticCheckMaxRetries: options.staticCheckMaxRetries }),
       askUser: vi.fn(async () => {
         askUserCallCount++
-        return askUserCallCount === 1 ? options.startDelayResponse ?? "" : options.askUserResponse ?? ""
+        if (askUserCallCount === 1) return options.startDelayResponse ?? ""
+        if (askUserCallCount === 2) return options.requiredStopResponse ?? ""
+        return options.askUserResponse ?? ""
       }),
       runScheduleMapCli,
       getGitHead: options.getGitHead ?? (async () => "abc123def"),
       getGitIsAncestor: options.getGitIsAncestor ?? (async () => false),
+      now: options.now,
       commitAllowedRoles: options.commitAllowedRoles,
       // 测试入口不真实等待，避免延时启动用例阻塞。
       delay: vi.fn(async () => {}),
@@ -819,10 +824,10 @@ describe("PEE main loop integration", () => {
 
     await expect(runMainWithScript({
       projectDir,
-      plannerResponses: Array.from({ length: 12 }, () => async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "查询会失败" })),
+      plannerResponses: Array.from({ length: 90 }, () => async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "查询会失败" })),
       taskMap,
       failQueryByTitle: true,
-    })).rejects.toThrow("派发验证尝试超过10次")
+    })).rejects.toThrow("派发验证尝试超过80次")
   })
 
   it("rejects planner dispatch when task is already completed and retries with correct task", async () => {
@@ -959,6 +964,136 @@ describe("PEE main loop integration", () => {
     // 检查是否有包含"已经是最后一轮"的消息
     const hasExhaustionMsg = plannerMessages.some(m => m.content.includes("已经是最后一轮"))
     expect(hasExhaustionMsg).toBe(true)
+  })
+
+  it("stops early when required stop deadline is reached before all cycles finish", async () => {
+    const projectDir = "/tmp/pee-required-stop-deadline"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证必须终止时间",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+    let now = 0
+
+    const { sessions } = await runMainWithScript({
+      projectDir,
+      maxCycles: 2,
+      requiredStopResponse: "1",
+      now: () => now,
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "第1轮" }),
+      ],
+      compactorResponses: [async () => JSON.stringify({ 是否压缩: false })],
+      executorResponses: [async () => "执行完成"],
+      evaluatorResponses: [async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })],
+      scissorResponses: [async () => JSON.stringify({ 一句话动态: "无提交，原因: 测试" })],
+      architectResponses: [async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })],
+      qaResponses: [
+        async () => JSON.stringify({ 一句话动态: "检查无问题" }),
+      ],
+      edgeQaResponses: [async () => JSON.stringify({ 一句话动态: "无提交，原因: 测试" })],
+      commitResponses: [async () => {
+        now = 60 * 1000
+        return JSON.stringify({ 一句话动态: "无提交，原因: 测试" })
+      }],
+      taskMap,
+    })
+
+    const plannerSession = sessions.get("规划者")
+    expect(plannerSession).toBeDefined()
+    const plannerMessages = await plannerSession!.getMessages()
+    expect(plannerMessages).toHaveLength(1)
+    expect(plannerMessages.some(m => m.content.includes("已经是最后一轮"))).toBe(false)
+  })
+
+  it("asks required stop time before waiting for delayed start", async () => {
+    const projectDir = "/tmp/pee-required-stop-after-delay"
+    const taskMap = new Map<string, any>([
+      ["测试任务", {
+        ID: 1,
+        标题: "测试任务",
+        任务描述: "验证延迟启动后计时",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+    const events: string[] = []
+    let now = 0
+
+    const sessions = new Map<string, ScriptedSession>()
+    const makeSession = (role: IRole) => {
+      if (sessions.has(role.name)) return sessions.get(role.name)!
+      const session = new ScriptedSession(role, projectDir, role.name === "规划者"
+        ? [async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "第1轮" })]
+        : role.name === "压缩决策员"
+          ? [async () => JSON.stringify({ 是否压缩: false })]
+          : role.name === "评估者"
+            ? [async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })]
+            : role.name === "局部整体性架构师"
+              ? [async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })]
+              : role.name === "框架性架构师"
+                ? [async () => JSON.stringify({ 检查结果: "通过", 框架问题: [], 重构建议: "" })]
+              : role.name === "执行者"
+                ? [async () => "执行完成"]
+                : role.name === "提交员"
+                  ? [async () => {
+                    now += 60 * 1000
+                    return JSON.stringify({ 一句话动态: "无提交，原因: 测试" })
+                  }]
+                : [async () => JSON.stringify({ 一句话动态: "无提交，原因: 测试" })])
+      sessions.set(role.name, session)
+      return session
+    }
+
+    await main({
+      linkBackend: vi.fn().mockReturnValue("mock-backend"),
+      selectOrCreateSession: vi.fn(async (role: IRole) => makeSession(role)),
+      createSession: vi.fn(async (role: IRole) => makeSession(role)),
+      relocateRole: vi.fn(async (roles: IRole[]) => roles[0]),
+      setupProjectEnvironment: vi.fn(async () => {
+        await mkdir(projectDir, { recursive: true })
+        await writeFile(`${projectDir}/规划图CLI.js`, "// test stub\n", "utf-8")
+        await copyFile(静态检查模版Path, `${projectDir}/静态检查脚本.js`)
+      }),
+      loopConfig: new LoopConfig({ maxCycles: 2, startPrompt: "test-start" }),
+      askUser: vi.fn(async (prompt: string) => {
+        events.push(prompt.includes("延时启动") ? "ask-delay" : prompt.includes("必须终止时间") ? "ask-stop" : "ask-other")
+        if (prompt.includes("延时启动")) return "2"
+        if (prompt.includes("必须终止时间")) return "1"
+        return ""
+      }),
+      runScheduleMapCli: vi.fn(async (_projectDir: string, args: string[]) => {
+        const action = args[0]
+        if (action === "query-by-title") return { stdout: JSON.stringify({ 成功: true, 数量: 1, 任务: [taskMap.get(args[2])] }), stderr: "", exitCode: 0 }
+        if (action === "query-dependency-chain") return { stdout: JSON.stringify({ 成功: true, 任务: taskMap.get(args[2]), 依赖链: [] }), stderr: "", exitCode: 0 }
+        if (action === "add-activity") return { stdout: "OK", stderr: "", exitCode: 0 }
+        return { stdout: "", stderr: "unexpected command", exitCode: 1 }
+      }),
+      getGitHead: vi.fn(async () => "abc123def"),
+      getGitIsAncestor: vi.fn(async () => false),
+      now: () => now,
+      delay: vi.fn(async () => {
+        events.push("delay")
+        now += 60 * 1000
+      }),
+    })
+
+    expect(events[0]).toBe("ask-delay")
+    expect(events[1]).toBe("ask-stop")
+    expect(events[2]).toBe("delay")
+    const plannerSession = sessions.get("规划者")
+    expect(plannerSession).toBeDefined()
+    expect(await plannerSession!.getMessages()).toHaveLength(1)
   })
 
   it("detects abnormal commit by writable non-commitman role and blocks until fixed", async () => {
