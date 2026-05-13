@@ -98,6 +98,7 @@ describe("PEE main loop integration", () => {
     interruptMessage?: string
     failOnActivityRole?: string
     askUserResponse?: string
+    startDelayResponse?: string
     failSetup?: boolean
     failQueryByTitle?: boolean
     staticCheckMaxRetries?: number
@@ -184,6 +185,7 @@ describe("PEE main loop integration", () => {
       return result
     })
 
+    let askUserCallCount = 0
     const mainPromise = main({
       linkBackend,
       selectOrCreateSession,
@@ -191,11 +193,16 @@ describe("PEE main loop integration", () => {
       relocateRole,
       setupProjectEnvironment,
       loopConfig: new LoopConfig({ maxCycles: options.maxCycles ?? 1, startPrompt: "test-start", staticCheckMaxRetries: options.staticCheckMaxRetries }),
-      askUser: vi.fn(async () => options.askUserResponse ?? ""),
+      askUser: vi.fn(async () => {
+        askUserCallCount++
+        return askUserCallCount === 1 ? options.startDelayResponse ?? "" : options.askUserResponse ?? ""
+      }),
       runScheduleMapCli,
       getGitHead: options.getGitHead ?? (async () => "abc123def"),
       getGitIsAncestor: options.getGitIsAncestor ?? (async () => false),
       commitAllowedRoles: options.commitAllowedRoles,
+      // 测试入口不真实等待，避免延时启动用例阻塞。
+      delay: vi.fn(async () => {}),
     })
 
     if (options.interruptRoleName) {

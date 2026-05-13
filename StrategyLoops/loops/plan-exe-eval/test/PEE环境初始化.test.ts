@@ -76,7 +76,8 @@ describe("PEE 环境初始化", () => {
       createSession: vi.fn(async (role: IRole) => new SetupOnlySession(role, projectDir)),
       relocateRole: vi.fn(async (roles: IRole[]) => roles[0]),
       loopConfig: new LoopConfig({ maxCycles: 0, startPrompt: "new wiki" }),
-      askUser: vi.fn(async () => "n"),
+      askUser: vi.fn(async (prompt: string) => prompt.includes("策略启动") ? "" : "n"),
+      delay: vi.fn(async () => {}),
       getGitHead: vi.fn(async () => "test-head"),
     })
 
@@ -96,7 +97,8 @@ describe("PEE 环境初始化", () => {
       createSession: vi.fn(async (role: IRole) => new SetupOnlySession(role, projectDir)),
       relocateRole: vi.fn(async (roles: IRole[]) => roles[0]),
       loopConfig: new LoopConfig({ maxCycles: 0, startPrompt: "fresh wiki" }),
-      askUser: vi.fn(async () => "n"),
+      askUser: vi.fn(async (prompt: string) => prompt.includes("策略启动") ? "" : "n"),
+      delay: vi.fn(async () => {}),
       getGitHead: vi.fn(async () => "test-head"),
     })
 
@@ -120,7 +122,8 @@ describe("PEE 环境初始化", () => {
       createSession: vi.fn(async (role: IRole) => new SetupOnlySession(role, projectDir)),
       relocateRole: vi.fn(async (roles: IRole[]) => roles[0]),
       loopConfig: new LoopConfig({ maxCycles: 0, startPrompt: "fresh wiki" }),
-      askUser: vi.fn(async () => "y"),
+      askUser: vi.fn(async (prompt: string) => prompt.includes("策略启动") ? "" : "y"),
+      delay: vi.fn(async () => {}),
       getGitHead: vi.fn(async () => "test-head"),
     })
 
@@ -144,7 +147,8 @@ describe("PEE 环境初始化", () => {
       createSession: vi.fn(async (role: IRole) => new SetupOnlySession(role, projectDir)),
       relocateRole: vi.fn(async (roles: IRole[]) => roles[0]),
       loopConfig: new LoopConfig({ maxCycles: 0, startPrompt: "fresh wiki" }),
-      askUser: vi.fn(async () => "n"),
+      askUser: vi.fn(async (prompt: string) => prompt.includes("策略启动") ? "" : "n"),
+      delay: vi.fn(async () => {}),
       getGitHead: vi.fn(async () => "test-head"),
     })
 
@@ -161,7 +165,8 @@ describe("PEE 环境初始化", () => {
       createSession: vi.fn(async (role: IRole) => new SetupOnlySession(role, projectDir)),
       relocateRole: vi.fn(async (roles: IRole[]) => roles[0]),
       loopConfig: new LoopConfig({ maxCycles: 0, startPrompt: "fresh wiki" }),
-      askUser: vi.fn(async () => "n"),
+      askUser: vi.fn(async (prompt: string) => prompt.includes("策略启动") ? "" : "n"),
+      delay: vi.fn(async () => {}),
       getGitHead: vi.fn(async () => "test-head"),
     })).rejects.toThrow("静态检查脚本已存在但运行不在预期")
   })

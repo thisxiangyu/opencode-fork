@@ -104,7 +104,7 @@ const makeAI网站开发Start_REPO_WIKI =   `
   \`
   `
 
-const config = new LoopConfig({ maxCycles: 30 , startPrompt: makeAI网站开发Start_REPO_WIKI })
+const config = new LoopConfig({ maxCycles: 60 , startPrompt: makeAI网站开发Start_REPO_WIKI })
 
 /** 输出格式校验最大重试次数 */
 const OUTPUT_MAX_FORMAT_RETRIES = 3
@@ -212,9 +212,9 @@ export class 规划者 implements IRole {
 
   knowledgeDomainPrompt() { return `你作为规划者接手项目。
     
-    请维护REPO_WIKI（文档）。你对最终结果负责。
+    你对最终结果负责。
     
-    你应当理解目标、分析局面、制定规划图。
+    你应当深入理解REPO_WIKI（文档）、分析局面、制定规划图。
 
     你可以不亲自去执行。但是你必须亲自理解、亲自规划（使用规划图而不要使用文件）。
     
@@ -228,7 +228,7 @@ export class 规划者 implements IRole {
     2.理解当前规划图完成度；(这是统领全局的首要工具。通常而言，规划图的层次越厚实，末端任务越具体，证明对项目的理解越深入，规划质量越高。)
     3.分析上一轮执行的情况和进度，深度思考，不妥的任务需要重新规划，合格的任务要标记为完成;
     4.判断执行者是否正确理解了上一轮规划，如果偏离，需要多花一轮沟通/澄清；
-    5.检查项目架构，遵循逐步演化原则，每过一段时间应当重构。
+    5.把握项目架构，遵循逐步演化原则，每过一段时间进行一次中型重构。
 
     可能还有别的事，发挥想象力去做一些有助于项目推进的事，干活慢慢思考着来，多头脑风暴。
     别对自己太自信，没有把握的业务多上网查资料，汲取一手经验。但网络信息良莠不齐，也不要被ai泔水浪费时间，结合项目实际情况判断。
@@ -436,7 +436,7 @@ export class 冗余枝剪者 implements IRole {
     当前这次未提交的变更 以及最近几次任务涉及的历史提交。
 
     工作流程：
-    1. 先检查问题：查阅仓库变更和历史提交，识别冗余代码、无用文件、误导性路径
+    1. 先检查问题：查阅仓库变更和历史提交，识别冗余代码（如果分不清双方谁是冗余就从历史提交分析，旧的一般是冗余）、无用文件、误导性路径
     2. 解决问题：删除或重构冗余部分
     3. 输出动态：用一句话总结本次检测和修复情况（格式见下方输出要求）
     
@@ -629,6 +629,7 @@ export interface PEEMainDeps {
   setupProjectEnvironment: (projectDir: string, startPrompt: string, askUserFn?: (prompt: string) => Promise<string>) => Promise<void>
   loopConfig: LoopConfig
   askUser?: (prompt: string) => Promise<string>
+  delay?: (ms: number) => Promise<void>
   runScheduleMapCli?: typeof runScheduleMapCli
   getGitHead?: (projectDir: string) => Promise<string | null>
   getGitIsAncestor?: (projectDir: string, ancestor: string, descendant: string) => Promise<boolean>
@@ -1250,6 +1251,43 @@ function shouldCompactByRoleThreshold(session: ISession, roleName: string, thres
   return false
 }
 
+function formatDelayRemaining(ms: number): string {
+  const totalSeconds = Math.ceil(ms / 1000)
+  const minutes = Math.floor(totalSeconds / 60)
+  const seconds = totalSeconds % 60
+  if (minutes === 0) return `${seconds}秒`
+  if (seconds === 0) return `${minutes}分钟`
+  return `${minutes}分钟${seconds}秒`
+}
+
+async function delayStrategyStart(askUserFn: (prompt: string) => Promise<string>, delay: (ms: number) => Promise<void>): Promise<void> {
+  const answer = (await askUserFn(`[策略启动] 输入延时启动分钟数后回车（允许小数）；直接回车立即开始: `)).trim()
+  if (!answer) {
+    consoleAndLogFile.info(`[策略启动] 立即开始`)
+    return
+  }
+
+  const minutes = Number(answer)
+  if (!Number.isFinite(minutes) || minutes < 0) {
+    consoleAndLogFile.warn(`[策略启动] 输入无效，已立即开始: ${answer}`)
+    return
+  }
+  if (minutes === 0) {
+    consoleAndLogFile.info(`[策略启动] 立即开始`)
+    return
+  }
+
+  let remainingMs = minutes * 60 * 1000
+  consoleAndLogFile.info(`[策略启动] 倒计时 ${formatDelayRemaining(remainingMs)} 后开始`)
+  while (remainingMs > 0) {
+    const stepMs = Math.min(remainingMs, 60 * 1000)
+    await delay(stepMs)
+    remainingMs -= stepMs
+    if (remainingMs > 0) consoleAndLogFile.info(`[策略启动] 剩余 ${formatDelayRemaining(remainingMs)}`)
+  }
+  consoleAndLogFile.info(`[策略启动] 延时结束，开始执行`)
+}
+
 
 
 export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
@@ -1261,6 +1299,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     setupProjectEnvironment,
     loopConfig: config,
     askUser,
+    delay: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     runScheduleMapCli,
     getGitHead,
     getGitIsAncestor,
@@ -1480,6 +1519,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
   const entrySession: ISession = await runtimeDeps.selectOrCreateSession(规划者instance)
   const projectDir = entrySession.directory
   await runtimeDeps.setupProjectEnvironment(projectDir, runtimeDeps.loopConfig.startPrompt, runtimeDeps.askUser)
+  await delayStrategyStart(runtimeDeps.askUser!, runtimeDeps.delay!)
 
   /**
    * 合法提交基线。
