@@ -32,7 +32,8 @@ import {
   执行者,
   评估者,
   冗余枝剪者,
-  架构师,
+  局部整体性架构师,
+  框架性架构师,
   质保员,
   边缘质保员,
   提交员,
@@ -63,18 +64,20 @@ describe("PEE utils", () => {
       const state = createRejectionState()
       expect(state).toEqual({
         evaluatorRejections: 0,
-        architectRejections: 0,
+        localArchitectRejections: 0,
+        frameworkArchitectRejections: 0,
         executorPractices: 0,
         totalRejectionLoops: 0,
         inRejectionLoop: false,
       })
 
       state.evaluatorRejections = 2
-      state.architectRejections = 1
+      state.localArchitectRejections = 1
+      state.frameworkArchitectRejections = 1
       state.executorPractices = 4
       state.totalRejectionLoops = 3
       state.inRejectionLoop = true
-      state.rejectionSource = "架构师"
+      state.rejectionSource = "框架性架构师"
       state.frozenPlannerInfo = "frozen"
       state.compactorUpstream = "compact"
       state.executorFeedback = "已修复命名问题"
@@ -83,7 +86,8 @@ describe("PEE utils", () => {
       resetRejectionState(state)
       expect(state).toEqual({
         evaluatorRejections: 0,
-        architectRejections: 0,
+        localArchitectRejections: 0,
+        frameworkArchitectRejections: 0,
         executorPractices: 0,
         totalRejectionLoops: 0,
         inRejectionLoop: false,
@@ -98,13 +102,14 @@ describe("PEE utils", () => {
     it("builds rejection upstream with per-role counters", () => {
       const state: RejectionState = {
         evaluatorRejections: 2,
-        architectRejections: 1,
+        localArchitectRejections: 1,
+        frameworkArchitectRejections: 1,
         executorPractices: 5,
         totalRejectionLoops: 3,
         inRejectionLoop: true,
         executorFeedback: "已补齐边缘测试，暂无已知遗留风险。",
       }
-      expect(buildRejectionUpstream(state)).toBe("正在协作优化中  执行反馈: 已补齐边缘测试，暂无已知遗留风险。  评估者第2次打回  架构师第1次打回  执行者第5次实践")
+      expect(buildRejectionUpstream(state)).toBe("正在协作优化中  执行反馈: 已补齐边缘测试，暂无已知遗留风险。  评估者第2次打回  局部整体性架构师第1次打回  框架性架构师第1次打回  执行者第5次实践")
     })
 
     it("builds compactor upstream with previous and current task snapshots", () => {
@@ -171,7 +176,7 @@ describe("PEE utils", () => {
               {
                 标题: "数据库设计",
                 Tag: ["ARCH"],
-                动态: [{ 角色: "架构师", 消息: "表结构已完成" }],
+                动态: [{ 角色: "局部整体性架构师", 消息: "表结构已完成" }],
               },
               {
                 标题: "鉴权约定",
@@ -199,7 +204,7 @@ describe("PEE utils", () => {
       expect(upstream).toContain("上层依赖任务：")
         expect(upstream).toContain("数据库设计")
         expect(upstream).toContain("  Tag: ARCH")
-        expect(upstream).toContain("[架构师: 表结构已完成]")
+        expect(upstream).toContain("[局部整体性架构师: 表结构已完成]")
         expect(upstream).toContain("鉴权约定")
         expect(upstream).toContain("  Tag: API")
         expect(upstream).toContain("[规划者: 接口约定已确认]")
@@ -251,7 +256,8 @@ describe("PEE utils", () => {
     it("routes upstream by role using real helper semantics", () => {
       const state: RejectionState = {
         evaluatorRejections: 1,
-        architectRejections: 0,
+        localArchitectRejections: 0,
+        frameworkArchitectRejections: 0,
         executorPractices: 1,
         totalRejectionLoops: 1,
         inRejectionLoop: true,
@@ -275,7 +281,8 @@ describe("PEE utils", () => {
     it("derives rejection activity after counters have been updated", () => {
       const state: RejectionState = {
         evaluatorRejections: 1,
-        architectRejections: 0,
+        localArchitectRejections: 0,
+        frameworkArchitectRejections: 0,
         executorPractices: 1,
         totalRejectionLoops: 1,
         inRejectionLoop: true,
@@ -292,11 +299,19 @@ describe("PEE utils", () => {
 
       expect(
         getRejectionActivityToRecord(
-          "架构师",
+          "局部整体性架构师",
           JSON.stringify({ 检查结果: "打回", 架构问题: ["问题"], 重构建议: "建议" }),
-          { ...state, architectRejections: 2, rejectionSource: "架构师" },
+          { ...state, localArchitectRejections: 2, rejectionSource: "局部整体性架构师" },
         ),
-      ).toEqual({ roleName: "架构师", rejectionCount: 2 })
+        ).toEqual({ roleName: "局部整体性架构师", rejectionCount: 2 })
+
+      expect(
+        getRejectionActivityToRecord(
+          "框架性架构师",
+          JSON.stringify({ 检查结果: "打回", 框架问题: ["问题"], 重构建议: "建议" }),
+          { ...state, frameworkArchitectRejections: 3, rejectionSource: "框架性架构师" },
+        ),
+      ).toEqual({ roleName: "框架性架构师", rejectionCount: 3 })
 
       expect(getRejectionActivityToRecord("执行者", "plain text", state)).toBeNull()
       expect(
@@ -337,8 +352,8 @@ describe("PEE utils", () => {
       })
     })
 
-    it("validates architect schema", () => {
-      const role = new 架构师()
+    it("validates 局部整体性架构师 schema", () => {
+      const role = new 局部整体性架构师()
       expect(
         role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })),
       ).toEqual({ valid: true })
@@ -348,6 +363,19 @@ describe("PEE utils", () => {
         error: "架构问题不为空，或存在重构建议，检查结果却为通过，这是矛盾的，请重试",
       })
       expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "建议分层" })).valid).toBe(false)
+    })
+
+    it("validates 框架性架构师 schema", () => {
+      const role = new 框架性架构师()
+      expect(
+        role.validateOutput(JSON.stringify({ 检查结果: "通过", 框架问题: [], 重构建议: "" })),
+      ).toEqual({ valid: true })
+      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 框架问题: "bad", 重构建议: "x" })).valid).toBe(false)
+      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 框架问题: ["模块边界不清"], 重构建议: "" }))).toEqual({
+        valid: false,
+        error: "框架问题不为空，或存在重构建议，检查结果却为通过，这是矛盾的，请重试",
+      })
+      expect(role.validateOutput(JSON.stringify({ 检查结果: "通过", 框架问题: [], 重构建议: "建议重新分层" })).valid).toBe(false)
     })
 
     it("validates compactor schema", () => {
@@ -432,7 +460,7 @@ describe("PEE utils", () => {
     })
 
     it("adds sparse task scope into roundInfo for non-core roles", () => {
-      const roundInfo = buildRoundInfoWithSparseScope(1, 4, "架构师", 2, [
+      const roundInfo = buildRoundInfoWithSparseScope(1, 4, "局部整体性架构师", 2, [
         { 任务标题: "任务A", 一句话动态: "已提交，git哈希: abc123" },
         { 任务标题: "任务B", 一句话动态: "无提交，原因: 测试" },
       ])
@@ -444,7 +472,7 @@ describe("PEE utils", () => {
     })
 
     it("keeps duplicate task titles in sparse scope", () => {
-      const roundInfo = buildRoundInfoWithSparseScope(2, 4, "架构师", 3, [
+      const roundInfo = buildRoundInfoWithSparseScope(2, 4, "局部整体性架构师", 3, [
         { 任务标题: "同名任务", 一句话动态: "无提交，原因: 第1轮" },
         { 任务标题: "同名任务", 一句话动态: "无提交，原因: 第2轮" },
       ])
@@ -459,7 +487,7 @@ describe("PEE utils", () => {
     })
 
     it("uses prompt-like wording when sparse scope is empty", () => {
-      const roundInfo = buildRoundInfoWithSparseScope(0, 4, "架构师", 2, [])
+      const roundInfo = buildRoundInfoWithSparseScope(0, 4, "局部整体性架构师", 2, [])
 
       expect(roundInfo).toContain("自你上次介入以来，暂无新增任务")
       expect(roundInfo).not.toContain("本角色为稀疏介入角色")
@@ -491,7 +519,7 @@ describe("PEE utils", () => {
 
     it("configures role intervention offsets explicitly", () => {
       expect(new 注释与文档对齐员().介入偏移).toBe(2)
-      expect(new 架构师().介入偏移).toBe(2)
+      expect(new 局部整体性架构师().介入偏移).toBe(2)
       expect(new 冗余枝剪者().介入偏移).toBe(2)
       expect(new 边缘质保员().介入偏移).toBe(1)
       expect(new 规划者().介入偏移).toBe(0)

@@ -18,7 +18,8 @@ describe("PEE interruption and flow semantics", () => {
   it("uses evaluator rejection json as executor upstream during rejection loop", () => {
     const rejectionState: RejectionState = {
       evaluatorRejections: 1,
-      architectRejections: 0,
+      localArchitectRejections: 0,
+      frameworkArchitectRejections: 0,
       executorPractices: 1,
       totalRejectionLoops: 1,
       inRejectionLoop: true,
@@ -36,7 +37,8 @@ describe("PEE interruption and flow semantics", () => {
   it("keeps first normal executor upstream free of rejection hint text", () => {
     const rejectionState: RejectionState = {
       evaluatorRejections: 0,
-      architectRejections: 0,
+      localArchitectRejections: 0,
+      frameworkArchitectRejections: 0,
       executorPractices: 0,
       totalRejectionLoops: 0,
       inRejectionLoop: false,
@@ -46,20 +48,21 @@ describe("PEE interruption and flow semantics", () => {
     expect(buildUpstreamForRole("执行者", rejectionState, "ignored")).toBe("本轮任务标题: 任务A\n留言: 正常推进\n")
   })
 
-  it("includes executor feedback in evaluator and architect upstream during rejection loop", () => {
+  it("includes executor feedback in evaluator and architecture upstream during rejection loop", () => {
     const rejectionState: RejectionState = {
       evaluatorRejections: 2,
-      architectRejections: 1,
+      localArchitectRejections: 1,
+      frameworkArchitectRejections: 0,
       executorPractices: 3,
       totalRejectionLoops: 3,
       inRejectionLoop: true,
-      rejectionSource: "架构师",
+      rejectionSource: "局部整体性架构师",
       executorFeedback: "已按领域边界拆分模块，测试仍待质保员补充。",
     }
 
     expect(buildUpstreamForRole("评估者", rejectionState, "ignored")).toContain("评估者第2次打回")
-    expect(buildUpstreamForRole("架构师", rejectionState, "ignored")).toContain("架构师第1次打回")
-    expect(buildUpstreamForRole("架构师", rejectionState, "ignored")).toContain("执行反馈: 已按领域边界拆分模块，测试仍待质保员补充。")
+    expect(buildUpstreamForRole("局部整体性架构师", rejectionState, "ignored")).toContain("局部整体性架构师第1次打回")
+    expect(buildUpstreamForRole("局部整体性架构师", rejectionState, "ignored")).toContain("执行反馈: 已按领域边界拆分模块，测试仍待质保员补充。")
     expect(buildUpstreamForRole("冗余枝剪者", rejectionState, "ignored")).toContain("执行者第3次实践")
   })
 
@@ -67,11 +70,11 @@ describe("PEE interruption and flow semantics", () => {
     const queue = [
       createInterrupt(INTERRUPTION_REASON.pause, "规划者", "旧暂停"),
       createInterrupt(INTERRUPTION_REASON.new_message, "执行者", "新的引导"),
-      createInterrupt(INTERRUPTION_REASON.rollback, "架构师", "恢复后的回滚"),
+      createInterrupt(INTERRUPTION_REASON.rollback, "局部整体性架构师", "恢复后的回滚"),
     ]
 
     const chosen = takeLatestDispatchableInterruption(queue)
-    expect(chosen?.roleName).toBe("架构师")
+    expect(chosen?.roleName).toBe("局部整体性架构师")
     expect(chosen?.receivedMessage).toBe("恢复后的回滚")
   })
 
@@ -89,7 +92,7 @@ describe("PEE interruption and flow semantics", () => {
   it("preserves resumed user guidance when rollback is synthesized after abort", () => {
     const queue: InterruptedMsgContext[] = []
     const resumedResponse = "请不要继续重构，改为只补测试"
-    enqueueRollbackInterruption(queue, "架构师", "旧的架构建议", resumedResponse)
+    enqueueRollbackInterruption(queue, "局部整体性架构师", "旧的架构建议", resumedResponse)
 
     expect(queue[0]?.beforeMessage).toBe("旧的架构建议")
     expect(queue[0]?.receivedMessage).toBe(resumedResponse)

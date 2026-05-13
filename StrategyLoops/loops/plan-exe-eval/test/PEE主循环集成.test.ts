@@ -6,7 +6,7 @@ import { AbortError, INTERRUPTION_REASON, MSG_SOURCE, type InterruptedMsgContext
 import type { IRole } from "../../../common/role"
 import type { ISession } from "../../../common/session"
 import { LoopConfig } from "../../../common/loopConfig"
-import { main, 注释与文档对齐员, 冗余枝剪者, 架构师, 质保员, 边缘质保员 } from "../规划图驱动的PEE"
+import { main, 注释与文档对齐员, 冗余枝剪者, 局部整体性架构师, 框架性架构师, 质保员, 边缘质保员 } from "../规划图驱动的PEE"
 
 const 静态检查模版Path = join(__dirname, "../../../common/CICD/Node静态检查模版.js")
 
@@ -87,6 +87,7 @@ describe("PEE main loop integration", () => {
     evaluatorResponses?: Array<() => Promise<string>>
     scissorResponses?: Array<() => Promise<string>>
     architectResponses?: Array<() => Promise<string>>
+    frameworkArchitectResponses?: Array<() => Promise<string>>
     qaResponses?: Array<() => Promise<string>>
     edgeQaResponses?: Array<() => Promise<string>>
     commitResponses?: Array<() => Promise<string>>
@@ -123,7 +124,8 @@ describe("PEE main loop integration", () => {
         role.name === "执行者" ? (options.executorResponses ?? [async () => "执行完成"]) :
         role.name === "评估者" ? (options.evaluatorResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })]) :
         role.name === "冗余枝剪者" ? (options.scissorResponses ?? [async () => JSON.stringify({ 一句话动态: "检查无问题" })]) :
-        role.name === "架构师" ? (options.architectResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })]) :
+        role.name === "局部整体性架构师" ? (options.architectResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })]) :
+        role.name === "框架性架构师" ? (options.frameworkArchitectResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 框架问题: [], 重构建议: "" })]) :
         role.name === "质保员" ? (options.qaResponses ?? [async () => qaResponse]) :
         role.name === "边缘质保员" ? (options.edgeQaResponses ?? [async () => qaResponse]) :
         (options.commitResponses ?? [async () => JSON.stringify({ 一句话动态: "无提交，原因: 测试模式" })])
@@ -147,7 +149,11 @@ describe("PEE main loop integration", () => {
       session.setWaitResponse(options.waitResponse ?? "")
       return session
     })
-    const createSession = vi.fn(async (role: IRole) => makeSession(role))
+    const createSession = vi.fn(async (role: IRole) => {
+      const session = makeSession(role)
+      session.setWaitResponse(options.waitResponse ?? "")
+      return session
+    })
     const relocateRole = vi.fn(options.relocateRole ?? (async (allRoles: IRole[]) => allRoles.find((role) => role.name === "边缘质保员")!))
 
     const runScheduleMapCli = vi.fn(async (_projectDir: string, args: string[]) => {
@@ -399,10 +405,12 @@ describe("PEE main loop integration", () => {
       ],
       scissorResponses: [async () => JSON.stringify({ 一句话动态: "冗余检查通过" })],
       architectResponses: [async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })],
+      frameworkArchitectResponses: [async () => JSON.stringify({ 检查结果: "通过", 框架问题: [], 重构建议: "" })],
       qaResponses: [
         async () => JSON.stringify({ 一句话动态: "第一轮文档检查通过" }),
         async () => JSON.stringify({ 一句话动态: "第一轮质保通过" }),
         async () => JSON.stringify({ 一句话动态: "第二轮质保通过" }),
+        async () => JSON.stringify({ 一句话动态: "第三轮质保通过" }),
       ],
       edgeQaResponses: [async () => JSON.stringify({ 一句话动态: "边缘质保通过" })],
       commitResponses: [
@@ -502,7 +510,7 @@ describe("PEE main loop integration", () => {
       ["测试任务", {
         ID: 1,
         标题: "测试任务",
-        任务描述: "验证架构师打回链",
+        任务描述: "验证局部整体性架构师打回链",
         Tag: ["refactor", "test"],
         是否完成: false,
         已删除: false,
@@ -517,7 +525,7 @@ describe("PEE main loop integration", () => {
       plannerResponses: [
         async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "关注架构一致性" }),
         async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "第2轮继续看架构" }),
-        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "第3轮触发架构师偏移介入" }),
+        async () => JSON.stringify({ 本轮任务标题: "测试任务", 留言: "第3轮触发局部整体性架构师偏移介入" }),
         async () => "<整个项目已全部提前完成>",
         async () => "是的",
       ],
@@ -555,7 +563,7 @@ describe("PEE main loop integration", () => {
     const executorSession = sessions.get("执行者")
     const evaluatorSession = sessions.get("评估者")
     const scissorSession = sessions.get("冗余枝剪者")
-    const architectSession = sessions.get("架构师")
+    const architectSession = sessions.get("局部整体性架构师")
     expect(executorSession).toBeDefined()
     expect(evaluatorSession).toBeDefined()
     expect(scissorSession).toBeDefined()
@@ -566,11 +574,143 @@ describe("PEE main loop integration", () => {
     const architectMessages = await architectSession!.getMessages()
     expect(executorMessages.some((message) => message.content.includes('"架构问题":["分层不清晰"]'))).toBe(true)
     expect(executorMessages.some((message) => message.content.includes('"重构建议":"按领域拆分"'))).toBe(true)
-    expect(evaluatorMessages.some((message) => message.content.includes("架构师第1次打回"))).toBe(true)
+    expect(evaluatorMessages.some((message) => message.content.includes("局部整体性架构师第1次打回"))).toBe(true)
     expect(evaluatorMessages.length).toBeGreaterThanOrEqual(2)
     expect(scissorMessages.length).toBeGreaterThanOrEqual(2)
     expect(architectMessages.length).toBeGreaterThanOrEqual(2)
-    expect(activities.some((activity) => activity.角色 === "架构师" && activity.消息 === "架构师打回1次")).toBe(true)
+    expect(activities.some((activity) => activity.角色 === "局部整体性架构师" && activity.消息 === "局部整体性架构师打回1次")).toBe(true)
+  })
+
+  it("skips framework architect during rejection dispatch override when its sparse interval is not due", async () => {
+    const projectDir = "/tmp/pee-framework-architect-sparse-rejection-override"
+    const taskMap = new Map<string, any>([
+      ["第一轮任务", {
+        ID: 1,
+        标题: "第一轮任务",
+        任务描述: "验证打回循环中的稀疏介入仍服从间隔",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+      ["第二轮任务", {
+        ID: 2,
+        标题: "第二轮任务",
+        任务描述: "第2轮派发覆盖到框架性架构师时应按稀疏间隔跳过",
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      }],
+    ])
+
+    const frameworkRole = new 框架性架构师()
+    const expectedFrameworkMessagesBeforeOverride = frameworkRole.介入偏移 === 0 ? 1 : 0
+    const { sessions, relocateRole } = await runMainWithScript({
+      projectDir,
+      maxCycles: 2,
+      plannerResponses: [
+        async () => JSON.stringify({ 本轮任务标题: "第一轮任务", 留言: "第1轮允许正常流程" }),
+        async () => JSON.stringify({ 本轮任务标题: "第二轮任务", 留言: "第2轮框架性架构师不处于介入轮次" }),
+        async () => "收到",
+      ],
+      compactorResponses: Array.from({ length: 2 }, () => async () => JSON.stringify({ 是否压缩: false })),
+      executorResponses: [
+        async () => "第一轮实现",
+        async () => "第二轮初次实现",
+        async () => { throw new AbortError() },
+      ],
+      evaluatorResponses: [
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
+        async () => JSON.stringify({ 检查结果: "打回", 问题列表: ["需要补充修复"] }),
+      ],
+      frameworkArchitectResponses: [
+        async () => JSON.stringify({ 检查结果: "通过", 框架问题: [], 重构建议: "" }),
+      ],
+      qaResponses: Array.from({ length: 6 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+      edgeQaResponses: Array.from({ length: 2 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+      commitResponses: Array.from({ length: 2 }, (_, index) => async () => JSON.stringify({ 一句话动态: `无提交，原因: 第${index + 1}轮测试` })),
+      taskMap,
+      relocateRole: async (allRoles: IRole[]) => allRoles.find((role) => role.name === "框架性架构师")!,
+      waitResponse: "用户恢复：这次改派给框架性架构师",
+    })
+
+    expect(relocateRole).toHaveBeenCalled()
+    expect(await sessions.get("框架性架构师")?.getMessages()).toHaveLength(expectedFrameworkMessagesBeforeOverride)
+  })
+
+  it("keeps rejection accounting stable when evaluator and both architects reject in one intervention cycle", async () => {
+    const projectDir = "/tmp/pee-mixed-rejection-accounting"
+    const totalCycles = 9
+    const taskMap = new Map<string, any>(Array.from({ length: totalCycles }, (_, index) => [
+      `测试任务${index + 1}`,
+      {
+        ID: index + 1,
+        标题: `测试任务${index + 1}`,
+        任务描述: `验证第${index + 1}轮混合打回计数`,
+        Tag: ["test"],
+        是否完成: false,
+        已删除: false,
+        依赖: "[]",
+        动态: [],
+      },
+    ]))
+
+    const { activities, sessions } = await runMainWithScript({
+      projectDir,
+      maxCycles: totalCycles,
+      plannerResponses: [
+        ...Array.from({ length: totalCycles }, (_, index) => async () => JSON.stringify({ 本轮任务标题: `测试任务${index + 1}`, 留言: `第${index + 1}轮` })),
+        async () => "收到",
+      ],
+      compactorResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 是否压缩: false })),
+      executorResponses: [
+        ...Array.from({ length: totalCycles }, (_, index) => async () => `第${index + 1}轮执行完成`),
+        async () => "已修复评估者指出的问题",
+        async () => "已修复局部整体性架构问题",
+        async () => "已按框架建议调整",
+      ],
+      evaluatorResponses: [
+        ...Array.from({ length: totalCycles - 1 }, () => async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })),
+        async () => JSON.stringify({ 检查结果: "打回", 问题列表: ["评估缺陷"] }),
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
+        async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] }),
+      ],
+      scissorResponses: Array.from({ length: 5 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+      architectResponses: [
+        async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" }),
+        async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" }),
+        async () => JSON.stringify({ 检查结果: "打回", 架构问题: ["局部职责不清"], 重构建议: "调整局部边界" }),
+        async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" }),
+        async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" }),
+      ],
+      frameworkArchitectResponses: [
+        async () => JSON.stringify({ 检查结果: "通过", 框架问题: [], 重构建议: "" }),
+        async () => JSON.stringify({ 检查结果: "通过", 框架问题: [], 重构建议: "" }),
+        async () => JSON.stringify({ 检查结果: "打回", 框架问题: ["框架边界不清"], 重构建议: "调整框架边界" }),
+        async () => JSON.stringify({ 检查结果: "通过", 框架问题: [], 重构建议: "" }),
+      ],
+      qaResponses: Array.from({ length: 40 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+      edgeQaResponses: Array.from({ length: 10 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+      commitResponses: Array.from({ length: totalCycles }, (_, index) => async () => JSON.stringify({ 一句话动态: `无提交，原因: 第${index + 1}轮测试` })),
+      taskMap,
+    })
+
+    const executorMessages = await sessions.get("执行者")!.getMessages()
+    const frameworkMessages = await sessions.get("框架性架构师")!.getMessages()
+    expect(executorMessages.some((message) => message.content.includes('"问题列表":["评估缺陷"]'))).toBe(true)
+    expect(executorMessages.some((message) => message.content.includes('"架构问题":["局部职责不清"]'))).toBe(true)
+    expect(executorMessages.some((message) => message.content.includes('"框架问题":["框架边界不清"]'))).toBe(true)
+    expect(frameworkMessages.at(-1)?.content).toContain("评估者第1次打回")
+    expect(frameworkMessages.at(-1)?.content).toContain("局部整体性架构师第1次打回")
+    expect(frameworkMessages.at(-1)?.content).toContain("框架性架构师第1次打回")
+    expect(frameworkMessages.at(-1)?.content).toContain("执行者第3次实践")
+    expect(activities.some((activity) => activity.角色 === "评估者" && activity.消息 === "评估者打回1次")).toBe(true)
+    expect(activities.some((activity) => activity.角色 === "局部整体性架构师" && activity.消息 === "局部整体性架构师打回1次")).toBe(true)
+    expect(activities.some((activity) => activity.角色 === "框架性架构师" && activity.消息 === "框架性架构师打回1次")).toBe(true)
   })
 
   it("revalidates resumed planner output before dispatching next role", async () => {
@@ -1095,7 +1235,8 @@ describe("PEE main loop integration", () => {
     const sparseRoles = [
       { name: "注释与文档对齐员", role: new 注释与文档对齐员() },
       { name: "冗余枝剪者", role: new 冗余枝剪者() },
-      { name: "架构师", role: new 架构师() },
+      { name: "局部整体性架构师", role: new 局部整体性架构师() },
+      { name: "框架性架构师", role: new 框架性架构师() },
       { name: "质保员", role: new 质保员() },
       { name: "边缘质保员", role: new 边缘质保员() },
     ]
@@ -1128,6 +1269,7 @@ describe("PEE main loop integration", () => {
       evaluatorResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })),
       scissorResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
       architectResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" })),
+      frameworkArchitectResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 检查结果: "通过", 框架问题: [], 重构建议: "" })),
       qaResponses: Array.from({ length: totalCycles * 2 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
       edgeQaResponses: Array.from({ length: totalCycles }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
       commitResponses: commitDynamics.map((dynamic) => async () => JSON.stringify({ 一句话动态: dynamic })),
@@ -1177,8 +1319,8 @@ describe("PEE main loop integration", () => {
       getGitHead: mockGetGitHead,
     })
 
-    // 评估者、架构师、压缩决策员均为 readonly，不应收到异常提交消息
-    for (const roleName of ["评估者", "架构师", "压缩决策员"]) {
+    // 评估者、局部整体性架构师、框架性架构师、压缩决策员均为 readonly，不应收到异常提交消息
+    for (const roleName of ["评估者", "局部整体性架构师", "框架性架构师", "压缩决策员"]) {
       const s = sessions.get(roleName)
       if (!s) continue
       const messages = await s.getMessages()

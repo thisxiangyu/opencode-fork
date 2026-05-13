@@ -209,10 +209,17 @@ export class PresetMockSession extends MockSession {
         问题列表: []
       })
     }
-    if (this.role.name === "架构师") {
+    if (this.role.name === "局部整体性架构师") {
       return JSON.stringify({
         检查结果: "通过",
         架构问题: [],
+        重构建议: ""
+      })
+    }
+    if (this.role.name === "框架性架构师") {
+      return JSON.stringify({
+        检查结果: "通过",
+        框架问题: [],
         重构建议: ""
       })
     }

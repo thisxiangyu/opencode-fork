@@ -53,11 +53,12 @@ export function extractJSON(raw: string): Record<string, any> | null {
 
 export interface RejectionState {
   evaluatorRejections: number
-  architectRejections: number
+  localArchitectRejections: number
+  frameworkArchitectRejections: number
   executorPractices: number
   totalRejectionLoops: number
   inRejectionLoop: boolean
-  rejectionSource?: "评估者" | "架构师"
+  rejectionSource?: "评估者" | "局部整体性架构师" | "框架性架构师"
   executorFeedback?: string
   frozenPlannerInfo?: string
   compactorUpstream?: string
@@ -68,7 +69,8 @@ export interface RejectionState {
 export function createRejectionState(): RejectionState {
   return {
     evaluatorRejections: 0,
-    architectRejections: 0,
+    localArchitectRejections: 0,
+    frameworkArchitectRejections: 0,
     executorPractices: 0,
     totalRejectionLoops: 0,
     inRejectionLoop: false,
@@ -77,7 +79,8 @@ export function createRejectionState(): RejectionState {
 
 export function resetRejectionState(state: RejectionState): void {
   state.evaluatorRejections = 0
-  state.architectRejections = 0
+  state.localArchitectRejections = 0
+  state.frameworkArchitectRejections = 0
   state.executorPractices = 0
   state.totalRejectionLoops = 0
   state.inRejectionLoop = false
@@ -101,8 +104,11 @@ export function buildRejectionUpstream(state: RejectionState): string {
   if (state.evaluatorRejections > 0) {
     parts.push(`评估者第${state.evaluatorRejections}次打回`)
   }
-  if (state.architectRejections > 0) {
-    parts.push(`架构师第${state.architectRejections}次打回`)
+  if (state.localArchitectRejections > 0) {
+    parts.push(`局部整体性架构师第${state.localArchitectRejections}次打回`)
+  }
+  if (state.frameworkArchitectRejections > 0) {
+    parts.push(`框架性架构师第${state.frameworkArchitectRejections}次打回`)
   }
   if (state.executorPractices > 0) {
     parts.push(`执行者第${state.executorPractices}次实践`)
@@ -150,7 +156,7 @@ export function buildCompactorUpstream(
 }
 
 /**
- * 构建通用 upstream（用于执行者、评估者、架构师、质保员、边缘质保员）。
+ * 构建通用 upstream（用于执行者、评估者、局部整体性架构师、框架性架构师、质保员、边缘质保员）。
  *
  * 结构：前情 + 本轮任务标题 + 描述 + Tag +
  *       上层依赖任务(标题 + Tag + 动态) + 当前任务动态 + 留言
@@ -323,7 +329,7 @@ export function buildUpstreamForRole(
 }
 
 /**
- * 归一化评估者/架构师传给执行者的打回上游信息。
+ * 归一化评估者/架构审查角色传给执行者的打回上游信息。
  *
  * 当前约定直接透传完整问题 JSON；若未解析到 JSON，则保守回退为原始响应。
  */
@@ -342,7 +348,7 @@ export function getRejectionActivityToRecord(
   roleName: string,
   response: string,
   rejectionState: RejectionState,
-): { roleName: "评估者" | "架构师"; rejectionCount: number } | null {
+): { roleName: "评估者" | "局部整体性架构师" | "框架性架构师"; rejectionCount: number } | null {
   const json = extractJSON(response)
   if (json?.检查结果 !== "打回") return null
 
@@ -350,8 +356,13 @@ export function getRejectionActivityToRecord(
     return { roleName: "评估者", rejectionCount: rejectionState.evaluatorRejections }
   }
 
-  if (roleName === "架构师") {
-    return { roleName: "架构师", rejectionCount: rejectionState.architectRejections }
+  if (roleName === "局部整体性架构师" || roleName === "框架性架构师") {
+    return {
+      roleName,
+      rejectionCount: roleName === "局部整体性架构师"
+        ? rejectionState.localArchitectRejections
+        : rejectionState.frameworkArchitectRejections,
+    }
   }
 
   return null

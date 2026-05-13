@@ -1,13 +1,17 @@
 /**
  * PEE是隐式地将【决策】包含在"规划"当中的，即规划者同时承担决策职责（coo和ceo同体，类似于早期创业公司的组织形态，缺点是，对于开放式决策缺乏慢思考），
  * 适合不需要开放式决策、以封闭式决策为主的项目。
- *
- * 角色流程：规划者 → 压缩决策员 → 注释与文档对齐员 → 文档引用性检查员 → 注释引用性检查员 → 执行者 → 评估者 → (打回执行者 OR 冗余枝剪者)
- *          → 冗余枝剪者 → 架构师 → (打回执行者 OR 质保员)
- *          → 质保员 → 边缘质保员 → 提交员 → 规划者
  * 
  * 5+n 思想：介入间隔为0的角色是稠密工作者，介入间隔大于0的角色是稀疏工作者；介入偏移用于推迟首次介入。以下5个角色最好都是稠密的：规划者、压缩决策员、执行者、评估者、提交员。其它角色可以安插、调整。
  */
+
+const 完整大循环的跳转策略_NOTE = `
+规划者 → 压缩决策员 → 注释与文档对齐员 → 文档引用性检查员 → 注释引用性检查员 → 执行者 → 评估者 → (打回执行者 OR 冗余枝剪者)
+→ 冗余枝剪者 → 局部整体性架构师 → (打回执行者 OR 框架性架构师)
+→ 框架性架构师 → (打回执行者 OR 质保员)
+→ 质保员 → 边缘质保员 → 提交员 → 规划者`
+const 上面的Note是一个注释_NOTE = `参见${强引用的基于TS代码的文档和注释原则()}`
+
 import { consoleAndLogFile, LOG_DIR, logFile, LOG_COLOR, RESET } from "../../common/logger"
 import { AskTo重新定位角色, 检查names重复, type IRole,
   MiniMax27HS,
@@ -329,10 +333,10 @@ export class 注释与文档对齐员 implements IRole {
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是注释与文档专项对齐员，阅读REPO_WIKI，理解项目注释和文档要求。
 
-【整改注释】把项目代码注释按照REPO_WIKI要求进行整理，不要遗漏已有注释。
-【检查文档】检查主要文件夹是否都有对应的WIKI、确保WIKI引用连接合理、确保WIKI跟模块代码文件中连接合理。
+【整改注释】把项目代码注释按照REPO_WIKI要求进行整理，可以把词汇、解释、段落尝试多拆细一点以便引用。
+【检查文档】检查主要文件夹是否都有对应的WIKI、确保WIKI之间通过export和import引用连接、确保WIKI跟模块代码文件中的NOTE连接合理。
 【更新文档】将旧的、不符合当前代码状态的文档表述更新。永远使用类维基百科的说明性、专业性表述，不要用"现在、变成、不再"等暗含时间变化性表述。
-【更新注释】像上述符合需要更新的标准一样更新所需注释表述。已较新表述或没有文件或逻辑变动的表述可以不更新。
+【更新注释】更新所有WIKI中的表述，确保完全符合项目开发进度。已较新表述或没有文件或逻辑变动的表述可以不更新。
 
 风格 - 小心谨慎，你的变更不要破坏业务逻辑，不要导致报错。
 ${团队Prompt}` }
@@ -508,7 +512,7 @@ export class 冗余枝剪者 implements IRole {
 
     工作流程：
     1. 先检查问题：查阅仓库变更和历史提交，识别冗余代码（如果分不清双方谁是冗余就从历史提交分析，旧的一般是冗余）、无用文件、误导性路径
-    2. 解决问题：删除或重构冗余部分
+    2. 解决问题：删除或重构冗余部分，注意_NOTE结尾的未使用的可能是重要的注释，如果冗余才删，如果的确有表述意义不要删
     3. 输出动态：用一句话总结本次检测和修复情况（格式见下方输出要求）
     
     ${团队Prompt}
@@ -528,22 +532,20 @@ ${upstreamMsg}
   }
 }
 
-export class 架构师 implements IRole {
-  name = "架构师"
-  介入间隔 = 3
+export class 局部整体性架构师 implements IRole {
+  name = "局部整体性架构师"
+  介入间隔 = 2
   介入偏移 = 2
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { 
-    return `你是一个架构师，负责从更高明的角度审视项目。你只做重构评估，不新增功能。
+    return `你是一个局部整体性架构师，负责从局部整体性视角审视项目。你只做重构评估，不新增功能。
 
 【工作范围】
  当前这次未提交的变更 以及最近几次任务涉及的历史提交。
 
-【全局视角】规划图工具请查看说明书。你只允许查询，不允许增删改动。
-
 【确保架构完美】架构不好，果断要求重构。
 
-【局部整体性视角】多查看diff（关注暂存区、工作区以及整体变动），跳出来看跨文件关系，查看历史，多问自己：
+  多查看diff（关注暂存区、工作区以及整体变动），跳出来看跨文件关系，查看历史，多问自己：
   这个函数是否在别的位置已经被实现过了？
   目前的做法是局部解决还是全局最优解？
   文件是否放在了正确的文件夹？
@@ -555,7 +557,6 @@ export class 架构师 implements IRole {
 
   ${架构评审()}
 
-  原则 - 规划图权威，你的重构不应该违背规划图的规划意图。这要求你必须小心谨慎，真实理解了规划图的路线图意图。
   ${团队Prompt}
   ` 
   }
@@ -584,6 +585,62 @@ ${upstreamMsg}
     if (!Array.isArray(json.架构问题)) return { valid: false, error: "架构问题必须是数组" }
     if (typeof json.重构建议 !== "string") return { valid: false, error: "重构建议必须是字符串" }
     if (json.检查结果 === "通过" && (json.架构问题.length > 0 || json.重构建议.trim())) return { valid: false, error: "架构问题不为空，或存在重构建议，检查结果却为通过，这是矛盾的，请重试" }
+    return { valid: true }
+  }
+}
+
+export class 框架性架构师 implements IRole {
+  name = "框架性架构师"
+  介入间隔 = 3
+  介入偏移 = 0
+  disabledTools = ["question", "github_*"]
+  knowledgeDomainPrompt() {
+    return `你是一个框架性架构师，负责从框架层面审视项目设计与实现。你只做重构评估，不新增功能。
+
+【工作范围】
+ 项目整体结构分析。
+
+【确保框架合理】框架设计不合理，果断要求重构。
+
+【框架整体性视角】多查看diff（关注暂存区、工作区以及整体变动），跳出来看跨模块关系，查看历史，多问自己：
+  模块边界是否清晰？
+  是否遵循框架最佳实践？
+  模块职责划分是否合理？
+  是否有更清晰的分层（表现层/业务层/数据层/测试层等等等等）？
+  当前框架设计是否满足未来扩展需求？
+  框架配置是否合理？
+
+  ${架构评审()}
+
+  原则 - 规划图权威，你的框架重构建议不应该违背规划图的规划意图。这要求你必须小心谨慎，真实理解了规划图的路线图意图。规划图工具请查看说明书。你只允许查询，不允许增删改动。
+  ${团队Prompt}
+  `
+  }
+  systemPrompt(upstreamMsg: string) { return `一些信息：
+---
+${upstreamMsg}
+---
+
+请查阅本轮的仓库变更和最近几次提交涉及的文件，然后回过头分析项目总体结构，做框架层面评估。` }
+  accessMode: "readonly" | "writable" = "readonly"
+  model = MiniMax27HS
+
+  outputSchema = {
+    type: "object",
+    required: ["检查结果", "框架问题", "重构建议"],
+    properties: {
+      检查结果: { type: "string", enum: ["通过", "打回"] },
+      框架问题: { type: "array", items: { type: "string" } },
+      重构建议: { type: "string" },
+    },
+  }
+  validateOutput(raw: string): { valid: boolean; error?: string } {
+    const json = extractJSON(raw)
+    if (!json) return { valid: false, error: "输出中未找到有效的 JSON 对象" }
+    if (!["通过", "打回"].includes(json.检查结果)) return { valid: false, error: "检查结果必须是'通过'或'打回'" }
+    if (!Array.isArray(json.框架问题)) return { valid: false, error: "框架问题必须是数组" }
+    if (typeof json.重构建议 !== "string") return { valid: false, error: "重构建议必须是字符串" }
+    if (json.检查结果 === "通过" && (json.框架问题.length > 0 || json.重构建议.trim())) return { valid: false, error: "框架问题不为空，或存在重构建议，检查结果却为通过，这是矛盾的，请重试" }
     return { valid: true }
   }
 }
@@ -962,7 +1019,7 @@ async function setupProjectEnvironment(projectDir: string, startPrompt: string, 
 }
 
 /**
- * 将评估者/架构师的打回事件合成为一条动态写入规划图。
+ * 将评估者/架构审查角色的打回事件合成为一条动态写入规划图。
  *
  * 由主循环在 Role跳转策略 判定"打回"分支时自动调用，消息内容为系统生成的
  * `${roleName}打回${rejectionCount}次`，让规划者下轮能从规划图感知任务难度。
@@ -1016,7 +1073,7 @@ export function getActivityRoleName(currentRole: IRole): string {
  * 适用于冗余枝剪者 / 质保员 / 边缘质保员 / 提交员——这四个"检查-修复-汇报"型角色的 outputSchema
  * 统一约束为 `修复性动态Schema`，主循环解析出 `一句话动态` 字段后调用此函数搬运入库。
  *
- * 与 recordRejectionActivity 的区别：打回动态由系统根据评估者/架构师的判决自动合成；
+ * 与 recordRejectionActivity 的区别：打回动态由系统根据评估者/架构审查角色的判决自动合成；
  * 此处的动态由角色自己生成内容，系统只负责透传。
  *
  * 【重要】CLI 脚本丢失时直接抛异常，因为动态记录是质量追踪的关键依据。
@@ -1387,7 +1444,8 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
   let 执行者instance = new 执行者() as IRole
   let 评估者instance = new 评估者() as IRole
   let 冗余枝剪者instance = new 冗余枝剪者() as IRole
-  let 架构师instance = new 架构师() as IRole
+  let 局部整体性架构师instance = new 局部整体性架构师() as IRole
+  let 框架性架构师instance = new 框架性架构师() as IRole
   let 质保员instance = new 质保员() as IRole
   let 边缘质保员instance = new 边缘质保员() as IRole
   let 提交员instance = new 提交员() as IRole
@@ -1401,7 +1459,8 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     执行者instance,
     评估者instance,
     冗余枝剪者instance,
-    架构师instance,
+    局部整体性架构师instance,
+    框架性架构师instance,
     质保员instance,
     边缘质保员instance,
     提交员instance
@@ -1436,15 +1495,12 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
   let pendingDispatchInterruption: InterruptedMsgContext | undefined
 
     /**
-   * 完整大循环的跳转策略：
-   * 规划者 → 压缩决策员 → 注释与文档对齐员 → 文档引用性检查员 → 注释引用性检查员 → 执行者 → 评估者 → (打回执行者 OR 冗余枝剪者)
-   * → 冗余枝剪者 → 架构师 → (打回执行者 OR 质保员)
-   * → 质保员 → 边缘质保员 → 提交员 → 规划者
-   *
    * 打回逻辑：
    * - 评估者打回：执行者 → 评估者 → (继续打回 OR 通过到冗余枝剪者)
-   * - 架构师打回：执行者 → 评估者 → 冗余枝剪者 → 架构师 → (继续打回 OR 通过到质保员)
+   * - 局部整体性架构师打回：执行者 → 评估者 → 冗余枝剪者 → 局部整体性架构师 → (继续打回 OR 通过到框架性架构师)
+   * - 框架性架构师打回：执行者 → 评估者 → 冗余枝剪者 → 局部整体性架构师 → 框架性架构师 → (继续打回 OR 通过到质保员)
    */
+  完整大循环的跳转策略_NOTE 
   const Role跳转策略内核 = (r: IRole, response: string, state: RejectionState): IRole => {
     // 评估者的分支判断
     if(r instanceof 评估者) {
@@ -1483,22 +1539,59 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
       }
     }
     
-    // 架构师的分支判断
-    if(r instanceof 架构师) {
+    // 局部整体性架构师的分支判断
+    if(r instanceof 局部整体性架构师) {
       const archOutput = extractJSON(response)
       if (archOutput?.检查结果 === "打回") {
-        // 架构师打回
-        state.architectRejections++
+        // 局部整体性架构师打回
+        state.localArchitectRejections++
         state.executorPractices++
         state.totalRejectionLoops++
         state.inRejectionLoop = true
-        state.rejectionSource = "架构师"
-        
-        logFile.info(`[架构师打回] 第${state.architectRejections}次，总循环${state.totalRejectionLoops}次`)
-        
+        state.rejectionSource = "局部整体性架构师"
+
+        logFile.info(`[局部整体性架构师打回] 第${state.localArchitectRejections}次，总循环${state.totalRejectionLoops}次`)
+
         // 检查打回上限
-        if (state.architectRejections > MAX_REJECTIONS_PER_ROLE) {
-          consoleAndLogFile.error(`[打回上限] 架构师打回超过${MAX_REJECTIONS_PER_ROLE}次，强制通过`)
+        if (state.localArchitectRejections > MAX_REJECTIONS_PER_ROLE) {
+          consoleAndLogFile.error(`[打回上限] 局部整体性架构师打回超过${MAX_REJECTIONS_PER_ROLE}次，强制通过`)
+          state.inRejectionLoop = false
+          return 框架性架构师instance
+        }
+        if (state.totalRejectionLoops > MAX_TOTAL_REJECTION_LOOPS) {
+          consoleAndLogFile.error(`[打回上限] 总打回循环超过${MAX_TOTAL_REJECTION_LOOPS}次，程序退出`)
+          throw new Error("打回循环超过上限，程序终止")
+        }
+
+        return 执行者instance
+      } else {
+        // 局部整体性架构师通过
+        if (state.rejectionSource === "局部整体性架构师") {
+          // 结束局部整体性架构师打回循环
+          state.inRejectionLoop = false
+          state.rejectionSource = undefined
+          logFile.info(`[局部整体性架构师通过] 结束打回循环`)
+        }
+        return 框架性架构师instance
+      }
+    }
+
+    // 框架性架构师的分支判断
+    if(r instanceof 框架性架构师) {
+      const frameworkOutput = extractJSON(response)
+      if (frameworkOutput?.检查结果 === "打回") {
+        // 框架性架构师打回
+        state.frameworkArchitectRejections++
+        state.executorPractices++
+        state.totalRejectionLoops++
+        state.inRejectionLoop = true
+        state.rejectionSource = "框架性架构师"
+
+        logFile.info(`[框架性架构师打回] 第${state.frameworkArchitectRejections}次，总循环${state.totalRejectionLoops}次`)
+
+        // 检查打回上限
+        if (state.frameworkArchitectRejections > MAX_REJECTIONS_PER_ROLE) {
+          consoleAndLogFile.error(`[打回上限] 框架性架构师打回超过${MAX_REJECTIONS_PER_ROLE}次，强制通过`)
           state.inRejectionLoop = false
           return 质保员instance
         }
@@ -1506,20 +1599,20 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
           consoleAndLogFile.error(`[打回上限] 总打回循环超过${MAX_TOTAL_REJECTION_LOOPS}次，程序退出`)
           throw new Error("打回循环超过上限，程序终止")
         }
-        
+
         return 执行者instance
       } else {
-        // 架构师通过
-        if (state.rejectionSource === "架构师") {
-          // 结束架构师打回循环
+        // 框架性架构师通过
+        if (state.rejectionSource === "框架性架构师") {
+          // 结束框架性架构师打回循环
           state.inRejectionLoop = false
           state.rejectionSource = undefined
-          logFile.info(`[架构师通过] 结束打回循环`)
+          logFile.info(`[框架性架构师通过] 结束打回循环`)
         }
         return 质保员instance
       }
     }
-    
+
     // 正常流程跳转
     if(r instanceof 规划者) {
       return 压缩决策员instance
@@ -1538,8 +1631,8 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
     }
     if(r instanceof 执行者) {
       // 执行者完成后，根据打回状态决定下一步
-      if (state.rejectionSource === "架构师") {
-        // 架构师打回循环：执行者 → 评估者 → 冗余枝剪者 → 架构师
+      if (state.rejectionSource === "局部整体性架构师" || state.rejectionSource === "框架性架构师") {
+        // 架构审查打回循环：执行者 → 评估者 → 冗余枝剪者 → 局部整体性架构师
         return 评估者instance
       } else {
         // 正常流程或评估者打回循环：执行者 → 评估者
@@ -1547,7 +1640,10 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
       }
     }
     if(r instanceof 冗余枝剪者) {
-      return 架构师instance
+      return 局部整体性架构师instance
+    }
+    if(r instanceof 框架性架构师) {
+      return 质保员instance
     }
     if(r instanceof 质保员) {
       return 边缘质保员instance
@@ -1574,7 +1670,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
   }
 
   const shouldExecuteCurrentRole = (role: IRole, currentCycle: number): boolean => {
-    if (rejectionState.inRejectionLoop) return true
+    // 稀疏介入角色即使处于打回子循环，也必须服从当前轮次的介入间隔。
     return shouldRoleInterveneThisRound(role.介入间隔, currentCycle, role.介入偏移 ?? 0)
   }
 
@@ -2028,7 +2124,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         // 4. 因此这里只需简单判断：解析成功就记录，解析失败就跳过（不再额外重试）
         // 5. 动态记录属于辅助信息，不应为此再消耗 1 轮 tokens——信任通用机制已经尽力
         //
-        // 与评估者/架构师打回动态的区别：
+        // 与评估者/架构审查角色打回动态的区别：
         // - 打回动态：由系统根据分支路由自动合成消息（"评估者打回N次"）
         // - 此处动态：由角色自己生成内容，系统只负责解析和搬运
         if (
@@ -2098,7 +2194,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         // 【中断派发覆盖点】
         // 走到这里说明 currentRole 的本轮输出已经完成了正常校验与后处理：
         // - 对规划者：任务存在、未删除、依赖已完成，并已构建 frozenPlannerInfo / compactorUpstream。
-        // - 对评估者/架构师：打回状态已经由 Role跳转策略基于最终 response 更新。
+        // - 对评估者/架构审查角色：打回状态已经由 Role跳转策略基于最终 response 更新。
         // 因此此处只允许用户覆盖“下一角色”，不允许跳过上面的验证链路。
         const dispatchInterruption = pendingDispatchInterruption?.roleName === currentRole.name ? pendingDispatchInterruption : undefined
         if (dispatchInterruption) {
@@ -2111,7 +2207,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
           }
         }
 
-        // 【评估者/架构师打回后记录动态】
+        // 【评估者/架构审查角色打回后记录动态】
         // 注意：打回计数在 Role跳转策略 中递增，因此必须在跳转判定之后记录，
         // 才能保证首次打回落库为“1次”而不是“0次”。
         const rejectionActivity = getRejectionActivityToRecord(currentRole.name, response, rejectionState)
