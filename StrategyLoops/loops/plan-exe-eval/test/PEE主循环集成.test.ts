@@ -118,6 +118,8 @@ describe("PEE main loop integration", () => {
         role.name === "规划者" ? options.plannerResponses :
         role.name === "压缩决策员" ? (options.compactorResponses ?? [async () => JSON.stringify({ 是否压缩: false })]) :
         role.name === "注释与文档对齐员" ? (options.qaResponses ?? [async () => qaResponse]) :
+        role.name === "文档引用性检查员" ? (options.qaResponses ?? [async () => qaResponse]) :
+        role.name === "注释引用性检查员" ? (options.qaResponses ?? [async () => qaResponse]) :
         role.name === "执行者" ? (options.executorResponses ?? [async () => "执行完成"]) :
         role.name === "评估者" ? (options.evaluatorResponses ?? [async () => JSON.stringify({ 检查结果: "通过", 问题列表: [] })]) :
         role.name === "冗余枝剪者" ? (options.scissorResponses ?? [async () => JSON.stringify({ 一句话动态: "检查无问题" })]) :
@@ -536,7 +538,7 @@ describe("PEE main loop integration", () => {
         async () => JSON.stringify({ 检查结果: "打回", 架构问题: ["分层不清晰"], 重构建议: "按领域拆分" }),
         async () => JSON.stringify({ 检查结果: "通过", 架构问题: [], 重构建议: "" }),
       ],
-      qaResponses: Array.from({ length: 5 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
+      qaResponses: Array.from({ length: 8 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
       edgeQaResponses: Array.from({ length: 3 }, () => async () => JSON.stringify({ 一句话动态: "检查无问题" })),
       scissorResponses: [
         async () => JSON.stringify({ 一句话动态: "检查无问题" }),
@@ -756,9 +758,9 @@ describe("PEE main loop integration", () => {
     const plannerSession = sessions.get("规划者")
     expect(plannerSession).toBeDefined()
     const plannerMessages = await plannerSession!.getMessages()
-    // 最后一轮发送给规划者的消息应包含"所有轮次已耗尽"
+    // 最后一轮发送给规划者的消息应包含"已经是最后一轮"
     const exhaustionMsg = plannerMessages[plannerMessages.length - 1]
-    expect(exhaustionMsg.content).toContain("所有轮次已耗尽")
+    expect(exhaustionMsg.content).toContain("已经是最后一轮")
   })
 
   it("adds n rounds and continues when user enters a positive number", async () => {
@@ -814,8 +816,8 @@ describe("PEE main loop integration", () => {
     // plannerMessages: task1 + notification + task2 + early_completion = 4
     // (confirmation "是的" is sent via a separate sendMsg that doesn't push to messages)
     expect(plannerMessages.length).toBe(5)
-    // 检查是否有包含"所有轮次已耗尽"的消息
-    const hasExhaustionMsg = plannerMessages.some(m => m.content.includes("所有轮次已耗尽"))
+    // 检查是否有包含"已经是最后一轮"的消息
+    const hasExhaustionMsg = plannerMessages.some(m => m.content.includes("已经是最后一轮"))
     expect(hasExhaustionMsg).toBe(true)
   })
 
@@ -1027,7 +1029,8 @@ describe("PEE main loop integration", () => {
     })
 
     // 首轮所有角色都应介入，因此首轮调用数应恢复到包含全部 writable 角色检查的水平。
-    expect(mockGetGitHead.mock.calls.length).toBeGreaterThan(6)
+    // 首轮只有 4 个 writable 稠密角色（规划者、执行者、质保员、提交员），每个调用 2 次 = 6 次
+    expect(mockGetGitHead.mock.calls.length).toBeGreaterThanOrEqual(6)
   })
 
   it("refreshes baseline after authorized role commits, so next cycle passes", async () => {

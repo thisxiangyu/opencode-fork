@@ -2,7 +2,7 @@
  * PEE是隐式地将【决策】包含在"规划"当中的，即规划者同时承担决策职责（coo和ceo同体，类似于早期创业公司的组织形态，缺点是，对于开放式决策缺乏慢思考），
  * 适合不需要开放式决策、以封闭式决策为主的项目。
  *
- * 角色流程：规划者 → 压缩决策员 → 注释与文档对齐员 → 执行者 → 评估者 → (打回执行者 OR 冗余枝剪者)
+ * 角色流程：规划者 → 压缩决策员 → 注释与文档对齐员 → 文档引用性检查员 → 注释引用性检查员 → 执行者 → 评估者 → (打回执行者 OR 冗余枝剪者)
  *          → 冗余枝剪者 → 架构师 → (打回执行者 OR 质保员)
  *          → 质保员 → 边缘质保员 → 提交员 → 规划者
  * 
@@ -328,18 +328,89 @@ export class 注释与文档对齐员 implements IRole {
   压缩阈值 = 1000 * 200
   disabledTools = ["question", "github_*"]
   knowledgeDomainPrompt() { return `你是注释与文档专项对齐员，阅读REPO_WIKI，理解项目注释和文档要求。
-    
+
 【整改注释】把项目代码注释按照REPO_WIKI要求进行整理，不要遗漏已有注释。
 【检查文档】检查主要文件夹是否都有对应的WIKI、确保WIKI引用连接合理、确保WIKI跟模块代码文件中连接合理。
 【更新文档】将旧的、不符合当前代码状态的文档表述更新。永远使用类维基百科的说明性、专业性表述，不要用"现在、变成、不再"等暗含时间变化性表述。
 【更新注释】像上述符合需要更新的标准一样更新所需注释表述。已较新表述或没有文件或逻辑变动的表述可以不更新。
- 
- 风格 - 小心谨慎，你的变更不要破坏业务逻辑，不要导致报错。
+
+风格 - 小心谨慎，你的变更不要破坏业务逻辑，不要导致报错。
 ${团队Prompt}` }
 
-  // 不需要Upstream
   systemPrompt(upstreamMsg: string) { return `
 请按要求进行注释与文档对齐工作。` }
+  accessMode: "writable" = "writable"
+  model = MiniMax27HS
+
+  outputSchema = 修复性动态Schema
+  validateOutput(raw: string): { valid: boolean; error?: string } {
+    return validate修复性动态(raw)
+  }
+}
+
+export class 文档引用性检查员 implements IRole {
+  name = "文档引用性检查员"
+  介入间隔 = 3
+  介入偏移 = 0
+  压缩阈值 = 1000 * 200
+  disabledTools = ["question", "github_*"]
+  knowledgeDomainPrompt() { return `你是文档引用性检查员，负责检查项目中所有WIKI（REPO_WIKI、各文件夹WIKI）的引用关联性、正确性和有效性。
+
+【根本方针】
+阅读REPO_WIKI中的基于WIKI的CodeFileAsWiki理念。
+
+【检查标准】
+1. 引用完整性：只要能引用的地方（名词、解释、说明、段落、阐述）必须通过引用链接明确指出，避免任何直接以字面量表述带来的难以维护性。
+2. 引用正确性：引用建立后，整句/段落的解释应当通畅、易于理解。
+
+【工作流程】
+1. 扫描项目中的所有WIKI文件
+2. 识别出所有与本次变更和历史提交中的文件有关的各文件夹下WIKI，逐个进行检测，
+   小心谨慎，你的变更不要破坏业务逻辑，不要导致报错。优先自动修复，其次可在一句话总结报告无法修复的问题
+3. 查找所有可以引用上述WIKI的WIKI，进行检测
+4. 如果根目录REPO_WIKI需要与变更同步，将之同步
+5. 输出动态：用一句话总结本次检查和修复情况（格式见输出要求）
+
+${团队Prompt}` }
+
+  systemPrompt(upstreamMsg: string) { return `
+请按要求进行文档引用性排查工作。` }
+  accessMode: "writable" = "writable"
+  model = MiniMax27HS
+
+  outputSchema = 修复性动态Schema
+  validateOutput(raw: string): { valid: boolean; error?: string } {
+    return validate修复性动态(raw)
+  }
+}
+
+export class 注释引用性检查员 implements IRole {
+  name = "注释引用性检查员"
+  介入间隔 = 2
+  介入偏移 = 0
+  压缩阈值 = 1000 * 200
+  disabledTools = ["question", "github_*"]
+  knowledgeDomainPrompt() { return `你是注释引用性检查员，负责检查代码文件中RefAsAComment的原则和NOTE引用的完整性、正确性。
+
+【根本方针】
+阅读REPO_WIKI中的RefAsAComment理念。
+
+【检查标准】
+1. NOTE引用完整性：只要能引用的地方（名词、解释、说明、段落、阐述等NOTE）必须通过引用链接明确指出，绝对避免任何直接以字面量表述带来的难以维护性。
+2  绝对不要出现传统注释，全部传统注释改为遵循RefAsAComment的NOTE形式。
+3. 引用正确性：引用建立后，整句/段落的解释应当通畅、易于理解。
+
+【工作流程】
+1. 扫描出所有与本次变更和历史提交中的文件有关的各文件夹下WIKI，逐个进行检查
+   小心谨慎，你的变更不要破坏业务逻辑，不要导致报错。优先自动修复，其次可在一句话总结报告无法修复的问题
+3. 查找所有可以引用上述文件中NOTE的WIKI或其它文件中的NOTE，进行检测
+4. 如果根目录REPO_WIKI存在需要与变更同步的NOTE，将之同步
+5. 输出动态：用一句话总结本次检查和修复情况（格式见输出要求）
+
+${团队Prompt}` }
+
+  systemPrompt(upstreamMsg: string) { return `
+请按要求进行注释引用性排查工作。` }
   accessMode: "writable" = "writable"
   model = MiniMax27HS
 
@@ -1311,6 +1382,8 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
   let 规划者instance = new 规划者() as IRole
   let 压缩决策员instance = new 压缩决策员() as IRole
   let 注释与文档对齐员instance = new 注释与文档对齐员() as IRole
+  let 文档引用性检查员instance = new 文档引用性检查员() as IRole
+  let 注释引用性检查员instance = new 注释引用性检查员() as IRole
   let 执行者instance = new 执行者() as IRole
   let 评估者instance = new 评估者() as IRole
   let 冗余枝剪者instance = new 冗余枝剪者() as IRole
@@ -1320,10 +1393,12 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
   let 提交员instance = new 提交员() as IRole
 
   const allRoles = 检查names重复([
-    规划者instance, 
-    压缩决策员instance, 
+    规划者instance,
+    压缩决策员instance,
     注释与文档对齐员instance,
-    执行者instance, 
+    文档引用性检查员instance,
+    注释引用性检查员instance,
+    执行者instance,
     评估者instance,
     冗余枝剪者instance,
     架构师instance,
@@ -1362,7 +1437,7 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
 
     /**
    * 完整大循环的跳转策略：
-   * 规划者 → 压缩决策员 → 注释与文档对齐员 → 执行者 → 评估者 → (打回执行者 OR 冗余枝剪者)
+   * 规划者 → 压缩决策员 → 注释与文档对齐员 → 文档引用性检查员 → 注释引用性检查员 → 执行者 → 评估者 → (打回执行者 OR 冗余枝剪者)
    * → 冗余枝剪者 → 架构师 → (打回执行者 OR 质保员)
    * → 质保员 → 边缘质保员 → 提交员 → 规划者
    *
@@ -1453,6 +1528,12 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
       return 注释与文档对齐员instance
     }
     if(r instanceof 注释与文档对齐员) {
+      return 文档引用性检查员instance
+    }
+    if(r instanceof 文档引用性检查员) {
+      return 注释引用性检查员instance
+    }
+    if(r instanceof 注释引用性检查员) {
       return 执行者instance
     }
     if(r instanceof 执行者) {
@@ -1938,10 +2019,10 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
           }
         }
         
-        // 【冗余枝剪者/质保员/边缘质保员/提交员动态记录】
+        // 【冗余枝剪者/质保员/边缘质保员/提交员动态记录等角色】
         //
         // 设计思路：
-        // 1. 这四个角色的 outputSchema 统一为 `修复性动态Schema`，要求输出 {"一句话动态": "..."}
+        // 1. 这些角色的 outputSchema 统一为 `修复性动态Schema`，要求输出 {"一句话动态": "..."}
         // 2. 主循环的通用校验机制已经对所有结构化输出角色进行了最多 3 次重试
         // 3. 能走到这里的 response，要么已通过 validate 校验，要么是 3 次重试后系统"接受原始输出"放行
         // 4. 因此这里只需简单判断：解析成功就记录，解析失败就跳过（不再额外重试）
@@ -1952,6 +2033,8 @@ export async function main(deps?: Partial<PEEMainDeps>): Promise<void> {
         // - 此处动态：由角色自己生成内容，系统只负责解析和搬运
         if (
           currentRole instanceof 注释与文档对齐员 ||
+          currentRole instanceof 文档引用性检查员 ||
+          currentRole instanceof 注释引用性检查员 ||
           currentRole instanceof 冗余枝剪者 ||
           currentRole instanceof 质保员 ||
           currentRole instanceof 边缘质保员 ||
