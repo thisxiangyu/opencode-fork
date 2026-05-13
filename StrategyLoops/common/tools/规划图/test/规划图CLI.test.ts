@@ -2,7 +2,7 @@
  * 规划图CLI 全面测试
  * 使用独立test项目数据库，每项操作后验证状态
  */
-import { describe, test, expect, beforeAll, afterAll } from "vitest"
+import { describe, test, expect, beforeAll, afterAll, beforeEach } from "vitest"
 import { rmSync, existsSync } from "fs"
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
@@ -776,6 +776,51 @@ describe("9.2 改优先级", () => {
   })
 })
 
+describe("9.3 改父任务", () => {
+  beforeEach(() => {
+    clearAllTasks()
+    规划图.添加任务(null, "根A描述", "改父根A", 0, 任务Tag.MILESTONE)
+    规划图.添加任务(null, "根B描述", "改父根B", 1, 任务Tag.MILESTONE)
+    规划图.添加任务("改父根A", "子A描述", "改父子A", 0, 任务Tag.FEAT)
+    规划图.添加任务("改父根A", "子B描述", "改父子B", 1, 任务Tag.FEAT)
+    规划图.添加任务("改父子A", "孙A描述", "改父孙A", 0, 任务Tag.FEAT)
+  })
+
+  test("按标题修改父任务成功", () => {
+    const result = 规划图.改父任务("改父子B", "改父根B")
+    expect(result.成功).toBe(true)
+    expect(规划图.按标题查("改父子B")[0].父任务ID).toBe(规划图.按标题查("改父根B")[0].id)
+    expect(规划图.按标题查("改父子B")[0].Tag).toContain(任务Tag.MILESTONE)
+  })
+
+  test("按ID修改父任务成功", () => {
+    const child = 规划图.按标题查("改父子B")[0]
+    const parent = 规划图.按标题查("改父根B")[0]
+    const result = 规划图.改父任务(undefined, undefined, child.id, parent.id)
+    expect(result.成功).toBe(true)
+    expect(规划图.按标题查("改父子B")[0].父任务ID).toBe(parent.id)
+  })
+
+  test("修改父任务后新旧同级优先级连续", () => {
+    const result = 规划图.改父任务("改父子B", "改父根B")
+    expect(result.成功).toBe(true)
+    expect(获取所有子任务("改父根A").map(t => t.优先级序号)).toEqual([0])
+    expect(获取所有子任务("改父根B").map(t => t.优先级序号)).toEqual([0])
+  })
+
+  test("不能移动到自己的后代任务之下", () => {
+    const result = 规划图.改父任务("改父子A", "改父孙A")
+    expect(result.成功).toBe(false)
+    expect(result.消息).toContain("后代")
+  })
+
+  test("根任务不能按子任务改父任务", () => {
+    const result = 规划图.改父任务("改父根A", "改父根B")
+    expect(result.成功).toBe(false)
+    expect(result.消息).toContain("根任务")
+  })
+})
+
 describe("10. 标记为已完成", () => {
   beforeAll(() => {
     clearAllTasks()
@@ -1235,7 +1280,7 @@ function runCliWithInput(args: string[], input: string, env: Record<string, stri
 
     proc.stdout?.on('data', (data) => {
       stdout += data.toString()
-      if (stdout.includes("(y/n)") || stdout.includes("y新建，n退出")) sendInput()
+      if (stdout.includes("(y/n)") || stdout.includes("y新建，n退出") || stdout.includes("选择y确认")) sendInput()
     })
     proc.stderr?.on('data', (data) => { stderr += data.toString() })
 
@@ -1340,7 +1385,7 @@ describe("CLI命令集成测试", () => {
       "--Tag", "milestone",
       "--WRITE_KEY", 写入Key,
     ], cliEnv)
-    await runCli([
+    await runCliWithInput([
       "add",
       "--标题", "CLI待删除子任务",
       "--描述", "子任务描述",
@@ -1348,7 +1393,7 @@ describe("CLI命令集成测试", () => {
       "--Tag", "feat",
       "--父任务", "CLI待删除父任务",
       "--WRITE_KEY", 写入Key,
-    ], cliEnv)
+    ], "y\n", cliEnv)
 
     // 确认任务存在
     let { stdout: queryStdout } = await runCli(["query-by-title", "--标题", "CLI待删除父任务"], cliEnv)
@@ -1379,7 +1424,7 @@ describe("CLI命令集成测试", () => {
       "--Tag", "milestone",
       "--WRITE_KEY", 写入Key,
     ], cliEnv)
-    await runCli([
+    await runCliWithInput([
       "add",
       "--标题", "CLI取消删除子任务",
       "--描述", "子任务描述",
@@ -1387,7 +1432,7 @@ describe("CLI命令集成测试", () => {
       "--Tag", "feat",
       "--父任务", "CLI取消删除父任务",
       "--WRITE_KEY", 写入Key,
-    ], cliEnv)
+    ], "y\n", cliEnv)
 
     // 确认任务存在
     let { stdout: queryStdout } = await runCli(["query-by-title", "--标题", "CLI取消删除父任务"], cliEnv)
@@ -1538,6 +1583,30 @@ describe("CLI命令集成测试", () => {
     expect(result.成功).toBe(false)
     expect(result.消息).toContain("缺少必需参数")
   })
+
+  test("CLI update-parent命令支持标题和ID", async () => {
+    const prefix = `CLI改父${Date.now()}`
+    await runCli(["add", "--标题", `${prefix}根A`, "--描述", "根A", "--优先级", "0", "--Tag", "milestone", "--WRITE_KEY", 写入Key], cliEnv)
+    await runCli(["add", "--标题", `${prefix}根B`, "--描述", "根B", "--优先级", "1", "--Tag", "milestone", "--WRITE_KEY", 写入Key], cliEnv)
+    await runCliWithInput(["add", "--标题", `${prefix}子A`, "--描述", "子A", "--优先级", "0", "--父任务", `${prefix}根A`, "--Tag", "feat", "--WRITE_KEY", 写入Key], "y\n", cliEnv)
+    await runCliWithInput(["add", "--标题", `${prefix}子B`, "--描述", "子B", "--优先级", "1", "--父任务", `${prefix}根A`, "--Tag", "feat", "--WRITE_KEY", 写入Key], "y\n", cliEnv)
+
+    const titleResult = (await runCliWithInput(["update-parent", "--标题", `${prefix}子A`, "--新父任务", `${prefix}根B`, "--WRITE_KEY", 写入Key], "y\n", cliEnv)).jsonOutput as { 成功: boolean }
+    expect(titleResult.成功).toBe(true)
+
+    const child = JSON.parse((await runCli(["query-by-title", "--标题", `${prefix}子B`], cliEnv)).stdout).任务[0]
+    const parent = JSON.parse((await runCli(["query-by-title", "--标题", `${prefix}根B`], cliEnv)).stdout).任务[0]
+    const idResult = (await runCliWithInput(["update-parent", "--id", String(child.id), "--新父任务ID", String(parent.id), "--WRITE_KEY", 写入Key], "y\n", cliEnv)).jsonOutput as { 成功: boolean }
+    expect(idResult.成功).toBe(true)
+  }, 20000)
+
+  test("CLI add设置为根后一级时允许反悔", async () => {
+    const prefix = `CLI反悔${Date.now()}`
+    await runCli(["add", "--标题", `${prefix}根`, "--描述", "根", "--优先级", "0", "--Tag", "milestone", "--WRITE_KEY", 写入Key], cliEnv)
+    const { jsonOutput } = await runCliWithInput(["add", "--标题", `${prefix}子`, "--描述", "子", "--优先级", "0", "--父任务", `${prefix}根`, "--Tag", "feat", "--WRITE_KEY", 写入Key], "n\n", cliEnv)
+    expect((jsonOutput as { 成功: boolean, 消息: string }).成功).toBe(false)
+    expect((jsonOutput as { 成功: boolean, 消息: string }).消息).toBe("已取消操作")
+  }, 10000)
 
   test("CLI query命令缺少阈值参数应失败", async () => {
     const { stdout } = await runCli([

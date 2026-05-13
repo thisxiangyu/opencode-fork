@@ -358,6 +358,38 @@ function 插入任务并更新同级优先级(
   return 实际优先级序号
 }
 
+function 压紧同级优先级(父任务ID: number | null): void {
+  const rows = 父任务ID === null
+    ? 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID IS NULL ORDER BY 优先级序号 ASC, id ASC").all() as { id: number }[]
+    : 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID = ? ORDER BY 优先级序号 ASC, id ASC").all(父任务ID) as { id: number }[]
+  rows.forEach((row, index) => {
+    获取规划图Db().prepare("UPDATE 规划图 SET 优先级序号 = ? WHERE id = ?").run(index, row.id)
+  })
+}
+
+function 查找未删除任务By标题或ID(标题: string | undefined, idRaw: string | number | undefined, 名称: string): { 成功: true, row: 任务Row } | { 成功: false, 消息: string } {
+  if (idRaw !== undefined && String(idRaw).trim()) {
+    const id = typeof idRaw === "number" ? idRaw : parseInt(idRaw)
+    if (isNaN(id) || id <= 0) return { 成功: false, 消息: `${名称}ID必须是有效的正整数` }
+    const row = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE id = ? AND 是否删除 = 0").get(id) as 任务Row | undefined
+    if (!row) return { 成功: false, 消息: `${名称}ID「${id}」不存在` }
+    return { 成功: true, row }
+  }
+
+  const 标题trim = 标题?.trim()
+  if (!标题trim) return { 成功: false, 消息: `${名称}标题或ID不能为空` }
+  const row = 获取规划图Db().prepare("SELECT * FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(标题trim) as 任务Row | undefined
+  if (!row) return { 成功: false, 消息: `${名称}「${标题trim}」不存在` }
+  return { 成功: true, row }
+}
+
+function 是否后代任务(候选祖先ID: number, 候选后代ID: number): boolean {
+  const children = 获取规划图Db().prepare(
+    "SELECT id FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID = ?"
+  ).all(候选祖先ID) as { id: number }[]
+  return children.some(child => child.id === 候选后代ID || 是否后代任务(child.id, 候选后代ID))
+}
+
 function 检测里程碑(父任务ID: number | null): 任务Tag | null {
   if (父任务ID === null) return null
   const parent = 获取规划图Db().prepare("SELECT 父任务ID FROM 规划图 WHERE id = ? AND 是否删除 = 0").get(父任务ID) as { 父任务ID: number | null } | undefined
@@ -365,6 +397,11 @@ function 检测里程碑(父任务ID: number | null): 任务Tag | null {
     return 任务Tag.MILESTONE
   }
   return null
+}
+
+function 是否根任务(任务ID: number): boolean {
+  const task = 获取规划图Db().prepare("SELECT 父任务ID FROM 规划图 WHERE id = ? AND 是否删除 = 0").get(任务ID) as { 父任务ID: number | null } | undefined
+  return task?.父任务ID === null
 }
 
 export function 解析任务行(raw: 任务Row | 任务): 任务 {
@@ -870,6 +907,61 @@ export const 规划图 = {
     return { 成功: true, 消息: `已将任务「${标题trim}」的优先级从 ${原优先级序号} 改为 ${实际优先级序号}。当前位置：前两个任务[${前两个描述}] <- 本任务 -> 后两个任务[${后两个描述}]` }
   },
 
+  改父任务(子任务标题: string | undefined, 新父任务标题: string | undefined, 子任务ID?: number, 新父任务ID?: number): 任务操作结果 {
+    const 子任务查找 = 查找未删除任务By标题或ID(子任务标题, 子任务ID, "子任务")
+    if (!子任务查找.成功) return 子任务查找
+    const 新父任务查找 = 查找未删除任务By标题或ID(新父任务标题, 新父任务ID, "新父任务")
+    if (!新父任务查找.成功) return 新父任务查找
+
+    const 子任务 = 解析任务行(子任务查找.row)
+    const 新父任务 = 解析任务行(新父任务查找.row)
+    if (子任务.id === 新父任务.id) return { 成功: false, 消息: "不能将任务设置为自己的父任务" }
+    if (子任务.父任务ID === null) return { 成功: false, 消息: `任务「${子任务.标题}」是根任务，不是子任务` }
+    if (子任务.父任务ID === 新父任务.id) return { 成功: true, 消息: `任务「${子任务.标题}」已在父任务「${新父任务.标题}」之下，无需变更` }
+    if (是否后代任务(子任务.id!, 新父任务.id!)) return { 成功: false, 消息: "不能将任务移动到自己的后代任务之下" }
+
+    const 新父任务同级 = 获取规划图Db().prepare(
+      "SELECT * FROM 规划图 WHERE 是否删除 = 0 AND 父任务ID = ?"
+    ).all(新父任务.id) as 任务Row[]
+    const 依赖该任务的同级 = 新父任务同级
+      .map(解析任务行)
+      .find(task => {
+        if (!task.依赖) return false
+        try {
+          return (JSON.parse(task.依赖) as 任务依赖[]).some(dep => dep.依赖任务ID === 子任务.id)
+        } catch {
+          return false
+        }
+      })
+    if (依赖该任务的同级) return { 成功: false, 消息: `新父任务下已有同级任务《${依赖该任务的同级.标题}》依赖该任务；移动到末尾会导致同级依赖顺序颠倒，请先调整依赖或优先级` }
+
+    const 新优先级序号 = 计算实际优先级序号(新父任务.id!, 99999)
+    if (子任务.依赖) {
+      try {
+        const 依赖校验结果 = 校验同级依赖规则(子任务.标题!, 新父任务.id!, 新优先级序号, JSON.parse(子任务.依赖) as 任务依赖[])
+        if (依赖校验结果) return 依赖校验结果
+      } catch { /* skip invalid JSON */ }
+    }
+
+    const 原父任务ID = 子任务.父任务ID ?? null
+    const 所有Tag = 检测里程碑(新父任务.id!) === 任务Tag.MILESTONE
+      ? [...new Set([...(子任务.Tag ?? []), 任务Tag.MILESTONE])]
+      : 子任务.Tag ?? []
+    const taskDb = 获取规划图Db()
+    taskDb.exec("BEGIN TRANSACTION")
+    try {
+      taskDb.prepare("UPDATE 规划图 SET 父任务ID = ?, 优先级序号 = ?, Tag = ? WHERE id = ?").run(新父任务.id, 新优先级序号, JSON.stringify(所有Tag), 子任务.id)
+      压紧同级优先级(原父任务ID)
+      压紧同级优先级(新父任务.id!)
+      taskDb.exec("COMMIT")
+    } catch (e) {
+      taskDb.exec("ROLLBACK")
+      return { 成功: false, 消息: `更新父任务失败: ${e instanceof Error ? e.message : String(e)}` }
+    }
+
+    return { 成功: true, 消息: `已将子任务「${子任务.标题}」移动到父任务「${新父任务.标题}」之下` }
+  },
+
   标记为已完成(标题: string): 任务操作结果 {
     return _完成任务(标题)
   },
@@ -1183,6 +1275,7 @@ const CLI_COMMANDS = {
   "update-title": "改标题 --标题 <旧标题> --新标题 <新标题> --WRITE_KEY <Key>",
   "update-dependency": "改依赖 --标题 <标题> --新依赖 <JSON> --WRITE_KEY <Key>",
   "update-priority": "改优先级 --标题 <标题> --新优先级 <序号> --WRITE_KEY <Key>",
+  "update-parent": "改父任务 (--标题 <子任务标题>|--id <子任务ID>) (--新父任务 <标题>|--新父任务ID <ID>) --WRITE_KEY <Key>",
   "mark-complete": "标记为已完成 --标题 <标题> --WRITE_KEY <Key>",
   "add-activity": "添加动态 --标题 <标题> --角色 <角色> --消息 <消息>",
   "query-dependency-chain": "查询依赖链 --标题 <标题> [--最大层数 <n>]",
@@ -1216,6 +1309,16 @@ function 计算写入Key哈希(key: string): bigint {
 
 function 校验写入Key(key: string | undefined): boolean {
   return key !== undefined && 计算写入Key哈希(key) === WRITE_KEY_HASH
+}
+
+async function 确认强制里程碑Tag(任务标题: string): Promise<boolean> {
+  const readline = await import("readline")
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+  const answer = await new Promise<string>(resolve => {
+    rl.question(`正在将一个任务设置在根任务之后，此类任务将被强制打上里程碑Tag，请三思。确保你所设置的任务《${任务标题}》的确属于项目里程碑，否则系统建议将之设置在更次等的层级。选择y确认，n反悔。y/n`, resolve)
+  })
+  rl.close()
+  return answer.toLowerCase() === "y"
 }
 
 function printHelp() {
@@ -1301,6 +1404,13 @@ async function runCli() {
       process.exit(1)
     }
     try {
+      if (flags.父任务) {
+        const parent = 获取规划图Db().prepare("SELECT id FROM 规划图 WHERE 标题 = ? AND 是否删除 = 0").get(flags.父任务) as { id: number } | undefined
+        if (parent && 是否根任务(parent.id) && !await 确认强制里程碑Tag(flags.标题)) {
+          outputResult({ 成功: false, 消息: "已取消操作" })
+          process.exit(0)
+        }
+      }
       const result = 规划图.添加任务(
         flags.父任务 ?? null,
         flags.描述,
@@ -1483,6 +1593,31 @@ async function runCli() {
       process.exit(1)
     }
     const result = 规划图.改优先级(flags.标题, parseInt(flags.新优先级))
+    outputResult(result)
+    process.exit(result.成功 ? 0 : 1)
+  }
+
+  if (command === "update-parent") {
+    if ((!flags.标题 && !flags.id) || (!flags.新父任务 && !flags.新父任务ID)) {
+      outputResult({ 成功: false, 消息: "缺少必需参数: (--标题 或 --id), (--新父任务 或 --新父任务ID)" })
+      process.exit(1)
+    }
+    if (!校验写入Key(flags.WRITE_KEY)) {
+      outputResult({ 成功: false, 消息: "写入Key错误" })
+      process.exit(1)
+    }
+    const 子任务查找 = 查找未删除任务By标题或ID(flags.标题, flags.id, "子任务")
+    const 新父任务查找 = 查找未删除任务By标题或ID(flags.新父任务, flags.新父任务ID, "新父任务")
+    if (子任务查找.成功 && 新父任务查找.成功 && 是否根任务(新父任务查找.row.id!) && !await 确认强制里程碑Tag(解析任务行(子任务查找.row).标题!)) {
+      outputResult({ 成功: false, 消息: "已取消操作" })
+      process.exit(0)
+    }
+    const result = 规划图.改父任务(
+      flags.标题,
+      flags.新父任务,
+      flags.id ? parseInt(flags.id) : undefined,
+      flags.新父任务ID ? parseInt(flags.新父任务ID) : undefined,
+    )
     outputResult(result)
     process.exit(result.成功 ? 0 : 1)
   }

@@ -92,6 +92,9 @@ node 规划图CLI.js update-dependency --标题 <标题> --新依赖 '[{"依赖�
 # 变更优先级（同级任务会因插入而重排序）
 node 规划图CLI.js update-priority --标题 <标题> --新优先级 <序号> --WRITE_KEY <Key>
 
+# 变更任务的父任务
+node 规划图CLI.js update-parent --标题 <子任务标题> --新父任务 <新父任务标题> --WRITE_KEY <Key>
+
 
 #  动态
 
