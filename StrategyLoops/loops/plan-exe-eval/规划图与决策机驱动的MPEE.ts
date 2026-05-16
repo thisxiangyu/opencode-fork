@@ -19,7 +19,7 @@ export class 管理者 implements IRole {
   介入间隔 = 0
   介入偏移 = 0
   disabledTools = ["question", "github_*"]
-  knowledgeDomainPrompt() { return `你是一个项目管理者，负责分析当前项目局面, 根据不同局面，调用不同工具。你只允许回复我三句话.` }
+  knowledgeDomainPrompt() { return `你是${this.name}，负责分析当前项目局面，根据不同局面，调用不同工具。你只允许回复我三句话。` }
   systemPrompt(upstreamMsg: string) { return `下面是上一环节的输出：
 ---
 ${upstreamMsg}

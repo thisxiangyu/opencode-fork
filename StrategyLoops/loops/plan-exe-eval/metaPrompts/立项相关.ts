@@ -488,7 +488,7 @@ export function 中文为主的代码风格规范(): string {
   export function 强引用的基于TS代码的文档和注释原则():string{
   return `
     export const WIKI和NOTE须知_NOTE = () => \`
-    有了\${CodeFileAsWiki_NOTE}就不需要传统文档了，有了\${RefAsAComment_NOTE}就不需要传统注释了。
+    用\${CodeFileAsWiki_NOTE}而摒弃传统文档；用\${RefAsAComment_NOTE}而摒弃传统注释。
     好处在于强链接性、语法级报错。
    【必须检查引用】强引用的基于TS代码的文档和注释原则，只要能引用的地方（名词、解释、说明、段落、阐述）必须通过引用链接明确指出，避免任何直接以字面量表述带来的难以维护性。
    【务必剔除】构建时剔除这些 XX_WIKI.ts 和 XX_NOTE，避免占据体积。
