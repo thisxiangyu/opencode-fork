@@ -850,6 +850,7 @@ export const dict = {
   "settings.data.row.configFile.globalConfig": "全局配置",
   "settings.data.row.configFile.noConfig": "无配置",
   "settings.data.row.configFile.copy": "复制路径",
+"settings.data.row.configFile.addConfig": "添加配置",
   "common.open": "打开",
   "dialog.releaseNotes.action.getStarted": "开始",
   "dialog.releaseNotes.action.next": "下一步",

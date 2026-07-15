@@ -981,4 +981,5 @@ export const dict = {
   "settings.data.row.configFile.globalConfig": "Global",
   "settings.data.row.configFile.noConfig": "No config",
   "settings.data.row.configFile.copy": "Copy path",
+"settings.data.row.configFile.addConfig": "Add config",
 }

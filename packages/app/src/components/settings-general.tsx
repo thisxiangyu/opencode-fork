@@ -102,17 +102,23 @@ export const SettingsGeneral: Component = () => {
   const [worktreeCopied, setWorktreeCopied] = createSignal(false)
   const [snapshotCopied, setSnapshotCopied] = createSignal(false)
 
+  const getHeaders = () => {
+    const conn = server.current
+    if (!conn) return undefined
+    const url = conn.http.url
+    if (!url) return undefined
+    const headers: Record<string, string> = {}
+    if (conn.http.username && conn.http.password) {
+      headers["Authorization"] = `Basic ${btoa(`${conn.http.username}:${conn.http.password}`)}`
+    }
+    return { url, headers }
+  }
+
   const loadConfigFiles = async () => {
     try {
-      const conn = server.current
-      if (!conn) return
-      const url = conn.http.url
-      if (!url) return
-      const headers: Record<string, string> = {}
-      if (conn.http.username && conn.http.password) {
-        headers["Authorization"] = `Basic ${btoa(`${conn.http.username}:${conn.http.password}`)}`
-      }
-      const res = await fetch(`${url}/global/config`, { headers })
+      const ctx = getHeaders()
+      if (!ctx) return
+      const res = await fetch(`${ctx.url}/global/config`, { headers: ctx.headers })
       if (!res.ok) return
       const configContent = (await res.json()) as Record<string, unknown>
       setStore("globalConfig", configContent)
@@ -120,11 +126,23 @@ export const SettingsGeneral: Component = () => {
         setStore("globalConfigPath", "")
         return
       }
-      const resPath = await fetch(`${url}/global/config/path`, { headers })
+      const resPath = await fetch(`${ctx.url}/global/config/path`, { headers: ctx.headers })
       if (resPath.ok) {
         const pathData = await resPath.json()
         setStore("globalConfigPath", pathData.path ?? "")
       }
+    } catch {}
+  }
+
+  const initGlobalConfig = async () => {
+    try {
+      const ctx = getHeaders()
+      if (!ctx) return
+      const res = await fetch(`${ctx.url}/global/config/init`, { method: "POST", headers: ctx.headers })
+      if (!res.ok) return
+      const data = (await res.json()) as { path: string }
+      setStore("globalConfigPath", data.path)
+      setStore("globalConfig", { $schema: "https://opencode.ai/config.json" })
     } catch {}
   }
 
@@ -953,6 +971,11 @@ export const SettingsGeneral: Component = () => {
                   <span class="text-12-regular text-text-weak">
                     {language.t("settings.data.row.configFile.noConfig")}
                   </span>
+                </div>
+                <div>
+                  <Button onClick={initGlobalConfig} size="small">
+                    {language.t("settings.data.row.configFile.addConfig")}
+                  </Button>
                 </div>
               </div>
             </SettingsList>

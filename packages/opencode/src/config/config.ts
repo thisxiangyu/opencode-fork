@@ -302,6 +302,7 @@ export interface Interface {
   readonly getConsoleState: () => Effect.Effect<ConsoleState>
   readonly update: (config: Info) => Effect.Effect<void>
   readonly updateGlobal: (config: Info) => Effect.Effect<{ info: Info; changed: boolean }>
+  readonly initGlobalConfig: () => Effect.Effect<string>
   readonly invalidate: () => Effect.Effect<void>
   readonly directories: () => Effect.Effect<string[]>
   readonly waitForDependencies: () => Effect.Effect<void>
@@ -771,12 +772,27 @@ export const layer = Layer.effect(
       return { info: next, changed }
     })
 
+    const initGlobalConfig = Effect.fn("Config.initGlobalConfig")(function* () {
+      const configDir = Global.Path.config
+      yield* fs.ensureDir(configDir).pipe(Effect.orDie)
+
+      const existing = globalConfigFile()
+      const exists_ = yield* fs.existsSafe(existing)
+      if (exists_) return existing
+
+      const defaultContent = { $schema: "https://opencode.ai/config.json" }
+      yield* fs.writeJson(existing, defaultContent).pipe(Effect.orDie)
+      log.info("created default global config", { path: existing })
+      return existing
+    })
+
     return Service.of({
       get,
       getGlobal,
       getConsoleState,
       update,
       updateGlobal,
+      initGlobalConfig,
       invalidate,
       directories,
       waitForDependencies,

@@ -405,6 +405,32 @@ export const GlobalRoutes = lazy(() =>
         })
       },
     )
+    .post(
+      "/config/init",
+      describeRoute({
+        summary: "Initialize global config",
+        description: "Creates a default global config file if none exists.",
+        operationId: "global.config.init",
+        responses: {
+          200: {
+            description: "Global config initialized",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    path: z.string().describe("Absolute path to the global config file"),
+                  }),
+                ),
+              },
+            },
+          },
+        },
+      }),
+      async (c) => {
+        const path = await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.initGlobalConfig()))
+        return c.json({ path })
+      },
+    )
     .get(
       "/config/path",
       describeRoute({
