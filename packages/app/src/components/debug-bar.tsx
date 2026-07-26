@@ -3,8 +3,10 @@ import { batch, createEffect, onCleanup, onMount, Show, createSignal } from "sol
 import { createStore } from "solid-js/store"
 import { makeEventListener } from "@solid-primitives/event-listener"
 import { Tooltip } from "@opencode-ai/ui/tooltip"
+import { TooltipV2 } from "@opencode-ai/ui/v2/tooltip-v2"
 import { useLanguage } from "@/context/language"
 import { Icon } from "@opencode-ai/ui/icon"
+import { usePlatform } from "@/context/platform"
 
 type Mem = Performance & {
   memory?: {
@@ -52,32 +54,100 @@ const bad = (n: number | undefined, limit: number, low = false) => {
 
 const session = (path: string) => path.includes("/session")
 
-function Cell(props: { bad?: boolean; dim?: boolean; label: string; tip: string; value: string; wide?: boolean }) {
-  return (
-    <Tooltip value={props.tip} placement="top">
+function Cell(props: {
+  bad?: boolean
+  dim?: boolean
+  inline?: boolean
+  label: string
+  tip: string
+  value: string
+  wide?: boolean
+}) {
+  const content = () => (
+    <div
+      classList={{
+        "flex min-w-0 items-center": true,
+        "min-h-[20px] w-fit flex-row justify-start gap-1.5 px-1.5 py-0.5 text-left": !!props.inline,
+        "justify-center text-center": !props.inline,
+        "min-h-[42px] w-full flex-col rounded-[8px] px-0.5 py-1": !props.inline,
+        "col-span-2": !!props.wide && !props.inline,
+      }}
+    >
       <div
         classList={{
-          "flex min-h-[42px] w-full min-w-0 flex-col items-center justify-center rounded-[8px] px-0.5 py-1 text-center": true,
-          "col-span-2": !!props.wide,
+          "text-[10px] leading-none font-black uppercase tracking-[0.04em] opacity-70": true,
         }}
       >
-        <div class="text-[10px] leading-none font-black uppercase tracking-[0.04em] opacity-70">{props.label}</div>
-        <div
-          classList={{
-            "text-[13px] leading-none font-bold tabular-nums sm:text-[14px]": true,
-            "text-text-on-critical-base": !!props.bad,
-            "opacity-70": !!props.dim,
-          }}
-        >
-          {props.value}
-        </div>
+        {props.label}
       </div>
+      <div
+        classList={{
+          "uppercase leading-none font-bold tabular-nums": true,
+          "text-[11px]": !!props.inline,
+          "text-[13px] sm:text-[14px]": !props.inline,
+          "text-text-on-critical-base": !!props.bad,
+          "opacity-70": !!props.dim,
+        }}
+      >
+        {props.value}
+      </div>
+    </div>
+  )
+
+  if (props.inline) {
+    return (
+      <TooltipV2 value={props.tip} placement="top">
+        {content()}
+      </TooltipV2>
+    )
+  }
+
+  return (
+    <Tooltip value={props.tip} placement="top">
+      {content()}
     </Tooltip>
   )
 }
 
-export function DebugBar() {
+function FocusCell(props: { active: boolean; inline?: boolean; onClick: () => void }) {
+  const content = () => (
+    <button
+      type="button"
+      aria-label="Force focus styles on all interactive elements"
+      aria-pressed={props.active}
+      classList={{
+        "flex min-w-0 items-center font-mono uppercase hover:bg-surface-raised-base focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-border-focus": true,
+        "min-h-[20px] w-fit flex-row justify-start gap-1.5 rounded px-1.5 py-0.5 text-left": !!props.inline,
+        "min-h-[42px] w-full flex-col justify-center rounded-[8px] px-0.5 py-1 text-center": !props.inline,
+        "bg-surface-raised-base text-text-strong": props.active,
+      }}
+      onClick={props.onClick}
+    >
+      <span class="text-[10px] leading-none font-black tracking-[0.04em] opacity-70">FOCUS</span>
+      <span classList={{ "leading-none font-bold": true, "text-[11px]": !!props.inline, "text-[13px]": !props.inline }}>
+        {props.active ? "ON" : "OFF"}
+      </span>
+    </button>
+  )
+
+  if (props.inline) {
+    return (
+      <TooltipV2 value="Force focus styles on all interactive elements" placement="top">
+        {content()}
+      </TooltipV2>
+    )
+  }
+
+  return (
+    <Tooltip value="Force focus styles on all interactive elements" placement="top">
+      {content()}
+    </Tooltip>
+  )
+}
+
+export function DebugBar(props: { inline?: boolean } = {}) {
   const language = useLanguage()
+  const platform = usePlatform()
   const location = useLocation()
   const routing = useIsRouting()
   const [state, setState] = createStore({
@@ -85,6 +155,7 @@ export function DebugBar() {
     delay: undefined as number | undefined,
     fps: undefined as number | undefined,
     gap: undefined as number | undefined,
+    focus: false,
     heap: {
       limit: undefined as number | undefined,
       used: undefined as number | undefined,
@@ -102,7 +173,7 @@ export function DebugBar() {
     },
   })
 
-  const na = () => language.t("debugBar.na")
+  const na = () => language.t("debugBar.na").toUpperCase()
   const heap = () => (state.heap.limit ? (state.heap.used ?? 0) / state.heap.limit : undefined)
   const heapv = () => {
     const value = heap()
@@ -111,6 +182,16 @@ export function DebugBar() {
   }
   const longv = () => (state.long.count === undefined ? na() : `${time(state.long.block) ?? na()}/${state.long.count}`)
   const navv = () => (state.nav.pending ? "..." : (time(state.nav.dur) ?? na()))
+  const toggleFocus = async () => {
+    if (!platform.setForceFocus) return
+    const enabled = !state.focus
+    await platform.setForceFocus(enabled)
+    setState("focus", enabled)
+  }
+
+  onCleanup(() => {
+    if (state.focus) void platform.setForceFocus?.(false).catch(() => undefined)
+  })
 
   const [visible, setVisible] = createSignal(true)
   const toggle = () => setVisible((v) => !v)
@@ -364,88 +445,120 @@ export function DebugBar() {
     })
   })
 
+  const panel = (
+    <aside
+      aria-label={language.t("debugBar.ariaLabel")}
+      classList={{
+        "pointer-events-auto hidden overflow-hidden text-text-strong md:block": true,
+        "mt-[-6px] w-full shrink-0 px-3 py-1": !!props.inline,
+        // 非 inline 模式下定位由外层容器负责（配合定制的显示/隐藏切换按钮），此处仅保留面板样式
+        "w-[308px] max-w-[calc(100vw-1.5rem)] rounded-xl border border-border-base bg-surface-raised-stronger-non-alpha p-0.5 shadow-[var(--shadow-lg-border-base)] sm:w-[324px]":
+          !props.inline,
+      }}
+    >
+      <div
+        classList={{
+          "font-mono": true,
+          "gap-[9px]": !!props.inline,
+          "gap-px": !props.inline,
+          "flex w-full flex-nowrap items-center justify-start": !!props.inline,
+          "grid-cols-5": !props.inline,
+          grid: !props.inline,
+        }}
+      >
+        <Cell
+          label={language.t("debugBar.nav.label")}
+          tip={language.t("debugBar.nav.tip")}
+          value={navv()}
+          bad={bad(state.nav.dur, 400)}
+          dim={state.nav.dur === undefined && !state.nav.pending}
+          inline={props.inline}
+        />
+        <Cell
+          label={language.t("debugBar.fps.label")}
+          tip={language.t("debugBar.fps.tip")}
+          value={state.fps === undefined ? na() : `${Math.round(state.fps)}`}
+          bad={bad(state.fps, 50, true)}
+          dim={state.fps === undefined}
+          inline={props.inline}
+        />
+        <Cell
+          label={language.t("debugBar.frame.label")}
+          tip={language.t("debugBar.frame.tip")}
+          value={time(state.gap) ?? na()}
+          bad={bad(state.gap, 50)}
+          dim={state.gap === undefined}
+          inline={props.inline}
+        />
+        <Cell
+          label={language.t("debugBar.jank.label")}
+          tip={language.t("debugBar.jank.tip")}
+          value={state.jank === undefined ? na() : `${state.jank}`}
+          bad={bad(state.jank, 8)}
+          dim={state.jank === undefined}
+          inline={props.inline}
+        />
+        <Cell
+          label={language.t("debugBar.long.label")}
+          tip={language.t("debugBar.long.tip", { max: ms(state.long.max) ?? na() })}
+          value={longv()}
+          bad={bad(state.long.block, 200)}
+          dim={state.long.count === undefined}
+          inline={props.inline}
+        />
+        <Cell
+          label={language.t("debugBar.delay.label")}
+          tip={language.t("debugBar.delay.tip")}
+          value={time(state.delay) ?? na()}
+          bad={bad(state.delay, 100)}
+          dim={state.delay === undefined}
+          inline={props.inline}
+        />
+        <Cell
+          label={language.t("debugBar.inp.label")}
+          tip={language.t("debugBar.inp.tip")}
+          value={time(state.inp) ?? na()}
+          bad={bad(state.inp, 200)}
+          dim={state.inp === undefined}
+          inline={props.inline}
+        />
+        <Cell
+          label={language.t("debugBar.cls.label")}
+          tip={language.t("debugBar.cls.tip")}
+          value={state.cls === undefined ? na() : state.cls.toFixed(2)}
+          bad={bad(state.cls, 0.1)}
+          dim={state.cls === undefined}
+          inline={props.inline}
+        />
+        <Cell
+          label={language.t("debugBar.mem.label")}
+          tip={
+            state.heap.used === undefined
+              ? language.t("debugBar.mem.tipUnavailable")
+              : language.t("debugBar.mem.tip", {
+                  used: mb(state.heap.used) ?? na(),
+                  limit: mb(state.heap.limit) ?? na(),
+                })
+          }
+          value={heapv()}
+          bad={bad(heap(), 0.8)}
+          dim={state.heap.used === undefined}
+          inline={props.inline}
+          wide={!platform.setForceFocus}
+        />
+        {platform.setForceFocus && (
+          <FocusCell active={state.focus} inline={props.inline} onClick={() => void toggleFocus()} />
+        )}
+      </div>
+    </aside>
+  )
+
+  // inline 模式嵌入页面布局，不适用浮动面板的显示/隐藏切换
+  if (props.inline) return panel
+
   return (
     <div class="fixed bottom-3 right-3 z-50 flex flex-col items-end gap-1 sm:bottom-4 sm:right-4">
-      <Show when={visible()}>
-        <aside
-          aria-label={language.t("debugBar.ariaLabel")}
-          class="pointer-events-auto w-[308px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-border-base bg-surface-raised-stronger-non-alpha p-0.5 text-text-strong shadow-[var(--shadow-lg-border-base)] sm:w-[324px]"
-        >
-          <div class="grid grid-cols-5 gap-px font-mono">
-            <Cell
-              label={language.t("debugBar.nav.label")}
-              tip={language.t("debugBar.nav.tip")}
-              value={navv()}
-              bad={bad(state.nav.dur, 400)}
-              dim={state.nav.dur === undefined && !state.nav.pending}
-            />
-            <Cell
-              label={language.t("debugBar.fps.label")}
-              tip={language.t("debugBar.fps.tip")}
-              value={state.fps === undefined ? na() : `${Math.round(state.fps)}`}
-              bad={bad(state.fps, 50, true)}
-              dim={state.fps === undefined}
-            />
-            <Cell
-              label={language.t("debugBar.frame.label")}
-              tip={language.t("debugBar.frame.tip")}
-              value={time(state.gap) ?? na()}
-              bad={bad(state.gap, 50)}
-              dim={state.gap === undefined}
-            />
-            <Cell
-              label={language.t("debugBar.jank.label")}
-              tip={language.t("debugBar.jank.tip")}
-              value={state.jank === undefined ? na() : `${state.jank}`}
-              bad={bad(state.jank, 8)}
-              dim={state.jank === undefined}
-            />
-            <Cell
-              label={language.t("debugBar.long.label")}
-              tip={language.t("debugBar.long.tip", { max: ms(state.long.max) ?? na() })}
-              value={longv()}
-              bad={bad(state.long.block, 200)}
-              dim={state.long.count === undefined}
-            />
-            <Cell
-              label={language.t("debugBar.delay.label")}
-              tip={language.t("debugBar.delay.tip")}
-              value={time(state.delay) ?? na()}
-              bad={bad(state.delay, 100)}
-              dim={state.delay === undefined}
-            />
-            <Cell
-              label={language.t("debugBar.inp.label")}
-              tip={language.t("debugBar.inp.tip")}
-              value={time(state.inp) ?? na()}
-              bad={bad(state.inp, 200)}
-              dim={state.inp === undefined}
-            />
-            <Cell
-              label={language.t("debugBar.cls.label")}
-              tip={language.t("debugBar.cls.tip")}
-              value={state.cls === undefined ? na() : state.cls.toFixed(2)}
-              bad={bad(state.cls, 0.1)}
-              dim={state.cls === undefined}
-            />
-            <Cell
-              label={language.t("debugBar.mem.label")}
-              tip={
-                state.heap.used === undefined
-                  ? language.t("debugBar.mem.tipUnavailable")
-                  : language.t("debugBar.mem.tip", {
-                      used: mb(state.heap.used) ?? na(),
-                      limit: mb(state.heap.limit) ?? na(),
-                    })
-              }
-              value={heapv()}
-              bad={bad(heap(), 0.8)}
-              dim={state.heap.used === undefined}
-              wide
-            />
-          </div>
-        </aside>
-      </Show>
+      <Show when={visible()}>{panel}</Show>
       <Tooltip value={visible() ? language.t("debugBar.hide") : language.t("debugBar.show")} placement="left">
         <button
           onClick={toggle}

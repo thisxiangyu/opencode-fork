@@ -1,9 +1,11 @@
-import { Config } from "@/config/config"
-import { BusEvent } from "@/bus/bus-event"
-import { SyncEvent } from "@/sync"
+import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
+import { EventV2 } from "@opencode-ai/core/event"
+import { EventManifest } from "@/event-manifest"
+import { InstanceDisposed } from "@/server/event"
+import "@opencode-ai/core/account"
 import "@/server/event"
 import { Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
+import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { described } from "./metadata"
 
 const GlobalHealth = Schema.Struct({
@@ -11,11 +13,38 @@ const GlobalHealth = Schema.Struct({
   version: Schema.String,
 })
 
+const SyncEventSchemas = EventManifest.Latest.values()
+  .flatMap((definition) => {
+    if (!definition.durable) return []
+    return [
+      Schema.Struct({
+        type: Schema.Literal("sync"),
+        id: EventV2.ID,
+        syncEvent: Schema.Struct({
+          type: Schema.Literal(EventV2.versionedType(definition.type, definition.durable.version)),
+          id: EventV2.ID,
+          seq: Schema.Finite,
+          aggregateID: Schema.String,
+          data: definition.data,
+        }),
+      }).annotate({ identifier: `SyncEvent.${definition.type}` }),
+    ]
+  })
+  .toArray()
+
 const GlobalEventSchema = Schema.Struct({
   directory: Schema.String,
   project: Schema.optional(Schema.String),
   workspace: Schema.optional(Schema.String),
-  payload: Schema.Union([...BusEvent.effectPayloads(), ...SyncEvent.effectPayloads()]),
+  payload: Schema.Union([
+    ...EventManifest.Latest.values()
+      .map((definition) =>
+        Schema.Struct({ id: EventV2.ID, type: Schema.Literal(definition.type), properties: definition.data }),
+      )
+      .toArray(),
+    InstanceDisposed,
+    ...SyncEventSchemas,
+  ]),
 }).annotate({ identifier: "GlobalEvent" })
 
 export const GlobalUpgradeInput = Schema.Struct({
@@ -37,9 +66,22 @@ export const GlobalPaths = {
   health: "/global/health",
   event: "/global/event",
   config: "/global/config",
+  configInit: "/global/config/init",
+  configPath: "/global/config/path",
+  storageDatabase: "/global/storage/database",
+  storageLog: "/global/storage/log",
+  storageWorktree: "/global/storage/worktree",
+  storageSnapshot: "/global/storage/snapshot",
   dispose: "/global/dispose",
   upgrade: "/global/upgrade",
 } as const
+
+// 定制：可配置存储路径查询端点的响应结构（数据库/日志/worktree/snapshot）
+const GlobalStorageInfo = Schema.Struct({
+  path: Schema.String,
+  channel: Schema.optional(Schema.String),
+  configFiles: Schema.optional(Schema.Array(Schema.String)),
+})
 
 export const GlobalApi = HttpApi.make("global").add(
   HttpApiGroup.make("global")
@@ -63,7 +105,7 @@ export const GlobalApi = HttpApi.make("global").add(
         }),
       ),
       HttpApiEndpoint.get("configGet", GlobalPaths.config, {
-        success: described(Config.Info, "Get global config info"),
+        success: described(ConfigV1.Info, "Get global config info"),
       }).annotateMerge(
         OpenApi.annotations({
           identifier: "global.config.get",
@@ -72,14 +114,68 @@ export const GlobalApi = HttpApi.make("global").add(
         }),
       ),
       HttpApiEndpoint.patch("configUpdate", GlobalPaths.config, {
-        payload: Config.Info,
-        success: described(Config.Info, "Successfully updated global config"),
+        payload: ConfigV1.Info,
+        success: described(ConfigV1.Info, "Successfully updated global config"),
         error: HttpApiError.BadRequest,
       }).annotateMerge(
         OpenApi.annotations({
           identifier: "global.config.update",
           summary: "Update global configuration",
           description: "Update global OpenCode configuration settings and preferences.",
+        }),
+      ),
+      HttpApiEndpoint.post("configInit", GlobalPaths.configInit, {
+        success: described(Schema.Struct({ path: Schema.String }), "Global config initialized"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.config.init",
+          summary: "Initialize global config",
+          description: "Creates a default global config file if none exists.",
+        }),
+      ),
+      HttpApiEndpoint.get("configPath", GlobalPaths.configPath, {
+        success: described(Schema.Struct({ path: Schema.String }), "Global config path information"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.config.path",
+          summary: "Get global config path",
+          description: "Returns the resolved global config file path.",
+        }),
+      ),
+      HttpApiEndpoint.get("storageDatabase", GlobalPaths.storageDatabase, {
+        success: described(GlobalStorageInfo, "Database path information"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.storage.database",
+          summary: "Get current database path",
+          description: "Returns the resolved database file path currently in use by OpenCode.",
+        }),
+      ),
+      HttpApiEndpoint.get("storageLog", GlobalPaths.storageLog, {
+        success: described(GlobalStorageInfo, "Log directory path information"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.storage.log",
+          summary: "Get current log directory path",
+          description: "Returns the resolved log directory path currently in use by OpenCode.",
+        }),
+      ),
+      HttpApiEndpoint.get("storageWorktree", GlobalPaths.storageWorktree, {
+        success: described(GlobalStorageInfo, "Worktree directory path information"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.storage.worktree",
+          summary: "Get current worktree directory path",
+          description: "Returns the resolved worktree directory path currently in use by OpenCode.",
+        }),
+      ),
+      HttpApiEndpoint.get("storageSnapshot", GlobalPaths.storageSnapshot, {
+        success: described(GlobalStorageInfo, "Snapshot directory path information"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "global.storage.snapshot",
+          summary: "Get current snapshot directory path",
+          description: "Returns the resolved snapshot directory path currently in use by OpenCode.",
         }),
       ),
       HttpApiEndpoint.post("dispose", GlobalPaths.dispose, {
@@ -92,7 +188,7 @@ export const GlobalApi = HttpApi.make("global").add(
         }),
       ),
       HttpApiEndpoint.post("upgrade", GlobalPaths.upgrade, {
-        payload: GlobalUpgradeInput,
+        payload: [HttpApiSchema.NoContent, GlobalUpgradeInput],
         success: described(GlobalUpgradeResult, "Upgrade result"),
         error: HttpApiError.BadRequest,
       }).annotateMerge(

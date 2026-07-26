@@ -1,11 +1,15 @@
 import { Config } from "@/config/config"
 import { GlobalBus, type GlobalEvent as GlobalBusEvent } from "@/bus/global"
 import { EffectBridge } from "@/effect/bridge"
-import { Bus } from "@/bus"
+import { EventV2 } from "@opencode-ai/core/event"
 import { Installation } from "@/installation"
 import { disposeAllInstancesAndEmitGlobalDisposed } from "@/server/global-lifecycle"
-import { InstallationVersion } from "@opencode-ai/core/installation/version"
-import * as Log from "@opencode-ai/core/util/log"
+import { InstallationChannel, InstallationVersion } from "@opencode-ai/core/installation/version"
+import { Database } from "@opencode-ai/core/database/database"
+import { resolveLogDir } from "@opencode-ai/core/util/log"
+import { StorageConfig } from "@/storage/storage-config"
+import { Worktree } from "@/worktree"
+import { Snapshot } from "@/snapshot"
 import { Effect, Queue, Schema } from "effect"
 import * as Stream from "effect/Stream"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
@@ -13,8 +17,6 @@ import { HttpApiBuilder } from "effect/unstable/httpapi"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { RootHttpApi } from "../api"
 import { GlobalUpgradeInput } from "../groups/global"
-
-const log = Log.create({ service: "server" })
 
 function eventData(data: unknown): Sse.Event {
   return {
@@ -34,36 +36,38 @@ function parseBody(body: string) {
 }
 
 function eventResponse() {
-  log.info("global event connected")
-  const events = Stream.callback<GlobalBusEvent>((queue) => {
-    const handler = (event: GlobalBusEvent) => Queue.offerUnsafe(queue, event)
-    return Effect.acquireRelease(
-      Effect.sync(() => GlobalBus.on("event", handler)),
-      () => Effect.sync(() => GlobalBus.off("event", handler)),
+  return Effect.gen(function* () {
+    yield* Effect.logInfo("global event connected")
+    const events = Stream.callback<GlobalBusEvent>((queue) => {
+      const handler = (event: GlobalBusEvent) => Queue.offerUnsafe(queue, event)
+      return Effect.acquireRelease(
+        Effect.sync(() => GlobalBus.on("event", handler)),
+        () => Effect.sync(() => GlobalBus.off("event", handler)),
+      )
+    })
+    const heartbeat = Stream.tick("10 seconds").pipe(
+      Stream.drop(1),
+      Stream.map(() => ({ payload: { id: EventV2.ID.create(), type: "server.heartbeat", properties: {} } })),
+    )
+
+    return HttpServerResponse.stream(
+      Stream.make({ payload: { id: EventV2.ID.create(), type: "server.connected", properties: {} } }).pipe(
+        Stream.concat(events.pipe(Stream.merge(heartbeat, { haltStrategy: "left" }))),
+        Stream.map(eventData),
+        Stream.pipeThroughChannel(Sse.encode()),
+        Stream.encodeText,
+        Stream.ensuring(Effect.logInfo("global event disconnected")),
+      ),
+      {
+        contentType: "text/event-stream",
+        headers: {
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no",
+          "X-Content-Type-Options": "nosniff",
+        },
+      },
     )
   })
-  const heartbeat = Stream.tick("10 seconds").pipe(
-    Stream.drop(1),
-    Stream.map(() => ({ payload: { id: Bus.createID(), type: "server.heartbeat", properties: {} } })),
-  )
-
-  return HttpServerResponse.stream(
-    Stream.make({ payload: { id: Bus.createID(), type: "server.connected", properties: {} } }).pipe(
-      Stream.concat(events.pipe(Stream.merge(heartbeat, { haltStrategy: "left" }))),
-      Stream.map(eventData),
-      Stream.pipeThroughChannel(Sse.encode()),
-      Stream.encodeText,
-      Stream.ensuring(Effect.sync(() => log.info("global event disconnected"))),
-    ),
-    {
-      contentType: "text/event-stream",
-      headers: {
-        "Cache-Control": "no-cache, no-transform",
-        "X-Accel-Buffering": "no",
-        "X-Content-Type-Options": "nosniff",
-      },
-    },
-  )
 }
 
 export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handlers) =>
@@ -77,7 +81,7 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
     })
 
     const event = Effect.fn("GlobalHttpApi.event")(function* () {
-      return eventResponse()
+      return yield* eventResponse()
     })
 
     const configGet = Effect.fn("GlobalHttpApi.configGet")(function* () {
@@ -88,6 +92,34 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       const result = yield* config.updateGlobal(ctx.payload)
       if (result.changed) bridge.fork(disposeAllInstancesAndEmitGlobalDisposed({ swallowErrors: true }))
       return result.info
+    })
+
+    // 定制：全局配置不存在时提供创建入口（对应设置界面的"创建全局配置"按钮）
+    const configInit = Effect.fn("GlobalHttpApi.configInit")(function* () {
+      const path = yield* config.initGlobalConfig()
+      return { path }
+    })
+
+    const configPath = Effect.fn("GlobalHttpApi.configPath")(function* () {
+      const files = StorageConfig.configFiles()
+      return { path: files.length > 0 ? files[0] : "" }
+    })
+
+    // 定制：可配置存储路径查询端点（数据库/日志/worktree/snapshot）
+    const storageDatabase = Effect.fn("GlobalHttpApi.storageDatabase")(function* () {
+      return { path: Database.path(), channel: InstallationChannel, configFiles: StorageConfig.configFiles() }
+    })
+
+    const storageLog = Effect.fn("GlobalHttpApi.storageLog")(function* () {
+      return { path: resolveLogDir(), configFiles: StorageConfig.configFiles() }
+    })
+
+    const storageWorktree = Effect.fn("GlobalHttpApi.storageWorktree")(function* () {
+      return { path: Worktree.resolveDir(), configFiles: StorageConfig.configFiles() }
+    })
+
+    const storageSnapshot = Effect.fn("GlobalHttpApi.storageSnapshot")(function* () {
+      return { path: Snapshot.resolveDir(), configFiles: StorageConfig.configFiles() }
     })
 
     const dispose = Effect.fn("GlobalHttpApi.dispose")(function* () {
@@ -151,6 +183,12 @@ export const globalHandlers = HttpApiBuilder.group(RootHttpApi, "global", (handl
       .handleRaw("event", event)
       .handle("configGet", configGet)
       .handle("configUpdate", configUpdate)
+      .handle("configInit", configInit)
+      .handle("configPath", configPath)
+      .handle("storageDatabase", storageDatabase)
+      .handle("storageLog", storageLog)
+      .handle("storageWorktree", storageWorktree)
+      .handle("storageSnapshot", storageSnapshot)
       .handle("dispose", dispose)
       .handleRaw("upgrade", upgradeRaw)
   }),
